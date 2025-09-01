@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Spins Logger</title>
+    <link rel="stylesheet" href="popup.css" />
+    <meta
+      name="viewport"
+      content="width=device-width,initial-scale=1"
+    />
+  </head>
+  <body>
+    <header>
+      <label
+        ><input type="checkbox" id="toggleTrack" /> Tracking</label
+      >
+      <span id="status" class="off">OFF</span>
+      <div id="statusMsg" class="muted"></div>
+    </header>
+
+    <section>
+      <h3>Domains</h3>
+      <div class="row">
+        <input id="inpPattern" placeholder="https://example.com/*" />
+        <button id="btnAddPattern">Add</button>
+        <button id="btnAddCurrent">Add current tab</button>
+      </div>
+      <ul id="domList"></ul>
+    </section>
+
+    <section>
+      <h3>
+        Logs <small>(<span id="count">0</span>)</small>
+      </h3>
+      <div id="list">
+        <table>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>#</th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+      <div class="row">
+        <button id="btnExport">Export CSV</button>
+        <button id="btnClear">Clear</button>
+      </div>
+    </section>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

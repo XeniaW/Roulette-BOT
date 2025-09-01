@@ -1,0 +1,85 @@
+body {
+  font: 13px/1.4 system-ui, sans-serif;
+  width: 340px;
+  padding: 10px;
+}
+header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+#status {
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+#status.off {
+  background: #eee;
+  color: #444;
+}
+#status.ok {
+  background: #e6ffe6;
+  color: #0a7;
+}
+#status.waiting {
+  background: #fff7e0;
+  color: #a60;
+}
+#status.error {
+  background: #ffe6e6;
+  color: #b00;
+}
+#statusMsg {
+  margin-top: 4px;
+  color: #666;
+}
+section {
+  margin-top: 12px;
+}
+.row {
+  display: flex;
+  gap: 6px;
+}
+#inpPattern {
+  flex: 1;
+}
+#list {
+  height: 220px;
+  overflow: auto;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+thead th {
+  position: sticky;
+  top: 0;
+  background: #fafafa;
+  border-bottom: 1px solid #ddd;
+}
+td,
+th {
+  padding: 4px 6px;
+  text-align: left;
+}
+td.num {
+  text-align: right;
+  font-weight: 600;
+}
+ul {
+  padding-left: 18px;
+}
+ul li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+}
+ul li button {
+  margin-left: 8px;
+}
+.muted {
+  color: #777;
+}

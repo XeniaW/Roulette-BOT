@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Spins Logger",
+  "version": "2.0.0",
+  "description": "Logs each new roulette cell-{n} with timestamp; reconciles missed spins; live UI; CSV export.",
+  "permissions": ["storage", "downloads", "scripting"],
+  "host_permissions": ["https://play.livetables.io/*"],
+  "optional_host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "bg.js" },
+  "action": { "default_popup": "popup.html" },
+  "content_scripts": [
+    {
+      "matches": ["https://play.livetables.io/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ]
+}
