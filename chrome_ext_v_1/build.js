@@ -1,3 +1,4 @@
+// build.mjs (ESM)
 import esbuild from 'esbuild';
 import fs from 'fs-extra';
 import obfuscator from 'javascript-obfuscator';
@@ -14,14 +15,17 @@ await fs.copy('src/manifest.json', 'dist/manifest.json');
 await fs.copy('src/popup.html', 'dist/popup.html');
 await fs.copy('src/popup.css', 'dist/popup.css');
 
+const ENTRY_POINTS = {
+  content: 'src/content.js',
+  bettor: 'src/bettor.js',
+  popup: 'src/popup.js',
+  bg: 'src/bg.js',
+};
+
 // Bundle JS
 async function buildOnce() {
   const ctx = await esbuild.build({
-    entryPoints: {
-      content: 'src/content.js',
-      popup: 'src/popup.js',
-      bg: 'src/bg.js',
-    },
+    entryPoints: ENTRY_POINTS,
     outdir: 'dist',
     bundle: true,
     minify: true,
@@ -33,7 +37,12 @@ async function buildOnce() {
   });
 
   if (OBFUSCATE) {
-    for (const name of ['content.js', 'popup.js', 'bg.js']) {
+    for (const name of [
+      'content.js',
+      'bettor.js',
+      'popup.js',
+      'bg.js',
+    ]) {
       const file = `dist/${name}`;
       const code = await fs.readFile(file, 'utf8');
       const obf = obfuscate(code, {
@@ -57,11 +66,7 @@ async function buildOnce() {
 
 if (isWatch) {
   const build = await esbuild.context({
-    entryPoints: {
-      content: 'src/content.js',
-      popup: 'src/popup.js',
-      bg: 'src/bg.js',
-    },
+    entryPoints: ENTRY_POINTS,
     outdir: 'dist',
     bundle: true,
     minify: false,

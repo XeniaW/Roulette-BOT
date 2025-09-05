@@ -1,224 +1,423 @@
-/* Content Script (bundled/obfuscatable)
-   - Reconciler: always reads the entire [data-name="previous-spins-stack"] list
-   - Adds ONLY the true new head items; fills missed spins; dedupes
-   - CSV export uses local times; NO href saved
-   - Auto-clicks "Reconnect" button when it appears idle
+/* Content script (MV3)
+   Tracks roulette spins displayed under [data-name="previous-spins-stack"].
+   - Reconciles against the live list to avoid duplicates & fill missed items
+   - Shadow-DOM aware for reconnect button scanning
+   - Status is exposed via chrome.storage.local.trackerStatus
+   - Logs are stored in chrome.storage.local.spinLogs (capped)
+   - Robust against "Extension context invalidated" and frame navigations
 */
 
 (() => {
-  const CONTAINER_SEL = '[data-name="previous-spins-stack"]';
-  const CELL_SEL = '[data-name^="cell-"]';
+  // ---------- config ----------
+  const CONTAINER_ATTR = 'previous-spins-stack';
+  const CELL_PREFIX = 'cell-';
+  const CONTAINER_SEL = `[data-name="${CONTAINER_ATTR}"]`;
+  const CELL_SEL = `[data-name^="${CELL_PREFIX}"]`;
   const MAX_LOGS = 5000;
 
-  // Auto-click "Reconnect"
-  const RECONNECT_BTN_SEL =
-    'button.style_disconnectionClassName__3evqb1, button .css-12c392l-StyledButton-textStyles-afterStyles-afterStyles-sparseClassName-transparentClassName';
+  const FIND_TICK_MS = 600; // how often we poll for the container while waiting
+  const FIND_ERROR_AFTER_MS = 10000; // after this, we surface a "not found" error (but keep polling)
+  const RECONCILE_TICK_MS = 1200; // a light poll to reconcile in case mutations are missed
 
-  let observer = null;
-  let destroyed = false;
-  let snapshot = []; // latest DOM numbers (left→right or order in DOM)
-  let tracking = false;
+  // Auto-reconnect constants
+  const RECONNECT_SCAN_TICK_MS = 2000;
+  const RECONNECT_CLICK_THROTTLE = 10000; // min ms between auto-clicks
 
-  function setStatus(state, message) {
+  // ---------- state ----------
+  let destroyed = false; // document is unloading
+  let running = false; // we are actively tracking
+  let observer = null; // MutationObserver for the container
+  let containerNode = null; // the spins container
+  let waitPollTimer = null; // waiting-for-container poll
+  let errorTimer = null; // delayed "not found" error
+  let reconcileTimer = null; // gentle reconcile poll
+  let reconnectTimer = null; // timer for reconnect scans
+  let lastReconnectClick = 0; // throttle for reconnect button
+
+  // We keep the last snapshot of the on-screen list (array of numbers, newest first)
+  let lastSnapshot = [];
+
+  // Quick beacon for debugging
+  try {
+    window.__SPINS_LOGGER__ = 'alive';
+  } catch {}
+
+  // ---------- utils ----------
+  const ctxValid = () =>
+    !!(typeof chrome !== 'undefined' && chrome?.runtime?.id) &&
+    !destroyed;
+
+  async function safeGet(defaults) {
+    if (!ctxValid()) return defaults || {};
     try {
-      chrome.storage.local.set({
-        trackerStatus: {
-          state,
-          message,
-          origin: location.origin,
-          at: Date.now(),
-        },
-      });
+      return await chrome.storage.local.get(defaults || {});
+    } catch {
+      return defaults || {};
+    }
+  }
+  async function safeSet(obj) {
+    if (!ctxValid()) return;
+    try {
+      await chrome.storage.local.set(obj);
     } catch {}
   }
 
-  function parseCells(container) {
-    // returns array of numbers in DOM order
-    const out = [];
-    container.querySelectorAll(CELL_SEL).forEach((el) => {
-      const dn = el.getAttribute('data-name') || '';
-      const nv = Number(dn.replace('cell-', ''));
-      if (Number.isFinite(nv)) out.push(nv);
-      else {
-        const txt = Number((el.textContent || '').trim());
-        if (Number.isFinite(txt)) out.push(txt);
-      }
+  function setStatus(state, message = '', origin = location.origin) {
+    safeSet({
+      trackerStatus: { state, message, origin, at: Date.now() },
     });
+  }
+
+  function isElementVisible(el) {
+    const rect = el.getBoundingClientRect?.();
+    if (!rect) return false;
+    return (
+      rect.width > 0 &&
+      rect.height > 0 &&
+      getComputedStyle(el).visibility !== 'hidden'
+    );
+  }
+
+  // Deep (limited) shadow-aware query helpers
+  function queryAllDeep(root, selector) {
+    const out = [];
+    try {
+      root.querySelectorAll(selector)?.forEach((n) => out.push(n));
+    } catch {}
+    const nodes = root.querySelectorAll
+      ? root.querySelectorAll('*')
+      : [];
+    for (const n of nodes) {
+      if (n.shadowRoot) {
+        try {
+          n.shadowRoot
+            .querySelectorAll(selector)
+            ?.forEach((m) => out.push(m));
+        } catch {}
+      }
+    }
     return out;
   }
 
-  async function getLogs() {
-    try {
-      const { spinLogs = [] } = await chrome.storage.local.get({
-        spinLogs: [],
+  // ---------- logging ----------
+  async function appendLogs(numbersArrayOldestFirst) {
+    if (!numbersArrayOldestFirst?.length) return;
+    const now = Date.now();
+    const baseIso = new Date(now).toISOString();
+
+    const { spinLogs = [] } = await safeGet({ spinLogs: [] });
+    const logs = Array.isArray(spinLogs) ? spinLogs : [];
+
+    // Assign a timestamp for each new spin; keep chronological order
+    for (const n of numbersArrayOldestFirst) {
+      logs.push({
+        n,
+        t: Date.now(),
+        t_iso: new Date().toISOString(),
       });
-      return Array.isArray(spinLogs) ? spinLogs : [];
-    } catch {
+    }
+    // Cap
+    if (logs.length > MAX_LOGS)
+      logs.splice(0, logs.length - MAX_LOGS);
+
+    await safeSet({ spinLogs: logs });
+  }
+
+  // ---------- container & reconciliation ----------
+  function extractNumberFromCell(el) {
+    // Prefer data-name="cell-XX"
+    const dn = el.getAttribute?.('data-name');
+    if (dn && dn.startsWith(CELL_PREFIX)) {
+      const num = Number(dn.slice(CELL_PREFIX.length));
+      if (Number.isFinite(num)) return num;
+    }
+    // Fallback to text content
+    const t = Number((el.textContent || '').trim());
+    return Number.isFinite(t) ? t : null;
+  }
+
+  function readCurrentListFrom(containerEl) {
+    const cells = containerEl.querySelectorAll(CELL_SEL);
+    const arr = [];
+    for (const el of cells) {
+      const n = extractNumberFromCell(el);
+      if (Number.isFinite(n)) arr.push(n);
+    }
+    // The UI typically shows newest first (leftmost / first element)
+    return arr; // newest-first array
+  }
+
+  // Compute which numbers are newly added when we move from lastSnapshot -> currentSnapshot
+  // Both arrays are newest-first. We want to produce new items in OLDEST-first order for logging.
+  function diffNewItems(lastSnap, currSnap) {
+    if (!currSnap.length) return [];
+
+    if (!lastSnap.length) {
+      // First time seeing a list: don't dump the whole history; assume we start fresh (no new).
       return [];
     }
-  }
 
-  async function setLogs(next) {
-    try {
-      await chrome.storage.local.set({
-        spinLogs: next.slice(-MAX_LOGS),
-      });
-    } catch {}
-  }
+    // Try to find where lastSnap[0] appears in currSnap
+    const anchor = lastSnap[0];
+    let k = currSnap.indexOf(anchor);
 
-  // Reconcile: compute new head elements and append to logs
-  async function reconcile(domList) {
-    // If DOM list is empty, nothing to do
-    if (!domList.length) return;
-
-    // On first run: adopt full list as snapshot, but DO NOT backfill history
-    if (!snapshot.length) {
-      snapshot = domList.slice();
-      return;
+    if (k >= 0) {
+      // New items are the ones *before* the anchor in currSnap: currSnap[0..k-1]
+      const newNewestFirst = currSnap.slice(0, k);
+      // We want oldest-first for logging
+      return newNewestFirst.reverse();
     }
 
-    // If the head differs, find how many new items were prepended
-    // We search for the first position in domList where the tail aligns with snapshot[0]
-    let added = [];
-    if (domList[0] !== snapshot[0]) {
-      // find k so that domList[k] == snapshot[0]
-      let k = -1;
-      for (
-        let i = 0;
-        i < Math.min(domList.length, snapshot.length);
-        i++
-      ) {
-        if (domList[i] === snapshot[0]) {
-          k = i;
+    // If no anchor, try a longer overlap: find the longest prefix of lastSnap that exists in currSnap
+    // (simple fallback) – if none found, consider the entire currSnap "newest block"
+    // but still limit to a reasonable chunk (e.g., up to 5) to avoid flooding
+    const MAX_BACKFILL = 5;
+    return currSnap.slice(0, MAX_BACKFILL).reverse();
+  }
+
+  function handleMutations() {
+    if (!containerNode) return;
+    const curr = readCurrentListFrom(containerNode); // newest-first
+    const newItemsOldestFirst = diffNewItems(lastSnapshot, curr);
+    if (newItemsOldestFirst.length) {
+      appendLogs(newItemsOldestFirst);
+    }
+    lastSnapshot = curr;
+  }
+
+  function startObserving(containerEl) {
+    stopObserving();
+
+    containerNode = containerEl;
+    lastSnapshot = readCurrentListFrom(containerNode);
+
+    observer = new MutationObserver((muts) => {
+      // Any childList change can indicate re-render or push; reconcile on each batch
+      let relevant = false;
+      for (const m of muts) {
+        if (m.type === 'childList') {
+          relevant = true;
           break;
         }
       }
-      if (k === -1) {
-        // no overlap: treat entire domList as new head (conservative; provider might truncate list)
-        added = domList.slice(0, 1); // add only the first (latest) to avoid burst
-      } else if (k > 0) {
-        // domList[0..k-1] are truly new (latest first). We want chronological append.
-        added = domList.slice(0, k).reverse();
-      }
-    }
-
-    if (added.length) {
-      const now = Date.now();
-      const iso = new Date(now).toISOString();
-      const logs = await getLogs();
-      for (const n of added) {
-        // prevent accidental immediate duplicates (same n at same ms)
-        const last = logs[logs.length - 1];
-        if (!(last && last.n === n && now - last.t < 400)) {
-          logs.push({ n, t: now, t_iso: iso });
-        }
-      }
-      await setLogs(logs);
-    }
-
-    // Update snapshot to current domList
-    snapshot = domList.slice();
-  }
-
-  // Debounced evaluator when mutations arrive
-  let tickTimer = null;
-  const TICK_MS = 60;
-  function scheduleTick(container) {
-    if (tickTimer) clearTimeout(tickTimer);
-    tickTimer = setTimeout(async () => {
-      tryAutoReconnect();
-      const list = parseCells(container);
-      await reconcile(list);
-    }, TICK_MS);
-  }
-
-  function tryAutoReconnect() {
-    try {
-      const btn =
-        document.querySelector(RECONNECT_BTN_SEL) ||
-        [...document.querySelectorAll('button')].find((b) =>
-          /Reconnect/i.test(b.textContent || '')
-        );
-      if (btn && !btn.disabled) btn.click();
-    } catch {}
-  }
-
-  function start() {
-    if (observer) return;
-    const container = document.querySelector(CONTAINER_SEL);
-    if (!container) {
-      setStatus('waiting', 'Ожидаем контейнер…');
-      // Poll for the container
-      const poll = setInterval(() => {
-        if (destroyed) return clearInterval(poll);
-        const c = document.querySelector(CONTAINER_SEL);
-        if (c) {
-          clearInterval(poll);
-          snapshot = [];
-          attach(c);
-        }
-      }, 400);
-      // Safety error after 10s
-      setTimeout(() => {
-        const c = document.querySelector(CONTAINER_SEL);
-        if (!c)
-          setStatus('error', 'Не найден контейнер/классы спинов');
-      }, 10000);
-      return;
-    }
-    snapshot = [];
-    attach(container);
-  }
-
-  function attach(container) {
-    if (observer) observer.disconnect();
-    observer = new MutationObserver(() => {
-      scheduleTick(container);
+      if (relevant) handleMutations();
     });
-    observer.observe(container, { childList: true, subtree: true });
-    // initial read
-    scheduleTick(container);
+    observer.observe(containerNode, {
+      childList: true,
+      subtree: true,
+    });
+
+    // Gentle reconcile poll (backup)
+    reconcileTimer = setInterval(() => {
+      if (!containerNode) return;
+      handleMutations();
+    }, RECONCILE_TICK_MS);
+
+    running = true;
     setStatus('ok', 'Трекинг активен');
   }
 
-  function stop() {
-    if (observer) observer.disconnect();
-    observer = null;
-    setStatus('off', 'Трекинг выключен');
-  }
-
-  async function refreshToggleAndMaybeRun() {
-    try {
-      const { trackingEnabled = false } =
-        await chrome.storage.local.get({ trackingEnabled: false });
-      tracking = !!trackingEnabled;
-      if (tracking) start();
-      else stop();
-    } catch {}
-  }
-
-  // Boot
-  if (document.readyState === 'loading') {
-    addEventListener('DOMContentLoaded', refreshToggleAndMaybeRun, {
-      once: true,
-    });
-  } else {
-    refreshToggleAndMaybeRun();
-  }
-
-  // React to changes (toggle)
-  chrome.storage.onChanged.addListener((ch, area) => {
-    if (area !== 'local') return;
-    if ('trackingEnabled' in ch) {
-      tracking = !!ch.trackingEnabled.newValue;
-      if (tracking) start();
-      else stop();
+  function stopObserving() {
+    if (observer) {
+      try {
+        observer.disconnect();
+      } catch {}
+      observer = null;
     }
-  });
+    if (reconcileTimer) {
+      clearInterval(reconcileTimer);
+      reconcileTimer = null;
+    }
+    containerNode = null;
+    running = false;
+  }
 
-  // Cleanup on unload to avoid "context invalidated" noise
-  addEventListener('beforeunload', () => {
+  function clearWaiters() {
+    if (waitPollTimer) {
+      clearTimeout(waitPollTimer);
+      waitPollTimer = null;
+    }
+    if (errorTimer) {
+      clearTimeout(errorTimer);
+      errorTimer = null;
+    }
+  }
+
+  function waitForContainerLoop() {
+    // Try normal query first (fast)
+    let box = document.querySelector(CONTAINER_SEL);
+
+    // Shadow-root pass (limited)
+    if (!box) {
+      const deepMatches = queryAllDeep(document, CONTAINER_SEL);
+      if (deepMatches.length) box = deepMatches[0];
+    }
+
+    if (box) {
+      clearWaiters();
+      startObserving(box);
+      return;
+    }
+
+    // Keep polling
+    waitPollTimer = setTimeout(waitForContainerLoop, FIND_TICK_MS);
+  }
+
+  async function tryStart() {
+    const { trackingEnabled = false } = await safeGet({
+      trackingEnabled: false,
+    });
+    if (!trackingEnabled) {
+      setStatus('off', 'Трекинг выключен');
+      stopObserving();
+      return;
+    }
+
+    if (running && containerNode?.isConnected) return;
+
+    // Begin waiting for the container to appear (if not present yet)
+    setStatus('waiting', 'Ожидаем контейнер со спинами…');
+
+    // After a grace period, surface an error (but keep polling)
+    clearWaiters();
+    errorTimer = setTimeout(() => {
+      setStatus(
+        'error',
+        'Не найден контейнер/классы спинов на странице'
+      );
+    }, FIND_ERROR_AFTER_MS);
+
+    waitForContainerLoop();
+  }
+
+  // ---------- reconnect button ----------
+  function clickElement(el) {
+    try {
+      el.dispatchEvent(
+        new MouseEvent('pointerdown', { bubbles: true })
+      );
+      el.dispatchEvent(
+        new MouseEvent('mousedown', { bubbles: true })
+      );
+      el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+      el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    } catch {
+      try {
+        el.click();
+      } catch {}
+    }
+  }
+
+  function findReconnectCandidates(root = document) {
+    const found = [];
+
+    // Preferred: label span with data-e2e starting with "btn-label-..."
+    const spans = root.querySelectorAll('[data-e2e^="btn-label-"]');
+    for (const span of spans) {
+      const text = (span.textContent || '').trim();
+      if (/reconnect/i.test(text) || /подключиться/i.test(text)) {
+        const btn = span.closest('button');
+        if (btn && isElementVisible(btn) && !btn.disabled)
+          found.push(btn);
+      }
+    }
+
+    // Fallback: any visible <button> whose text suggests reconnect
+    const btns = root.querySelectorAll('button');
+    for (const b of btns) {
+      const text = (b.textContent || '').trim();
+      if (
+        (/reconnect/i.test(text) || /подключиться/i.test(text)) &&
+        isElementVisible(b) &&
+        !b.disabled
+      ) {
+        found.push(b);
+      }
+    }
+
+    return found;
+  }
+
+  function scanAndReconnect() {
+    const now = Date.now();
+    if (now - lastReconnectClick < RECONNECT_CLICK_THROTTLE) return;
+
+    let candidates = findReconnectCandidates(document);
+
+    // Shallow shadow roots
+    const hosts = document.querySelectorAll('*');
+    for (const h of hosts) {
+      if (!h.shadowRoot) continue;
+      try {
+        const inner = findReconnectCandidates(h.shadowRoot);
+        if (inner.length) candidates = candidates.concat(inner);
+      } catch {}
+    }
+
+    if (candidates.length) {
+      lastReconnectClick = now;
+      clickElement(candidates[0]);
+      // console.debug('[SpinsLogger] Auto Reconnect clicked');
+    }
+  }
+
+  function startReconnectLoop() {
+    if (reconnectTimer) clearInterval(reconnectTimer);
+    reconnectTimer = setInterval(
+      scanAndReconnect,
+      RECONNECT_SCAN_TICK_MS
+    );
+  }
+
+  function stopReconnectLoop() {
+    if (reconnectTimer) {
+      clearInterval(reconnectTimer);
+      reconnectTimer = null;
+    }
+  }
+
+  // ---------- lifecycle ----------
+  function onSettingsChanged(changes, area) {
+    if (area !== 'local') return;
+    if ('trackingEnabled' in changes) {
+      const enabled = !!changes.trackingEnabled.newValue;
+      if (!enabled) {
+        stopObserving();
+        clearWaiters();
+        setStatus('off', 'Трекинг выключен');
+      } else {
+        tryStart();
+      }
+    }
+  }
+
+  function onUnload() {
     destroyed = true;
-    if (observer) observer.disconnect();
-  });
+    stopObserving();
+    stopReconnectLoop();
+    clearWaiters();
+  }
+
+  async function init() {
+    // Begin auto-reconnect loop (safe even if never needed)
+    startReconnectLoop();
+
+    // Start tracking (if enabled)
+    if (
+      document.readyState === 'complete' ||
+      document.readyState === 'interactive'
+    ) {
+      tryStart();
+    } else {
+      window.addEventListener('DOMContentLoaded', tryStart, {
+        once: true,
+      });
+    }
+
+    chrome.storage.onChanged.addListener(onSettingsChanged);
+    window.addEventListener('pagehide', onUnload, { once: true });
+    window.addEventListener('beforeunload', onUnload, { once: true });
+  }
+
+  init();
 })();

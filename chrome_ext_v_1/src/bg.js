@@ -1,56 +1,70 @@
-// Background: lets you dynamically register CS for newly added domains via UI
-chrome.runtime.onInstalled.addListener(async () => {
-  // Ensure default domain visible in UI list
-  const { domains = [] } = await chrome.storage.local.get({
-    domains: [],
-  });
-  if (!domains.includes('https://play.livetables.io/*')) {
-    domains.push('https://play.livetables.io/*');
-    await chrome.storage.local.set({ domains });
-  }
-});
+// bg.js — keeps dynamic registration of content scripts for all granted origins
+const CS_IDS = { tracker: 'cs_tracker', bettor: 'cs_bettor' };
 
-async function reregister() {
-  const { domains = [] } = await chrome.storage.local.get({
-    domains: [],
-  });
-  // Unregister previous (ignore errors if none)
-  try {
-    const regs = await chrome.scripting.getRegisteredContentScripts();
-    const ids = regs
-      .filter((r) => r.id.startsWith('dyn-'))
-      .map((r) => r.id);
-    if (ids.length)
-      await chrome.scripting.unregisterContentScripts({ ids });
-  } catch {}
-
-  // Register a dynamic CS for each granted domain
-  for (const origin of domains) {
-    const hasPerm = await chrome.permissions.contains({
-      origins: [origin],
-    });
-    if (!hasPerm) continue;
-    const id = 'dyn-' + origin.replace(/\W+/g, '_');
+// helper: (re)register both content scripts on all granted origins
+async function registerCS() {
+  const { origins } = await chrome.permissions.getAll();
+  // first remove old
+  for (const id of Object.values(CS_IDS)) {
     try {
-      await chrome.scripting.registerContentScripts([
-        {
-          id,
-          matches: [origin],
-          js: ['content.js'],
-          runAt: 'document_idle',
-          allFrames: true,
-          persistAcrossSessions: true,
-        },
-      ]);
+      await chrome.scripting.unregisterContentScripts({ ids: [id] });
     } catch {}
   }
+  if (!origins || origins.length === 0) return;
+
+  const filesCommon = []; // none for now
+  // tracker
+  await chrome.scripting.registerContentScripts([
+    {
+      id: CS_IDS.tracker,
+      js: ['content.js'],
+      matches: origins,
+      runAt: 'document_idle',
+      allFrames: true,
+      persistAcrossSessions: true,
+    },
+  ]);
+
+  // bettor
+  await chrome.scripting.registerContentScripts([
+    {
+      id: CS_IDS.bettor,
+      js: ['bettor.js'],
+      matches: origins,
+      runAt: 'document_idle',
+      allFrames: true,
+      persistAcrossSessions: true,
+    },
+  ]);
 }
 
+chrome.runtime.onInstalled.addListener(async () => {
+  // seed default domains in storage (UI will still show them)
+  const { domains = [] } = await chrome.storage.local.get({
+    domains: [],
+  });
+  const defaults = [
+    'https://play.livetables.io/*',
+    'https://*.livetables.io/*',
+  ];
+  const next = [...new Set([...domains, ...defaults])];
+  await chrome.storage.local.set({ domains: next });
+
+  // politely request permissions for defaults (user sees one prompt)
+  try {
+    await chrome.permissions.request({ origins: defaults });
+  } catch {}
+  await registerCS();
+});
+
+chrome.runtime.onStartup.addListener(registerCS);
+
+// message bus from popup to re-register after domain changes
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === 'REREGISTER_CS') {
-    reregister()
-      .then(() => sendResponse({ ok: true }))
-      .catch(() => sendResponse({ ok: false }));
+    registerCS()
+      .then(() => sendResponse(true))
+      .catch(() => sendResponse(false));
     return true;
   }
 });

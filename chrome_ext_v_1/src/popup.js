@@ -1,3 +1,4 @@
+/* popup.js */
 const TIME_FMT = {
   year: 'numeric',
   month: '2-digit',
@@ -7,6 +8,7 @@ const TIME_FMT = {
   second: '2-digit',
   hour12: false,
 };
+const LOCALE = navigator.language || 'en-US';
 
 const tgl = document.getElementById('toggleTrack');
 const statusEl = document.getElementById('status');
@@ -22,10 +24,15 @@ const countEl = document.getElementById('count');
 const btnExport = document.getElementById('btnExport');
 const btnClear = document.getElementById('btnClear');
 
-function fmtLocal(msOrIso) {
+// Auto-betting
+const autoBetToggle = document.getElementById('autoBetToggle');
+const betStatus = document.getElementById('betStatus');
+
+// ----------------
+function fmtTime(msOrIso) {
   const tms =
     typeof msOrIso === 'number' ? msOrIso : Date.parse(msOrIso);
-  return new Date(tms).toLocaleString(undefined, TIME_FMT);
+  return new Date(tms).toLocaleString(LOCALE, TIME_FMT);
 }
 
 // ---- STATUS ----
@@ -46,12 +53,12 @@ function renderStatus(s) {
   statusEl.textContent = state.toUpperCase();
   statusMsg.textContent = msg;
 }
-
 async function loadStatus() {
-  const { trackerStatus = { state: 'off', message: '' } } =
-    await chrome.storage.local.get({
-      trackerStatus: { state: 'off', message: '' },
-    });
+  const {
+    trackerStatus = { state: 'off', message: 'Трекинг выключен' },
+  } = await chrome.storage.local.get({
+    trackerStatus: { state: 'off', message: '' },
+  });
   renderStatus(trackerStatus);
 }
 
@@ -76,28 +83,31 @@ async function loadDomains() {
       try {
         await chrome.permissions.remove({ origins: [p] });
       } catch {}
-      await chrome.runtime.sendMessage({ type: 'REREGISTER_CS' });
+      try {
+        await chrome.runtime.sendMessage({ type: 'REREGISTER_CS' });
+      } catch {}
       loadDomains();
     });
     li.append(span, rm);
     domList.appendChild(li);
   });
 }
-
-async function ensureDomainStored(pattern) {
-  const { domains = [] } = await chrome.storage.local.get({
-    domains: [],
-  });
-  if (!domains.includes(pattern)) {
-    domains.push(pattern);
-    await chrome.storage.local.set({ domains });
+function normalizeOriginPattern(s) {
+  if (!s) return '';
+  let pattern = s.trim();
+  if (!pattern) return '';
+  try {
+    const u = new URL(pattern);
+    pattern = `${u.origin}/*`;
+  } catch {
+    if (!pattern.endsWith('/*'))
+      pattern += pattern.endsWith('/') ? '*' : '/*';
   }
+  return pattern;
 }
-
-async function addPattern(pattern) {
-  pattern = (pattern || '').trim();
+async function addPattern(input) {
+  const pattern = normalizeOriginPattern(input);
   if (!pattern) return;
-  // request permission first
   const granted = await chrome.permissions.request({
     origins: [pattern],
   });
@@ -105,9 +115,16 @@ async function addPattern(pattern) {
     alert('Permission denied: ' + pattern);
     return;
   }
-  // ensure visible immediately
-  await ensureDomainStored(pattern);
-  await chrome.runtime.sendMessage({ type: 'REREGISTER_CS' });
+  const { domains = [] } = await chrome.storage.local.get({
+    domains: [],
+  });
+  if (!domains.includes(pattern)) {
+    domains.push(pattern);
+    await chrome.storage.local.set({ domains });
+  }
+  try {
+    await chrome.runtime.sendMessage({ type: 'REREGISTER_CS' });
+  } catch {}
   loadDomains();
 }
 
@@ -116,7 +133,7 @@ function renderRow(e) {
   const tr = document.createElement('tr');
   const tdT = document.createElement('td');
   const tdN = document.createElement('td');
-  tdT.textContent = fmtLocal(e.t ?? e.t_iso);
+  tdT.textContent = fmtTime(e.t ?? e.t_iso);
   tdN.textContent = String(e.n);
   tdN.className = 'num';
   tr.append(tdT, tdN);
@@ -144,12 +161,12 @@ function loadLogs(cb) {
 }
 function exportCSV() {
   loadLogs((logs) => {
-    const header = 'time_iso,time_local,number\n';
+    const header = 'time_iso,time_local,number,href\n';
     const rows = logs
       .map((e) => {
         const tIso = e.t_iso || new Date(e.t).toISOString();
-        const tLocal = fmtLocal(e.t ?? e.t_iso).replace(/,/g, '');
-        return `${tIso},${tLocal},${e.n}`;
+        const tLocal = fmtTime(e.t ?? e.t_iso).replace(/,/g, '');
+        return `${tIso},${tLocal},${e.n},${e.href || ''}`;
       })
       .join('\n');
     const blob = new Blob([header, rows, '\n'], { type: 'text/csv' });
@@ -164,7 +181,7 @@ function clearLogs() {
   chrome.storage.local.set({ spinLogs: [] }, () => renderAll([]));
 }
 
-// ---- TOGGLE ----
+// ---- Toggles ----
 async function loadToggle() {
   const { trackingEnabled = false } = await chrome.storage.local.get({
     trackingEnabled: false,
@@ -175,15 +192,30 @@ function setToggle(val) {
   chrome.storage.local.set({ trackingEnabled: !!val });
 }
 
-// ---- INIT & EVENTS ----
-document.addEventListener('DOMContentLoaded', async () => {
-  // bootstrap default domain in visible list on first run
-  await ensureDomainStored('https://play.livetables.io/*');
+async function loadAutoBet() {
+  const {
+    autoBettingEnabled = false,
+    bettingStatus = { state: 'off', message: '' },
+  } = await chrome.storage.local.get({
+    autoBettingEnabled: false,
+    bettingStatus: { state: 'off', message: '' },
+  });
+  autoBetToggle.checked = !!autoBettingEnabled;
+  betStatus.textContent = `[${(
+    bettingStatus.state || 'off'
+  ).toUpperCase()}] ${bettingStatus.message || ''}`;
+}
+function setAutoBet(val) {
+  chrome.storage.local.set({ autoBettingEnabled: !!val });
+}
 
+// ---- INIT & EVENTS ----
+document.addEventListener('DOMContentLoaded', () => {
   loadToggle();
   loadStatus();
   loadDomains();
   loadLogs(renderAll);
+  loadAutoBet();
 
   btnAddPattern.addEventListener('click', () =>
     addPattern(inpPattern.value)
@@ -196,14 +228,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!tab?.url) return;
     try {
       const u = new URL(tab.url);
-      const pattern = `${u.origin}/*`;
-      addPattern(pattern);
+      addPattern(`${u.origin}/*`);
     } catch {}
   });
 
   btnExport.addEventListener('click', exportCSV);
   btnClear.addEventListener('click', clearLogs);
   tgl.addEventListener('change', () => setToggle(tgl.checked));
+  autoBetToggle.addEventListener('change', () =>
+    setAutoBet(autoBetToggle.checked)
+  );
 });
 
 // Live updates
@@ -217,4 +251,6 @@ chrome.storage.onChanged.addListener((ch, area) => {
       appendNew(newValue.slice(oldValue.length));
     else renderAll(newValue);
   }
+  if (ch.domains) loadDomains();
+  if (ch.autoBettingEnabled || ch.bettingStatus) loadAutoBet();
 });
