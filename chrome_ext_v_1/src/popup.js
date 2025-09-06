@@ -28,6 +28,12 @@ const btnClear = document.getElementById('btnClear');
 const autoBetToggle = document.getElementById('autoBetToggle');
 const betStatus = document.getElementById('betStatus');
 
+// ---- BET LOGS DOM ----
+const betTbody = document.getElementById('betTbody');
+const betCountEl = document.getElementById('betCount');
+const btnBetExport = document.getElementById('btnBetExport');
+const btnBetClear = document.getElementById('btnBetClear');
+
 // ----------------
 function fmtTime(msOrIso) {
   const tms =
@@ -128,7 +134,7 @@ async function addPattern(input) {
   loadDomains();
 }
 
-// ---- LOGS ----
+// ---- SPIN LOGS ----
 function renderRow(e) {
   const tr = document.createElement('tr');
   const tdT = document.createElement('td');
@@ -181,6 +187,93 @@ function clearLogs() {
   chrome.storage.local.set({ spinLogs: [] }, () => renderAll([]));
 }
 
+// ---- BET LOGS ----
+function renderBetRow(e) {
+  const tr = document.createElement('tr');
+
+  const tdT = document.createElement('td');
+  tdT.textContent = fmtTime(e.t);
+
+  const tdA = document.createElement('td');
+  tdA.textContent =
+    e.amount != null ? Number(e.amount).toFixed(2) : '';
+
+  const tdE = document.createElement('td');
+  const phase = e.phase ? String(e.phase).toUpperCase() : '';
+  const msg =
+    e.message ||
+    (e.type === 'placed'
+      ? e.step
+        ? `Шаг ${e.step} поставлен`
+        : 'Ставка поставлена'
+      : '');
+  tdE.textContent = phase ? `[${phase}] ${msg || ''}` : msg || '';
+
+  tdA.className = 'num';
+  tr.append(tdT, tdA, tdE);
+  return tr;
+}
+function renderBetAll(logs) {
+  if (!betTbody) return;
+  betTbody.innerHTML = '';
+  logs.forEach((e) => betTbody.appendChild(renderBetRow(e)));
+  if (betCountEl) betCountEl.textContent = String(logs.length);
+  const list = document.getElementById('betList');
+  if (list) list.scrollTop = list.scrollHeight;
+}
+function appendBetNew(added) {
+  if (!betTbody) return;
+  added.forEach((e) => betTbody.appendChild(renderBetRow(e)));
+  if (betCountEl)
+    betCountEl.textContent = String(
+      Number(betCountEl.textContent || '0') + added.length
+    );
+  const list = document.getElementById('betList');
+  if (list) list.scrollTop = list.scrollHeight;
+}
+function loadBetLogs(cb) {
+  chrome.storage.local.get({ betLogs: [] }, (data) =>
+    cb(Array.isArray(data.betLogs) ? data.betLogs : [])
+  );
+}
+function exportBetCSV() {
+  loadBetLogs((logs) => {
+    const header =
+      'time_iso,time_local,amount,event,phase,type,step\n';
+    const rows = logs
+      .map((e) => {
+        const tIso = new Date(e.t).toISOString();
+        const tLocal = fmtTime(e.t).replace(/,/g, '');
+        const amt =
+          e.amount != null ? Number(e.amount).toFixed(2) : '';
+        const phase = e.phase || '';
+        const type = e.type || '';
+        const step = e.step != null ? e.step : '';
+        const eventText = e.message
+          ? e.message
+          : type === 'placed'
+          ? step
+            ? `Шаг ${step} поставлен`
+            : 'Ставка поставлена'
+          : '';
+        return `${tIso},${tLocal},${amt},${eventText.replace(
+          /,/g,
+          ' '
+        )},${phase},${type},${step}`;
+      })
+      .join('\n');
+    const blob = new Blob([header, rows, '\n'], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    chrome.downloads.download(
+      { url, filename: 'bet_logs.csv', saveAs: true },
+      () => URL.revokeObjectURL(url)
+    );
+  });
+}
+function clearBetLogs() {
+  chrome.storage.local.set({ betLogs: [] }, () => renderBetAll([]));
+}
+
 // ---- Toggles ----
 async function loadToggle() {
   const { trackingEnabled = false } = await chrome.storage.local.get({
@@ -215,6 +308,7 @@ document.addEventListener('DOMContentLoaded', () => {
   loadStatus();
   loadDomains();
   loadLogs(renderAll);
+  loadBetLogs(renderBetAll);
   loadAutoBet();
 
   btnAddPattern.addEventListener('click', () =>
@@ -234,6 +328,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
   btnExport.addEventListener('click', exportCSV);
   btnClear.addEventListener('click', clearLogs);
+
+  if (btnBetExport)
+    btnBetExport.addEventListener('click', exportBetCSV);
+  if (btnBetClear)
+    btnBetClear.addEventListener('click', clearBetLogs);
+
   tgl.addEventListener('change', () => setToggle(tgl.checked));
   autoBetToggle.addEventListener('change', () =>
     setAutoBet(autoBetToggle.checked)
@@ -250,6 +350,12 @@ chrome.storage.onChanged.addListener((ch, area) => {
     if (newValue.length > oldValue.length)
       appendNew(newValue.slice(oldValue.length));
     else renderAll(newValue);
+  }
+  if (ch.betLogs) {
+    const { oldValue = [], newValue = [] } = ch.betLogs;
+    if (Array.isArray(newValue) && newValue.length > oldValue.length)
+      appendBetNew(newValue.slice(oldValue.length));
+    else renderBetAll(Array.isArray(newValue) ? newValue : []);
   }
   if (ch.domains) loadDomains();
   if (ch.autoBettingEnabled || ch.bettingStatus) loadAutoBet();

@@ -16,9 +16,25 @@
   ];
   const PLACE_BUTTON_SEL = null;
 
+  // NEW: номиналы фишек в том же порядке, что и CHIP_SELECTORS
+  const CHIP_VALUES = [0.2, 1, 5, 20];
+
   const RETRY_MS = 250;
   const RETRY_TIME_LIMIT_MS = 7000;
   let destroyed = false;
+
+  // NEW: append-only лог ставок/событий
+  async function appendBetLog(entry) {
+    try {
+      const { betLogs = [] } = await chrome.storage.local.get({
+        betLogs: [],
+      });
+      betLogs.push(entry);
+      if (betLogs.length > 2000)
+        betLogs.splice(0, betLogs.length - 2000);
+      await chrome.storage.local.set({ betLogs });
+    } catch {}
+  }
 
   function setBetStatus(state, message) {
     try {
@@ -31,7 +47,17 @@
         },
       });
     } catch {}
+    // NEW: логируем текст статуса, который виден снизу
+    try {
+      appendBetLog({
+        t: Date.now(),
+        type: 'event',
+        phase: state, // e.g. 'waiting', 'armed', 'idle', 'error', 'off'
+        message, // e.g. "ПРОИГРЫШ → ожидание, следующий шаг 2"
+      });
+    } catch {}
   }
+
   const ctxValid = () =>
     !!(typeof chrome !== 'undefined' && chrome?.runtime?.id) &&
     !destroyed;
@@ -105,6 +131,15 @@
       default:
         return [{ i: 0, times: 1 }];
     }
+  }
+
+  // NEW: сумма за одну дюжину на конкретном шаге
+  function perDozenForStep(step) {
+    const plan = chipsForStep(step);
+    return plan.reduce(
+      (sum, c) => sum + CHIP_VALUES[c.i] * c.times,
+      0
+    );
   }
 
   function isEnabled(el) {
@@ -209,6 +244,20 @@
             .join(',')} | шаг 1`
         );
         const ok = await tryPlace(1, t);
+
+        // логируем успешную постановку: время + сумма
+        if (ok) {
+          const amount = perDozenForStep(1) * t.length;
+          await appendBetLog({
+            t: Date.now(),
+            type: 'placed',
+            phase: 'armed',
+            message: 'Шаг 1 поставлен',
+            amount,
+            step: 1,
+          });
+        }
+
         setBetStatus(
           ok ? 'armed' : 'error',
           ok ? 'Шаг 1 поставлен' : 'Не удалось поставить шаг 1'
@@ -269,6 +318,19 @@
           `ГОТОВ шаг ${step} на дюжины ${t.map(dozenLabel).join(',')}`
         );
         const ok = await tryPlace(step, t);
+
+        if (ok) {
+          const amount = perDozenForStep(step) * t.length;
+          await appendBetLog({
+            t: Date.now(),
+            type: 'placed',
+            phase: 'armed',
+            message: `Шаг ${step} поставлен`,
+            amount,
+            step,
+          });
+        }
+
         setBetStatus(
           ok ? 'armed' : 'error',
           ok

@@ -43,7 +43,8 @@ section {
 #inpPattern {
   flex: 1;
 }
-#list {
+#list,
+#betList {
   height: 220px;
   overflow: auto;
   border: 1px solid #ddd;
