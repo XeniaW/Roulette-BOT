@@ -1,6 +1,6 @@
 /* Content script (MV3)
    Tracks roulette spins displayed under [data-name="previous-spins-stack"].
-   - Reconciles against the live list to avoid duplicates & fill missed items
+   - Logs ONLY the current head number exactly once per spin (including repeats like 17→17)
    - Shadow-DOM aware for reconnect button scanning
    - Status is exposed via chrome.storage.local.trackerStatus
    - Logs are stored in chrome.storage.local.spinLogs (capped)
@@ -102,13 +102,10 @@
   // ---------- logging ----------
   async function appendLogs(numbersArrayOldestFirst) {
     if (!numbersArrayOldestFirst?.length) return;
-    const now = Date.now();
-    const baseIso = new Date(now).toISOString();
 
     const { spinLogs = [] } = await safeGet({ spinLogs: [] });
     const logs = Array.isArray(spinLogs) ? spinLogs : [];
 
-    // Assign a timestamp for each new spin; keep chronological order
     for (const n of numbersArrayOldestFirst) {
       logs.push({
         n,
@@ -116,7 +113,6 @@
         t_iso: new Date().toISOString(),
       });
     }
-    // Cap
     if (logs.length > MAX_LOGS)
       logs.splice(0, logs.length - MAX_LOGS);
 
@@ -147,41 +143,50 @@
     return arr; // newest-first array
   }
 
-  // Compute which numbers are newly added when we move from lastSnapshot -> currentSnapshot
-  // Both arrays are newest-first. We want to produce new items in OLDEST-first order for logging.
-  function diffNewItems(lastSnap, currSnap) {
-    if (!currSnap.length) return [];
-
-    if (!lastSnap.length) {
-      // First time seeing a list: don't dump the whole history; assume we start fresh (no new).
-      return [];
-    }
-
-    // Try to find where lastSnap[0] appears in currSnap
-    const anchor = lastSnap[0];
-    let k = currSnap.indexOf(anchor);
-
-    if (k >= 0) {
-      // New items are the ones *before* the anchor in currSnap: currSnap[0..k-1]
-      const newNewestFirst = currSnap.slice(0, k);
-      // We want oldest-first for logging
-      return newNewestFirst.reverse();
-    }
-
-    // If no anchor, try a longer overlap: find the longest prefix of lastSnap that exists in currSnap
-    // (simple fallback) – if none found, consider the entire currSnap "newest block"
-    // but still limit to a reasonable chunk (e.g., up to 5) to avoid flooding
-    const MAX_BACKFILL = 5;
-    return currSnap.slice(0, MAX_BACKFILL).reverse();
+  // NOTE: kept for reference, but no longer used to avoid spam/backfill edge cases.
+  function diffNewItems(_lastSnap, _currSnap) {
+    return [];
   }
 
+  // The ONLY place where we decide to log a number.
+  // Rule: log the head once per actual spin (including same-number repeats).
   function handleMutations() {
     if (!containerNode) return;
+
     const curr = readCurrentListFrom(containerNode); // newest-first
-    const newItemsOldestFirst = diffNewItems(lastSnapshot, curr);
-    if (newItemsOldestFirst.length) {
-      appendLogs(newItemsOldestFirst);
+    if (!curr.length) {
+      lastSnapshot = curr;
+      return;
     }
+
+    const head = curr[0];
+    const prev = lastSnapshot;
+
+    let shouldLog = false;
+
+    if (!prev.length) {
+      // First attach: don't backfill/log
+      shouldLog = false;
+    } else if (head !== prev[0]) {
+      // Head changed => new spin
+      shouldLog = true;
+    } else {
+      // Head stayed the same. New spin only if a duplicate head was inserted at the front.
+      // Example:
+      //   prev: [17,  3, ...]
+      //   curr: [17, 17, ...]  => log
+      const prevSecond = prev[1];
+      const currSecond = curr[1];
+      if (currSecond === head && prevSecond !== head) {
+        shouldLog = true;
+      }
+    }
+
+    if (shouldLog) {
+      appendLogs([head]); // oldest-first array with a single item
+    }
+
+    // Update snapshot last so repeated mutation/reconcile calls won't re-log
     lastSnapshot = curr;
   }
 
@@ -189,18 +194,16 @@
     stopObserving();
 
     containerNode = containerEl;
-    lastSnapshot = readCurrentListFrom(containerNode);
+    lastSnapshot = readCurrentListFrom(containerNode); // initialize snapshot (no log)
 
     observer = new MutationObserver((muts) => {
       // Any childList change can indicate re-render or push; reconcile on each batch
-      let relevant = false;
       for (const m of muts) {
         if (m.type === 'childList') {
-          relevant = true;
+          handleMutations();
           break;
         }
       }
-      if (relevant) handleMutations();
     });
     observer.observe(containerNode, {
       childList: true,
