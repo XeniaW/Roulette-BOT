@@ -1,8 +1,6 @@
-/* bettor.js — Auto-betting (Dozens) — MINIMAL PATCH:
- */
+/* bettor.js — Auto-betting (Dozens) — 4 steps only, русские статусы, дюжины 1–3 */
 
 (() => {
-  // ---------- DOZENS per your first code ----------
   const $ = (sel) => document.querySelector(sel);
   const dozenButtons = [
     $('#index-800'),
@@ -10,19 +8,16 @@
     $('#index-802'),
   ];
 
-  // ---------- chips selectors (как было ранее) ----------
   const CHIP_SELECTORS = [
-    '[data-e2e="chip-0.2"]', // chip 1
-    '[data-e2e="chip-1"]', // chip 2
-    '[data-e2e="chip-5"]', // chip 3
-    '[data-e2e="chip-20"]', // chip 4
+    '[data-e2e="chip-0.2"]',
+    '[data-e2e="chip-1"]',
+    '[data-e2e="chip-5"]',
+    '[data-e2e="chip-20"]',
   ];
-  // если нужен "подтвердить ставку", укажи селектор:
   const PLACE_BUTTON_SEL = null;
 
   const RETRY_MS = 250;
   const RETRY_TIME_LIMIT_MS = 7000;
-
   let destroyed = false;
 
   function setBetStatus(state, message) {
@@ -41,7 +36,6 @@
     !!(typeof chrome !== 'undefined' && chrome?.runtime?.id) &&
     !destroyed;
 
-  // dozen index helper
   function dozenIndex(n) {
     if (n === 0) return -1;
     if (n >= 1 && n <= 12) return 0;
@@ -52,8 +46,10 @@
   function otherTwoDozens(skip) {
     return [0, 1, 2].filter((d) => d !== skip);
   }
+  function dozenLabel(idx) {
+    return idx + 1; // convert 0→1, 1→2, 2→3
+  }
 
-  // exec state
   async function getExec() {
     const { betExec = null } = await chrome.storage.local.get({
       betExec: null,
@@ -76,7 +72,9 @@
 
   async function loadEnabled() {
     const { autoBettingEnabled = false } =
-      await chrome.storage.local.get({ autoBettingEnabled: false });
+      await chrome.storage.local.get({
+        autoBettingEnabled: false,
+      });
     const exec = await getExec();
     exec.enabled = !!autoBettingEnabled;
     if (!exec.enabled) {
@@ -84,28 +82,26 @@
       exec.target = null;
       exec.step = 1;
       exec.armedAt = 0;
-      await setExec(exec, 'Auto-betting OFF');
+      await setExec(exec, 'Авто-ставки ВЫКЛ');
     } else {
-      await setExec(exec, 'Auto-betting ON');
+      await setExec(exec, 'Авто-ставки ВКЛ');
     }
   }
 
-  // 5-step chain (per dozen; кликаем на обе целевые дюжины):
+  // ----- 4-step chain -----
   function chipsForStep(step) {
     switch (step) {
       case 1:
-        return [{ i: 0, times: 1 }]; // 1× chip-0.2
+        return [{ i: 0, times: 1 }];
       case 2:
-        return [{ i: 0, times: 3 }]; // 3× chip-0.2
+        return [{ i: 0, times: 3 }];
       case 3:
-        return [{ i: 1, times: 2 }]; // 2× chip-1
+        return [{ i: 1, times: 2 }];
       case 4:
         return [
           { i: 2, times: 1 },
           { i: 1, times: 1 },
-        ]; // 1× chip-5 + 1× chip-1
-      case 5:
-        return [{ i: 3, times: 1 }]; // 1× chip-20
+        ];
       default:
         return [{ i: 0, times: 1 }];
     }
@@ -130,10 +126,7 @@
     );
     await new Promise((r) => setTimeout(r, 30));
   }
-
-  // MINIMAL CHANGE: используем именно dozenButtons при клике
   function getDozenNode(idx) {
-    // берем из массива; если страница перерисовала узлы — пробуем найти снова по id
     const fallbackSel =
       idx === 0
         ? '#index-800'
@@ -189,7 +182,6 @@
     const d = dozenIndex(n);
 
     if (exec.phase === 'idle') {
-      // ждём две подряд одинаковые НЕ-нулевые дюжины
       let last = [];
       for (
         let i = spinLogs.length - 1;
@@ -212,19 +204,20 @@
         };
         await setExec(
           next,
-          `ENTRY → target dozens ${t.join(',')} | step 1`
+          `ВХОД → целевые дюжины ${t
+            .map(dozenLabel)
+            .join(',')} | шаг 1`
         );
         const ok = await tryPlace(1, t);
         setBetStatus(
           ok ? 'armed' : 'error',
-          ok ? 'Step 1 placed' : 'Cannot place Step 1'
+          ok ? 'Шаг 1 поставлен' : 'Не удалось поставить шаг 1'
         );
       }
       return;
     }
 
     if (exec.phase === 'armed') {
-      // текущая ставка решается по только что выпавшему числу
       const win = d !== -1 && exec.target.includes(d);
       if (win) {
         const next = {
@@ -234,21 +227,33 @@
           step: 1,
           armedAt: 0,
         };
-        await setExec(next, `WIN on dozen ${d} → reset`);
+        await setExec(
+          next,
+          `ВЫИГРЫШ на дюжине ${dozenLabel(d)} → сброс`
+        );
         return;
       }
-      // проигрыш (включая 0 и «плохую» дюжину) → ждём выхода из «плохой» зоны
-      const next = {
-        ...exec,
-        phase: 'waiting',
-        step: Math.min(exec.step + 1, 5),
-      };
-      await setExec(next, `LOSE → waiting, next step ${next.step}`);
+      // loss: reset if step 4, otherwise wait for next
+      if (exec.step >= 4) {
+        const reset = {
+          ...exec,
+          phase: 'idle',
+          target: null,
+          step: 1,
+          armedAt: 0,
+        };
+        await setExec(reset, 'ПРОИГРЫШ на шаге 4 → сброс');
+        return;
+      }
+      const next = { ...exec, phase: 'waiting', step: exec.step + 1 };
+      await setExec(
+        next,
+        `ПРОИГРЫШ → ожидание, следующий шаг ${next.step}`
+      );
       return;
     }
 
     if (exec.phase === 'waiting') {
-      // Ждём появления числа из ЛЮБОЙ из целевых двух дюжин (0 считается «плохой» — игнорим)
       if (d !== -1 && exec.target?.includes(d)) {
         const step = exec.step;
         const t = exec.target;
@@ -261,12 +266,14 @@
         };
         await setExec(
           next,
-          `ARM step ${step} on dozens ${t.join(',')}`
+          `ГОТОВ шаг ${step} на дюжины ${t.map(dozenLabel).join(',')}`
         );
         const ok = await tryPlace(step, t);
         setBetStatus(
           ok ? 'armed' : 'error',
-          ok ? `Step ${step} placed` : `Cannot place Step ${step}`
+          ok
+            ? `Шаг ${step} поставлен`
+            : `Не удалось поставить шаг ${step}`
         );
       }
       return;
@@ -294,7 +301,7 @@
     if (!ctxValid()) return;
     await loadEnabled();
     attachStorageListener();
-    setBetStatus('idle', 'bettor loaded');
+    setBetStatus('idle', 'Авто-ставки готовы');
   }
 
   if (
