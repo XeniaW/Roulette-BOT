@@ -1,35 +1,30 @@
-// bg.js — keeps dynamic registration of content scripts for all granted origins
-const CS_IDS = { tracker: 'cs_tracker', bettor: 'cs_bettor' };
+// bg.js — dynamic registration of content scripts for granted origins
+const CS_ID = 'cs_all';
 
-// helper: (re)register both content scripts on all granted origins
+async function unregisterAll() {
+  try {
+    await chrome.scripting.unregisterContentScripts({ ids: [CS_ID] });
+  } catch {}
+}
+
+async function getGrantedOrigins() {
+  const perms = await chrome.permissions.getAll();
+  // Deduplicate and keep only schemes Chrome accepts for content scripts
+  const uniq = Array.from(new Set(perms.origins || []));
+  return uniq;
+}
+
 async function registerCS() {
-  const { origins } = await chrome.permissions.getAll();
-  // first remove old
-  for (const id of Object.values(CS_IDS)) {
-    try {
-      await chrome.scripting.unregisterContentScripts({ ids: [id] });
-    } catch {}
-  }
-  if (!origins || origins.length === 0) return;
+  const origins = await getGrantedOrigins();
+  await unregisterAll();
 
-  const filesCommon = []; // none for now
-  // tracker
+  if (!origins.length) return;
+
+  // Single registration to GUARANTEE script load order (content.js -> bettor.js)
   await chrome.scripting.registerContentScripts([
     {
-      id: CS_IDS.tracker,
-      js: ['content.js'],
-      matches: origins,
-      runAt: 'document_idle',
-      allFrames: true,
-      persistAcrossSessions: true,
-    },
-  ]);
-
-  // bettor
-  await chrome.scripting.registerContentScripts([
-    {
-      id: CS_IDS.bettor,
-      js: ['bettor.js'],
+      id: CS_ID,
+      js: ['content.js', 'bettor.js'],
       matches: origins,
       runAt: 'document_idle',
       allFrames: true,
@@ -38,8 +33,8 @@ async function registerCS() {
   ]);
 }
 
+// Seed defaults once, request them, then register
 chrome.runtime.onInstalled.addListener(async () => {
-  // seed default domains in storage (UI will still show them)
   const { domains = [] } = await chrome.storage.local.get({
     domains: [],
   });
@@ -47,19 +42,21 @@ chrome.runtime.onInstalled.addListener(async () => {
     'https://play.livetables.io/*',
     'https://*.livetables.io/*',
   ];
+
   const next = [...new Set([...domains, ...defaults])];
   await chrome.storage.local.set({ domains: next });
 
-  // politely request permissions for defaults (user sees one prompt)
   try {
+    // polite one-time prompt for defaults
     await chrome.permissions.request({ origins: defaults });
   } catch {}
+
   await registerCS();
 });
 
 chrome.runtime.onStartup.addListener(registerCS);
 
-// message bus from popup to re-register after domain changes
+// Popup → re-register after domain changes
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === 'REREGISTER_CS') {
     registerCS()

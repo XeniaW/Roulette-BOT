@@ -1,6 +1,91 @@
-/* bettor.js — Auto-betting (Dozens) — 4 steps only, русские статусы, дюжины 1–3 */
-
+/* bettor.js — Auto-betting (Dozens) — русские статусы, дюжины 1–3, конфиг в chrome.storage.local.abConfig */
 (() => {
+  const CFG_KEY = 'abConfig';
+  const DEFAULT_CFG = Object.freeze({
+    chipSelectorTemplate: '[data-e2e="chip-{{value}}"]',
+    chipValues: [0.2, 1, 5, 20],
+    placeButtonSel: null,
+    steps: [
+      [{ chip: 1, times: 1 }],
+      [{ chip: 1, times: 3 }],
+      [{ chip: 2, times: 2 }],
+      [
+        { chip: 3, times: 1 },
+        { chip: 2, times: 1 },
+      ],
+    ],
+  });
+
+  function sanitizeCfg(raw) {
+    const src = raw || {};
+    const tpl =
+      typeof src.chipSelectorTemplate === 'string' &&
+      src.chipSelectorTemplate.includes('{{value}}')
+        ? src.chipSelectorTemplate
+        : DEFAULT_CFG.chipSelectorTemplate;
+    let chipValues = Array.isArray(src.chipValues)
+      ? src.chipValues
+          .map(Number)
+          .filter((v) => Number.isFinite(v) && v > 0)
+      : [];
+    if (!chipValues.length) chipValues = [...DEFAULT_CFG.chipValues];
+    const placeButtonSel =
+      typeof src.placeButtonSel === 'string' &&
+      src.placeButtonSel.trim()
+        ? src.placeButtonSel.trim()
+        : null;
+
+    let steps = Array.isArray(src.steps) ? src.steps : [];
+    steps = steps
+      .map((st) => (Array.isArray(st) ? st : []))
+      .map((st) =>
+        st
+          .map((it) => ({
+            chip: Math.max(
+              1,
+              Math.min(
+                chipValues.length,
+                Math.floor(Number(it?.chip ?? 1))
+              )
+            ),
+            times: Math.max(1, Math.floor(Number(it?.times ?? 1))),
+          }))
+          .filter(
+            (it) =>
+              Number.isFinite(it.chip) && Number.isFinite(it.times)
+          )
+      )
+      .filter((st) => st.length);
+    if (!steps.length)
+      steps = JSON.parse(JSON.stringify(DEFAULT_CFG.steps));
+    return {
+      chipSelectorTemplate: tpl,
+      chipValues,
+      placeButtonSel,
+      steps,
+    };
+  }
+
+  async function sget(defs) {
+    try {
+      return await chrome.storage.local.get(defs || {});
+    } catch {
+      return defs || {};
+    }
+  }
+  async function sset(obj) {
+    try {
+      await chrome.storage.local.set(obj);
+    } catch {}
+  }
+
+  async function loadCfg() {
+    const { [CFG_KEY]: cfg = DEFAULT_CFG } = await sget({
+      [CFG_KEY]: DEFAULT_CFG,
+    });
+    return sanitizeCfg(cfg);
+  }
+
   const $ = (sel) => document.querySelector(sel);
   const dozenButtons = [
     $('#index-800'),
@@ -8,31 +93,17 @@
     $('#index-802'),
   ];
 
-  const CHIP_SELECTORS = [
-    '[data-e2e="chip-0.2"]',
-    '[data-e2e="chip-1"]',
-    '[data-e2e="chip-5"]',
-    '[data-e2e="chip-20"]',
-  ];
-  const PLACE_BUTTON_SEL = null;
-
-  // NEW: номиналы фишек в том же порядке, что и CHIP_SELECTORS
-  const CHIP_VALUES = [0.2, 1, 5, 20];
-
-  const RETRY_MS = 250;
-  const RETRY_TIME_LIMIT_MS = 7000;
+  const RETRY_MS = 250,
+    RETRY_TIME_LIMIT_MS = 7000;
   let destroyed = false;
 
-  // NEW: append-only лог ставок/событий
   async function appendBetLog(entry) {
     try {
-      const { betLogs = [] } = await chrome.storage.local.get({
-        betLogs: [],
-      });
+      const { betLogs = [] } = await sget({ betLogs: [] });
       betLogs.push(entry);
       if (betLogs.length > 2000)
         betLogs.splice(0, betLogs.length - 2000);
-      await chrome.storage.local.set({ betLogs });
+      await sset({ betLogs });
     } catch {}
   }
 
@@ -47,13 +118,12 @@
         },
       });
     } catch {}
-    // NEW: логируем текст статуса, который виден снизу
     try {
       appendBetLog({
         t: Date.now(),
         type: 'event',
-        phase: state, // e.g. 'waiting', 'armed', 'idle', 'error', 'off'
-        message, // e.g. "ПРОИГРЫШ → ожидание, следующий шаг 2"
+        phase: state,
+        message,
       });
     } catch {}
   }
@@ -73,13 +143,11 @@
     return [0, 1, 2].filter((d) => d !== skip);
   }
   function dozenLabel(idx) {
-    return idx + 1; // convert 0→1, 1→2, 2→3
+    return idx + 1;
   }
 
   async function getExec() {
-    const { betExec = null } = await chrome.storage.local.get({
-      betExec: null,
-    });
+    const { betExec = null } = await sget({ betExec: null });
     return (
       betExec || {
         enabled: false,
@@ -91,16 +159,14 @@
     );
   }
   async function setExec(next, statusMsg = null) {
-    await chrome.storage.local.set({ betExec: next });
+    await sset({ betExec: next });
     if (statusMsg)
       setBetStatus(next.enabled ? next.phase : 'off', statusMsg);
   }
-
   async function loadEnabled() {
-    const { autoBettingEnabled = false } =
-      await chrome.storage.local.get({
-        autoBettingEnabled: false,
-      });
+    const { autoBettingEnabled = false } = await sget({
+      autoBettingEnabled: false,
+    });
     const exec = await getExec();
     exec.enabled = !!autoBettingEnabled;
     if (!exec.enabled) {
@@ -114,30 +180,53 @@
     }
   }
 
-  // ----- 4-step chain -----
-  function chipsForStep(step) {
-    switch (step) {
-      case 1:
-        return [{ i: 0, times: 1 }];
-      case 2:
-        return [{ i: 0, times: 3 }];
-      case 3:
-        return [{ i: 1, times: 2 }];
-      case 4:
-        return [
-          { i: 2, times: 1 },
-          { i: 1, times: 1 },
-        ];
-      default:
-        return [{ i: 0, times: 1 }];
+  // селекторы фишек строим из шаблона и номиналов; делаем резервные форматы числа
+  function selectorsFrom(cfg) {
+    const out = [];
+    for (const v of cfg.chipValues) {
+      const variants = new Set();
+      const base = String(v);
+      variants.add(base);
+      // 0.2 -> 0.2 / 0.20 / 0.200
+      if (!Number.isInteger(v)) {
+        const s1 = v.toString();
+        variants.add(s1);
+        variants.add(v.toFixed(1));
+        variants.add(v.toFixed(2));
+        variants.add(v.toFixed(3));
+      } else {
+        variants.add(String(Math.trunc(v)));
+      }
+      let el = null,
+        selUsed = null;
+      for (const vv of variants) {
+        const sel = cfg.chipSelectorTemplate.replace('{{value}}', vv);
+        const node = document.querySelector(sel);
+        if (node) {
+          el = node;
+          selUsed = sel;
+          break;
+        }
+      }
+      out.push({ node: el, sel: selUsed });
     }
+    return out;
   }
 
-  // NEW: сумма за одну дюжину на конкретном шаге
-  function perDozenForStep(step) {
-    const plan = chipsForStep(step);
-    return plan.reduce(
-      (sum, c) => sum + CHIP_VALUES[c.i] * c.times,
+  function chipsForStep(step, cfg) {
+    const steps = cfg.steps;
+    const idx = Math.max(0, Math.min(steps.length - 1, step - 1));
+    const plan = steps[idx];
+    // конвертируем 1-based chip -> 0-based index
+    return (plan || [{ chip: 1, times: 1 }]).map((it) => ({
+      i: Math.max(0, it.chip - 1),
+      times: it.times,
+    }));
+  }
+  function perDozenForStep(step, cfg) {
+    return chipsForStep(step, cfg).reduce(
+      (s, c) =>
+        s + Number(cfg.chipValues[c.i] ?? 0) * Number(c.times ?? 0),
       0
     );
   }
@@ -152,13 +241,15 @@
     );
   }
   async function clickElement(el) {
-    el.dispatchEvent(
-      new MouseEvent('click', {
-        bubbles: true,
-        cancelable: true,
-        view: window,
-      })
-    );
+    try {
+      el.dispatchEvent(
+        new MouseEvent('click', {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+        })
+      );
+    } catch {}
     await new Promise((r) => setTimeout(r, 30));
   }
   function getDozenNode(idx) {
@@ -168,26 +259,24 @@
         : idx === 1
         ? '#index-801'
         : '#index-802';
-    return dozenButtons[idx] || $(fallbackSel);
+    return dozenButtons[idx] || document.querySelector(fallbackSel);
   }
 
+  // ——— СТАВКА: всегда перечитываем конфиг и строим селекторы на лету
   async function tryPlace(step, target) {
+    const cfg = await loadCfg(); // СВЕЖИЙ конфиг
     const deadline = Date.now() + RETRY_TIME_LIMIT_MS;
-    const chipPlan = chipsForStep(step);
+    const plan = chipsForStep(step, cfg);
 
     while (Date.now() < deadline) {
-      const chipNodes = CHIP_SELECTORS.map((sel) =>
-        document.querySelector(sel)
-      );
-      const okChips = chipPlan.every((c) =>
-        isEnabled(chipNodes[c.i])
-      );
+      const chipNodes = selectorsFrom(cfg).map((x) => x.node);
+      const okChips = plan.every((c) => isEnabled(chipNodes[c.i]));
       const dozenNodes = target.map((d) => getDozenNode(d));
       const okDozens = dozenNodes.every(isEnabled);
 
       if (okChips && okDozens) {
         for (let dz = 0; dz < target.length; dz++) {
-          for (const c of chipPlan) {
+          for (const c of plan) {
             const chip = chipNodes[c.i];
             await clickElement(chip);
             for (let k = 0; k < c.times; k++) {
@@ -196,8 +285,8 @@
             }
           }
         }
-        if (PLACE_BUTTON_SEL) {
-          const btn = document.querySelector(PLACE_BUTTON_SEL);
+        if (cfg.placeButtonSel) {
+          const btn = document.querySelector(cfg.placeButtonSel);
           if (isEnabled(btn)) await clickElement(btn);
         }
         return true;
@@ -211,9 +300,7 @@
     const exec = await getExec();
     if (!exec.enabled) return;
 
-    const { spinLogs = [] } = await chrome.storage.local.get({
-      spinLogs: [],
-    });
+    const { spinLogs = [] } = await sget({ spinLogs: [] });
     const d = dozenIndex(n);
 
     if (exec.phase === 'idle') {
@@ -244,10 +331,9 @@
             .join(',')} | шаг 1`
         );
         const ok = await tryPlace(1, t);
-
-        // логируем успешную постановку: время + сумма
         if (ok) {
-          const amount = perDozenForStep(1) * t.length;
+          const cfg = await loadCfg();
+          const amount = perDozenForStep(1, cfg) * t.length;
           await appendBetLog({
             t: Date.now(),
             type: 'placed',
@@ -257,7 +343,6 @@
             step: 1,
           });
         }
-
         setBetStatus(
           ok ? 'armed' : 'error',
           ok ? 'Шаг 1 поставлен' : 'Не удалось поставить шаг 1'
@@ -282,8 +367,9 @@
         );
         return;
       }
-      // loss: reset if step 4, otherwise wait for next
-      if (exec.step >= 4) {
+      const cfg = await loadCfg();
+      const lastStep = Math.max(1, cfg.steps.length);
+      if (exec.step >= lastStep) {
         const reset = {
           ...exec,
           phase: 'idle',
@@ -291,7 +377,7 @@
           step: 1,
           armedAt: 0,
         };
-        await setExec(reset, 'ПРОИГРЫШ на шаге 4 → сброс');
+        await setExec(reset, `ПРОИГРЫШ на шаге ${lastStep} → сброс`);
         return;
       }
       const next = { ...exec, phase: 'waiting', step: exec.step + 1 };
@@ -318,9 +404,9 @@
           `ГОТОВ шаг ${step} на дюжины ${t.map(dozenLabel).join(',')}`
         );
         const ok = await tryPlace(step, t);
-
         if (ok) {
-          const amount = perDozenForStep(step) * t.length;
+          const cfg = await loadCfg();
+          const amount = perDozenForStep(step, cfg) * t.length;
           await appendBetLog({
             t: Date.now(),
             type: 'placed',
@@ -330,7 +416,6 @@
             step,
           });
         }
-
         setBetStatus(
           ok ? 'armed' : 'error',
           ok
@@ -357,6 +442,14 @@
         }
       }
     });
+    // мгновенная подгрузка по сигналу из popup
+    try {
+      chrome.runtime.onMessage.addListener((m) => {
+        if (m?.type === 'AB_CONFIG_SAVED') {
+          /* ничего не делаем — tryPlace всегда читает свежий конфиг */
+        }
+      });
+    } catch {}
   }
 
   async function init() {

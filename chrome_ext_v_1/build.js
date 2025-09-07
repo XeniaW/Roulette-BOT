@@ -7,14 +7,16 @@ const { obfuscate } = obfuscator;
 const isWatch = process.argv.includes('--watch');
 const OBFUSCATE = process.env.OBFUSCATE === '1';
 
+// clean dist
 await fs.rm('dist', { recursive: true, force: true });
 await fs.mkdir('dist', { recursive: true });
 
-// Copy static files
+// copy static files
 await fs.copy('src/manifest.json', 'dist/manifest.json');
 await fs.copy('src/popup.html', 'dist/popup.html');
 await fs.copy('src/popup.css', 'dist/popup.css');
 
+// main entry points (bundled normally)
 const ENTRY_POINTS = {
   content: 'src/content.js',
   bettor: 'src/bettor.js',
@@ -22,9 +24,15 @@ const ENTRY_POINTS = {
   bg: 'src/bg.js',
 };
 
-// Bundle JS
+// separate “global” bundle so manifest/popup can load bet-config.js directly
+const GLOBAL_ENTRY = {
+  'bet-config': 'src/bet-config.js',
+};
+
+// ---- one-off build mode ----
 async function buildOnce() {
-  const ctx = await esbuild.build({
+  // 1) build normal entries
+  await esbuild.build({
     entryPoints: ENTRY_POINTS,
     outdir: 'dist',
     bundle: true,
@@ -36,13 +44,30 @@ async function buildOnce() {
     logLevel: 'info',
   });
 
+  // 2) build global BetConfig (window.BetConfig = {...})
+  await esbuild.build({
+    entryPoints: GLOBAL_ENTRY,
+    outdir: 'dist',
+    bundle: true,
+    minify: true,
+    sourcemap: false,
+    target: ['chrome120'],
+    format: 'iife',
+    platform: 'browser',
+    logLevel: 'info',
+    globalName: 'BetConfig', // exposes named exports on window.BetConfig
+  });
+
+  // 3) optional obfuscation
   if (OBFUSCATE) {
-    for (const name of [
+    const FILES_TO_OBFUSCATE = [
       'content.js',
       'bettor.js',
       'popup.js',
       'bg.js',
-    ]) {
+      'bet-config.js', // include the global bundle too
+    ];
+    for (const name of FILES_TO_OBFUSCATE) {
       const file = `dist/${name}`;
       const code = await fs.readFile(file, 'utf8');
       const obf = obfuscate(code, {
@@ -61,11 +86,13 @@ async function buildOnce() {
     }
   }
 
-  return ctx;
+  console.log('Built → dist/');
 }
 
-if (isWatch) {
-  const build = await esbuild.context({
+// ---- watch mode ----
+async function watchMode() {
+  // normal entries
+  const ctxMain = await esbuild.context({
     entryPoints: ENTRY_POINTS,
     outdir: 'dist',
     bundle: true,
@@ -76,9 +103,27 @@ if (isWatch) {
     platform: 'browser',
     logLevel: 'info',
   });
-  await build.watch();
+
+  // global bet-config
+  const ctxGlobal = await esbuild.context({
+    entryPoints: GLOBAL_ENTRY,
+    outdir: 'dist',
+    bundle: true,
+    minify: false,
+    sourcemap: true,
+    target: ['chrome120'],
+    format: 'iife',
+    platform: 'browser',
+    logLevel: 'info',
+    globalName: 'BetConfig',
+  });
+
+  await Promise.all([ctxMain.watch(), ctxGlobal.watch()]);
   console.log('Watching… Load dist/ as the extension.');
+}
+
+if (isWatch) {
+  await watchMode();
 } else {
   await buildOnce();
-  console.log('Built → dist/');
 }

@@ -22,8 +22,10 @@
       <h3>Domains</h3>
       <div class="row">
         <input id="inpPattern" placeholder="https://example.com/*" />
-        <button id="btnAddPattern">Add</button>
-        <button id="btnAddCurrent">Add current tab</button>
+        <button id="btnAddPattern" class="btn">Add</button>
+        <button id="btnAddCurrent" class="btn">
+          Add current tab
+        </button>
       </div>
       <ul id="domList"></ul>
     </section>
@@ -44,8 +46,8 @@
         </table>
       </div>
       <div class="row">
-        <button id="btnExport">Export CSV</button>
-        <button id="btnClear">Clear</button>
+        <button id="btnExport" class="btn">Export CSV</button>
+        <button id="btnClear" class="btn">Clear</button>
       </div>
     </section>
 
@@ -66,18 +68,64 @@
         </table>
       </div>
       <div class="row">
-        <button id="btnBetExport">Export CSV</button>
-        <button id="btnBetClear">Clear</button>
+        <button id="btnBetExport" class="btn">Export CSV</button>
+        <button id="btnBetClear" class="btn">Clear</button>
       </div>
     </section>
 
     <hr />
+
     <section>
       <label>
         <input type="checkbox" id="autoBetToggle" />
         Auto-betting (Dozens) — OFF by default
       </label>
       <div id="betStatus" class="small"></div>
+    </section>
+
+    <!-- === CONFIG UI (минималистичный) === -->
+    <section class="card">
+      <h3>Auto-bet Config</h3>
+
+      <div class="row">
+        <label class="small label-w">Chip selector template</label>
+        <input
+          id="cfgChipTpl"
+          placeholder='[data-e2e="chip-{{value}}"]'
+        />
+      </div>
+
+      <div class="card card-inner">
+        <h4>Chips (values)</h4>
+        <p class="small muted">Стоимость фишки в евро или рублях</p>
+        <div id="chipsBox"></div>
+        <div class="row">
+          <button id="btnAddChip" class="btn">+ Add chip</button>
+        </div>
+      </div>
+
+      <div class="row">
+        <label class="small label-w">Place button (optional)</label>
+        <input
+          id="cfgPlaceBtn"
+          placeholder='e.g. [data-e2e="place-bet"]'
+        />
+      </div>
+
+      <div class="card card-inner">
+        <h4>Steps</h4>
+        <p class="small muted">Номер фишки умноженый кол-во раз</p>
+        <div id="stepsBox"></div>
+        <div class="row">
+          <button id="btnAddStep" class="btn">+ Add step</button>
+        </div>
+      </div>
+
+      <div class="row row-end">
+        <button id="btnCfgDefaults" class="btn">Defaults</button>
+        <button id="btnCfgSave" class="btn btn-primary">Save</button>
+      </div>
+      <div id="cfgMsg" class="small"></div>
     </section>
 
     <script src="popup.js"></script>

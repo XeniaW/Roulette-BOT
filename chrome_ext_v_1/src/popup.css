@@ -1,3 +1,4 @@
+/* твоя базовая */
 body {
   font: 13px/1.4 system-ui, sans-serif;
   width: 340px;
@@ -89,4 +90,88 @@ ul li button {
   color: #444;
   margin-top: 4px;
   white-space: pre-wrap;
+}
+
+/* добавлено для конфигуратора */
+.btn {
+  padding: 5px 10px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  background: #fafafa;
+  cursor: pointer;
+}
+.btn:hover {
+  background: #f3f3f3;
+}
+.btn-primary {
+  border-color: #1976d2;
+  background: #e3f2fd;
+  color: #0d47a1;
+}
+.btn-danger {
+  border-color: #f44336;
+  background: #ffebee;
+  color: #b71c1c;
+}
+.btn-plain {
+  border-color: #ddd;
+  background: #fff;
+  color: #333;
+}
+
+.card {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 10px;
+}
+.card h3,
+.card h4 {
+  margin: 6px 0;
+}
+.card-inner {
+  margin-top: 8px;
+}
+
+.label-w {
+  min-width: 160px;
+}
+
+.row-end {
+  justify-content: space-between;
+  align-items: center;
+}
+
+.gap-tight {
+  gap: 4px;
+}
+
+.chip-row input[type='number'] {
+  width: 120px;
+}
+#cfgChipTpl,
+#cfgPlaceBtn {
+  width: 100%;
+}
+.step-card {
+  border: 1px dashed #e5e7eb;
+  border-radius: 10px;
+  padding: 8px;
+  margin: 8px 0;
+}
+.step-head {
+  justify-content: space-between;
+  align-items: center;
+}
+.step-items .row {
+  margin-top: 4px;
+}
+.step-item .step-chip-i,
+.step-item .step-times {
+  width: 70px;
+}
+#cfgMsg.ok {
+  color: #1b5e20;
+}
+#cfgMsg.err {
+  color: #b71c1c;
 }
