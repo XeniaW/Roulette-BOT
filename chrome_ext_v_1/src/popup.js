@@ -656,4 +656,3 @@ chrome.storage.onChanged.addListener((ch, area) => {
   if (ch.domains) loadDomains();
   if (ch.autoBettingEnabled || ch.bettingStatus) loadAutoBet();
 });
-F;
