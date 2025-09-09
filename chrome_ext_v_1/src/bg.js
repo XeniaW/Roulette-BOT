@@ -1,4 +1,3 @@
-// bg.js — dynamic registration of content scripts for granted origins
 const CS_ID = 'cs_all';
 
 async function unregisterAll() {
@@ -9,22 +8,25 @@ async function unregisterAll() {
 
 async function getGrantedOrigins() {
   const perms = await chrome.permissions.getAll();
-  // Deduplicate and keep only schemes Chrome accepts for content scripts
-  const uniq = Array.from(new Set(perms.origins || []));
-  return uniq;
+  return Array.from(new Set(perms.origins || []));
 }
 
 async function registerCS() {
   const origins = await getGrantedOrigins();
   await unregisterAll();
-
   if (!origins.length) return;
 
-  // Single registration to GUARANTEE script load order (content.js -> bettor.js)
+  // Порядок важен: engine -> base -> strategies
   await chrome.scripting.registerContentScripts([
     {
       id: CS_ID,
-      js: ['content.js', 'bettor.js'],
+      js: [
+        'content.js',
+        'auto/engine.js',
+        'auto/market-base.js',
+        'auto/dozens.js',
+        'auto/rows.js',
+      ],
       matches: origins,
       runAt: 'document_idle',
       allFrames: true,
@@ -42,15 +44,12 @@ chrome.runtime.onInstalled.addListener(async () => {
     'https://play.livetables.io/*',
     'https://*.livetables.io/*',
   ];
-
   const next = [...new Set([...domains, ...defaults])];
   await chrome.storage.local.set({ domains: next });
 
   try {
-    // polite one-time prompt for defaults
     await chrome.permissions.request({ origins: defaults });
   } catch {}
-
   await registerCS();
 });
 

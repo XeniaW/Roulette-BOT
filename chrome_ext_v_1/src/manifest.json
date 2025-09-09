@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Spins Logger",
-  "version": "2.2.1",
-  "description": "Logs spins; optional auto-dozens betting.",
+  "version": "4.0.0",
+  "description": "Logs spins; auto-betting for dozens & rows.",
   "permissions": ["storage", "downloads", "scripting", "activeTab"],
   "host_permissions": ["https://play.livetables.io/*"],
   "optional_host_permissions": ["<all_urls>"],
@@ -11,7 +11,13 @@
   "content_scripts": [
     {
       "matches": ["https://play.livetables.io/*"],
-      "js": ["content.js", "bettor.js"],
+      "js": [
+        "content.js",
+        "auto/engine.js",
+        "auto/market-base.js",
+        "auto/dozens.js",
+        "auto/rows.js"
+      ],
       "run_at": "document_idle",
       "all_frames": true
     }

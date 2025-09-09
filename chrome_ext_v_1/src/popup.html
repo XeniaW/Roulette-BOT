@@ -75,57 +75,121 @@
 
     <hr />
 
+    <!-- ==== ДОБАВЛЕНО: отдельные переключатели и streak для дюжин/рядов ==== -->
     <section>
-      <label>
-        <input type="checkbox" id="autoBetToggle" />
-        Auto-betting (Dozens) — OFF by default
-      </label>
-      <div id="betStatus" class="small"></div>
+      <label
+        ><input type="checkbox" id="autoBetToggleDozens" />
+        Auto-betting (Dozens)</label
+      >
+      <div class="row">
+        <label class="small label-w">Сколько ДЮЖИН подряд</label>
+        <input
+          id="dozensStreak"
+          type="number"
+          min="2"
+          step="1"
+          value="2"
+        />
+      </div>
+      <div id="betStatusDozens" class="small"></div>
     </section>
 
-    <!-- === CONFIG UI (минималистичный) === -->
-    <section class="card">
-      <h3>Auto-bet Config</h3>
+    <section>
+      <label
+        ><input type="checkbox" id="autoBetToggleRows" /> Auto-betting
+        (Rows)</label
+      >
+      <div class="row">
+        <label class="small label-w">Сколько РЯДОВ подряд</label>
+        <input
+          id="rowsStreak"
+          type="number"
+          min="2"
+          step="1"
+          value="2"
+        />
+      </div>
+      <div id="betStatusRows" class="small"></div>
+    </section>
 
+    <!-- ==== CONFIG: ДЮЖИНЫ ==== -->
+    <section class="card">
+      <h3>Auto-bet Config — Dozens</h3>
       <div class="row">
         <label class="small label-w">Chip selector template</label>
         <input
-          id="cfgChipTpl"
+          id="cfgDznChipTpl"
           placeholder='[data-e2e="chip-{{value}}"]'
         />
       </div>
-
       <div class="card card-inner">
         <h4>Chips (values)</h4>
-        <p class="small muted">Стоимость фишки в евро или рублях</p>
-        <div id="chipsBox"></div>
+        <div id="dznChipsBox"></div>
         <div class="row">
-          <button id="btnAddChip" class="btn">+ Add chip</button>
+          <button id="btnAddDznChip" class="btn">+ Add chip</button>
         </div>
       </div>
-
       <div class="row">
         <label class="small label-w">Place button (optional)</label>
         <input
-          id="cfgPlaceBtn"
+          id="cfgDznPlaceBtn"
           placeholder='e.g. [data-e2e="place-bet"]'
         />
       </div>
-
       <div class="card card-inner">
         <h4>Steps</h4>
-        <p class="small muted">Номер фишки умноженый кол-во раз</p>
-        <div id="stepsBox"></div>
+        <div id="dznStepsBox"></div>
         <div class="row">
-          <button id="btnAddStep" class="btn">+ Add step</button>
+          <button id="btnAddDznStep" class="btn">+ Add step</button>
         </div>
       </div>
-
       <div class="row row-end">
-        <button id="btnCfgDefaults" class="btn">Defaults</button>
-        <button id="btnCfgSave" class="btn btn-primary">Save</button>
+        <button id="btnCfgDznDefaults" class="btn">Defaults</button>
+        <button id="btnCfgDznSave" class="btn btn-primary">
+          Save
+        </button>
       </div>
-      <div id="cfgMsg" class="small"></div>
+      <div id="cfgDznMsg" class="small"></div>
+    </section>
+
+    <!-- ==== CONFIG: РЯДЫ ==== -->
+    <section class="card">
+      <h3>Auto-bet Config — Rows</h3>
+      <div class="row">
+        <label class="small label-w">Chip selector template</label>
+        <input
+          id="cfgRowChipTpl"
+          placeholder='[data-e2e="chip-{{value}}"]'
+        />
+      </div>
+      <div class="card card-inner">
+        <h4>Chips (values)</h4>
+        <div id="rowChipsBox"></div>
+        <div class="row">
+          <button id="btnAddRowChip" class="btn">+ Add chip</button>
+        </div>
+      </div>
+      <div class="row">
+        <label class="small label-w">Place button (optional)</label>
+        <input
+          id="cfgRowPlaceBtn"
+          placeholder='e.g. [data-e2e="place-bet"]'
+        />
+      </div>
+      <div class="card card-inner">
+        <h4>Steps</h4>
+        <div id="rowStepsBox"></div>
+        <div class="row">
+          <button id="btnAddRowStep" class="btn">+ Add step</button>
+        </div>
+      </div>
+      <div class="row row-end">
+        <button id="btnCfgRowDefaults" class="btn">Defaults</button>
+        <button id="btnCfgRowSave" class="btn btn-primary">
+          Save
+        </button>
+      </div>
+      <div id="cfgRowMsg" class="small"></div>
     </section>
 
     <script src="popup.js"></script>

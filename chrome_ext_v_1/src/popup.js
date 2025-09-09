@@ -1,4 +1,4 @@
-/* Popup UI + логика (без devtools) */
+/* Popup UI + логика: трекинг/домены/логи + ДЮЖИНЫ/РЯДЫ */
 const TIME_FMT = {
   year: 'numeric',
   month: '2-digit',
@@ -9,24 +9,8 @@ const TIME_FMT = {
   hour12: false,
 };
 const LOCALE = navigator.language || 'en-US';
-const CFG_KEY = 'abConfig';
 
-const DEFAULT_CFG = Object.freeze({
-  chipSelectorTemplate: '[data-e2e="chip-{{value}}"]', // один шаблон, значения подставляются
-  chipValues: [0.2, 1, 5, 20], // список номиналов
-  placeButtonSel: null,
-  steps: [
-    [{ chip: 1, times: 1 }], // chip — 1-based
-    [{ chip: 1, times: 3 }],
-    [{ chip: 2, times: 2 }],
-    [
-      { chip: 3, times: 1 },
-      { chip: 2, times: 1 },
-    ],
-  ],
-});
-
-// --- утилиты хранилища
+// ====== утилиты хранилища ======
 async function sget(defs) {
   try {
     return await chrome.storage.local.get(defs || {});
@@ -40,70 +24,7 @@ async function sset(obj) {
   } catch {}
 }
 
-function sanitizeCfg(raw) {
-  const src = raw || {};
-  const tpl =
-    typeof src.chipSelectorTemplate === 'string' &&
-    src.chipSelectorTemplate.includes('{{value}}')
-      ? src.chipSelectorTemplate
-      : DEFAULT_CFG.chipSelectorTemplate;
-  let chipValues = Array.isArray(src.chipValues)
-    ? src.chipValues
-        .map(Number)
-        .filter((v) => Number.isFinite(v) && v > 0)
-    : [];
-  if (!chipValues.length) chipValues = [...DEFAULT_CFG.chipValues];
-  const placeButtonSel =
-    typeof src.placeButtonSel === 'string' &&
-    src.placeButtonSel.trim()
-      ? src.placeButtonSel.trim()
-      : null;
-
-  let steps = Array.isArray(src.steps) ? src.steps : [];
-  steps = steps
-    .map((st) => (Array.isArray(st) ? st : []))
-    .map((st) =>
-      st
-        .map((it) => ({
-          chip: Math.max(
-            1,
-            Math.min(
-              chipValues.length,
-              Math.floor(Number(it?.chip ?? 1))
-            )
-          ),
-          times: Math.max(1, Math.floor(Number(it?.times ?? 1))),
-        }))
-        .filter(
-          (it) =>
-            Number.isFinite(it.chip) && Number.isFinite(it.times)
-        )
-    )
-    .filter((st) => st.length);
-
-  if (!steps.length)
-    steps = JSON.parse(JSON.stringify(DEFAULT_CFG.steps));
-  return {
-    chipSelectorTemplate: tpl,
-    chipValues,
-    placeButtonSel,
-    steps,
-  };
-}
-
-async function loadCfg() {
-  const { [CFG_KEY]: cfg = DEFAULT_CFG } = await sget({
-    [CFG_KEY]: DEFAULT_CFG,
-  });
-  return sanitizeCfg(cfg);
-}
-async function saveCfg(cfg) {
-  const clean = sanitizeCfg(cfg);
-  await sset({ [CFG_KEY]: clean });
-  return clean;
-}
-
-// ======= существующие элементы popup (статусы/логи/домены) =======
+// ====== базовые DOM (трекинг/домены/логи) ======
 const tgl = document.getElementById('toggleTrack');
 const statusEl = document.getElementById('status');
 const statusMsg = document.getElementById('statusMsg');
@@ -118,9 +39,6 @@ const countEl = document.getElementById('count');
 const btnExport = document.getElementById('btnExport');
 const btnClear = document.getElementById('btnClear');
 
-const autoBetToggle = document.getElementById('autoBetToggle');
-const betStatus = document.getElementById('betStatus');
-
 const betTbody = document.getElementById('betTbody');
 const betCountEl = document.getElementById('betCount');
 const btnBetExport = document.getElementById('btnBetExport');
@@ -130,7 +48,6 @@ function fmtTime(x) {
   const t = typeof x === 'number' ? x : Date.parse(x);
   return new Date(t).toLocaleString(LOCALE, TIME_FMT);
 }
-
 function renderStatus(s) {
   const state = s?.state || 'off';
   const msg =
@@ -217,8 +134,8 @@ async function addPattern(input) {
 function renderRow(e) {
   const tr = document.createElement('tr');
   const tdT = document.createElement('td');
-  const tdN = document.createElement('td');
   tdT.textContent = fmtTime(e.t ?? e.t_iso);
+  const tdN = document.createElement('td');
   tdN.textContent = String(e.n);
   tdN.className = 'num';
   tr.append(tdT, tdN);
@@ -284,7 +201,10 @@ function renderBetRow(e) {
       : e.type === 'config'
       ? 'Конфиг сохранён'
       : '');
-  tdE.textContent = phase ? `[${phase}] ${msg}` : msg;
+  tdE.textContent =
+    (e.market ? `[${e.market}] ` : '') +
+    (phase ? `[${phase}] ` : '') +
+    msg;
   tdA.className = 'num';
   tr.append(tdT, tdA, tdE);
   return tr;
@@ -315,7 +235,7 @@ function loadBetLogs(cb) {
 function exportBetCSV() {
   loadBetLogs((logs) => {
     const header =
-      'time_iso,time_local,amount,event,phase,type,step\n';
+      'time_iso,time_local,market,amount,event,phase,type,step\n';
     const rows = logs
       .map((e) => {
         const tIso = new Date(e.t).toISOString();
@@ -336,7 +256,9 @@ function exportBetCSV() {
             ? 'Конфиг сохранён'
             : ''
         ).replace(/,/g, ' ');
-        return `${tIso},${tLocal},${amt},${eventText},${phase},${type},${step}`;
+        return `${tIso},${tLocal},${
+          e.market || ''
+        },${amt},${eventText},${phase},${type},${step}`;
       })
       .join('\n');
     const blob = new Blob([header, rows, '\n']);
@@ -351,22 +273,6 @@ function clearBetLogs() {
   chrome.storage.local.set({ betLogs: [] }, () => renderBetAll([]));
 }
 
-async function loadAutoBet() {
-  const {
-    autoBettingEnabled = false,
-    bettingStatus = { state: 'off', message: '' },
-  } = await sget({
-    autoBettingEnabled: false,
-    bettingStatus: { state: 'off', message: '' },
-  });
-  autoBetToggle.checked = !!autoBettingEnabled;
-  betStatus.textContent = `[${(
-    bettingStatus.state || 'off'
-  ).toUpperCase()}] ${bettingStatus.message || ''}`;
-}
-function setAutoBet(val) {
-  chrome.storage.local.set({ autoBettingEnabled: !!val });
-}
 async function loadToggle() {
   const { trackingEnabled = false } = await sget({
     trackingEnabled: false,
@@ -377,90 +283,226 @@ function setToggle(val) {
   chrome.storage.local.set({ trackingEnabled: !!val });
 }
 
-// ===== CONFIG UI =====
-const cfgMsg = document.getElementById('cfgMsg');
-const cfgChipTpl = document.getElementById('cfgChipTpl');
-const cfgPlaceBtn = document.getElementById('cfgPlaceBtn');
-const chipsBox = document.getElementById('chipsBox');
-const stepsBox = document.getElementById('stepsBox');
+// ====== РЫНКИ (дюжины/ряды) ======
+const CFG_DZN_KEY = 'abDozensConfig';
+const CFG_ROW_KEY = 'abRowsConfig';
 
-function ok(m) {
-  cfgMsg.textContent = m;
-  cfgMsg.className = 'small ok';
+const DEFAULT_MKT_CFG = Object.freeze({
+  chipSelectorTemplate: '[data-e2e="chip-{{value}}"]',
+  chipValues: [0.2, 1, 5, 20],
+  placeButtonSel: null,
+  triggerStreak: 2,
+  steps: [
+    [{ chip: 1, times: 1 }],
+    [{ chip: 1, times: 3 }],
+    [{ chip: 2, times: 2 }],
+    [
+      { chip: 3, times: 1 },
+      { chip: 2, times: 1 },
+    ],
+  ],
+});
+
+function sanitizeMktCfg(raw) {
+  const d = DEFAULT_MKT_CFG;
+  const src = raw || {};
+  const tpl =
+    typeof src.chipSelectorTemplate === 'string' &&
+    src.chipSelectorTemplate.includes('{{value}}')
+      ? src.chipSelectorTemplate
+      : d.chipSelectorTemplate;
+  let chipValues = Array.isArray(src.chipValues)
+    ? src.chipValues
+        .map(Number)
+        .filter((v) => Number.isFinite(v) && v > 0)
+    : [];
+  if (!chipValues.length) chipValues = [...d.chipValues];
+  const placeButtonSel =
+    typeof src.placeButtonSel === 'string' &&
+    src.placeButtonSel.trim()
+      ? src.placeButtonSel.trim()
+      : null;
+  const triggerStreak = Math.max(
+    2,
+    Math.floor(Number(src.triggerStreak ?? d.triggerStreak))
+  );
+  let steps = Array.isArray(src.steps) ? src.steps : d.steps;
+  steps = steps
+    .map((st) => (Array.isArray(st) ? st : []))
+    .map((st) =>
+      st
+        .map((it) => ({
+          chip: Math.max(
+            1,
+            Math.min(
+              chipValues.length,
+              Math.floor(Number(it?.chip ?? 1))
+            )
+          ),
+          times: Math.max(1, Math.floor(Number(it?.times ?? 1))),
+        }))
+        .filter(
+          (it) =>
+            Number.isFinite(it.chip) && Number.isFinite(it.times)
+        )
+    )
+    .filter((st) => st.length);
+  if (!steps.length) steps = JSON.parse(JSON.stringify(d.steps));
+  return {
+    chipSelectorTemplate: tpl,
+    chipValues,
+    placeButtonSel,
+    steps,
+    triggerStreak,
+  };
 }
-function err(m) {
-  cfgMsg.textContent = m;
-  cfgMsg.className = 'small err';
+async function loadMktCfg(key) {
+  const { [key]: cfg = DEFAULT_MKT_CFG } = await sget({
+    [key]: DEFAULT_MKT_CFG,
+  });
+  return sanitizeMktCfg(cfg);
+}
+async function saveMktCfg(key, cfg) {
+  const clean = sanitizeMktCfg(cfg);
+  await sset({ [key]: clean });
+  try {
+    const { betLogs = [] } = await sget({ betLogs: [] });
+    betLogs.push({
+      t: Date.now(),
+      type: 'config',
+      market: key.includes('Rows') ? 'rows' : 'dozens',
+      message: 'Конфиг сохранён',
+      chipsCount: clean.chipValues.length,
+      stepsCount: clean.steps.length,
+      triggerStreak: clean.triggerStreak,
+    });
+    if (betLogs.length > 2000)
+      betLogs.splice(0, betLogs.length - 2000);
+    await sset({ betLogs });
+  } catch {}
+  try {
+    await chrome.runtime.sendMessage({ type: 'AB_CONFIG_SAVED' });
+  } catch {}
+  return clean;
 }
 
+// DOM для рынков
+const autoBetToggleDozens = document.getElementById(
+  'autoBetToggleDozens'
+);
+const autoBetToggleRows = document.getElementById(
+  'autoBetToggleRows'
+);
+const betStatusDozens = document.getElementById('betStatusDozens');
+const betStatusRows = document.getElementById('betStatusRows');
+const dozensStreakInp = document.getElementById('dozensStreak');
+const rowsStreakInp = document.getElementById('rowsStreak');
+
+// Dozens config widgets
+const cfgDznMsg = document.getElementById('cfgDznMsg');
+const cfgDznChipTpl = document.getElementById('cfgDznChipTpl');
+const cfgDznPlaceBtn = document.getElementById('cfgDznPlaceBtn');
+const dznChipsBox = document.getElementById('dznChipsBox');
+const dznStepsBox = document.getElementById('dznStepsBox');
+document
+  .getElementById('btnAddDznChip')
+  .addEventListener('click', () =>
+    dznChipsBox.appendChild(makeChipRow())
+  );
+document
+  .getElementById('btnAddDznStep')
+  .addEventListener('click', () => {
+    makeStepCard(dznStepsBox, [{ chip: 1, times: 1 }]);
+  });
+document
+  .getElementById('btnCfgDznDefaults')
+  .addEventListener('click', async () => {
+    const d = DEFAULT_MKT_CFG;
+    cfgDznChipTpl.value = d.chipSelectorTemplate;
+    cfgDznPlaceBtn.value = d.placeButtonSel ?? '';
+    dozensStreakInp.value = String(d.triggerStreak);
+    renderChips(dznChipsBox, d.chipValues);
+    renderSteps(dznStepsBox, d.steps);
+    cfgDznMsg.textContent = 'Defaults loaded (not saved).';
+  });
+document
+  .getElementById('btnCfgDznSave')
+  .addEventListener('click', () => saveMarketCfgFromUI('dozens'));
+
+// Rows config widgets
+const cfgRowMsg = document.getElementById('cfgRowMsg');
+const cfgRowChipTpl = document.getElementById('cfgRowChipTpl');
+const cfgRowPlaceBtn = document.getElementById('cfgRowPlaceBtn');
+const rowChipsBox = document.getElementById('rowChipsBox');
+const rowStepsBox = document.getElementById('rowStepsBox');
+document
+  .getElementById('btnAddRowChip')
+  .addEventListener('click', () =>
+    rowChipsBox.appendChild(makeChipRow())
+  );
+document
+  .getElementById('btnAddRowStep')
+  .addEventListener('click', () => {
+    makeStepCard(rowStepsBox, [{ chip: 1, times: 1 }]);
+  });
+document
+  .getElementById('btnCfgRowDefaults')
+  .addEventListener('click', async () => {
+    const d = DEFAULT_MKT_CFG;
+    cfgRowChipTpl.value = d.chipSelectorTemplate;
+    cfgRowPlaceBtn.value = d.placeButtonSel ?? '';
+    rowsStreakInp.value = String(d.triggerStreak);
+    renderChips(rowChipsBox, d.chipValues);
+    renderSteps(rowStepsBox, d.steps);
+    cfgRowMsg.textContent = 'Defaults loaded (not saved).';
+  });
+document
+  .getElementById('btnCfgRowSave')
+  .addEventListener('click', () => saveMarketCfgFromUI('rows'));
+
+// helpers для конфиг-UI
 function makeChipRow(value = '') {
   const div = document.createElement('div');
   div.className = 'row chip-row';
-  div.innerHTML = `
-    <span class="small">Value</span>
-    <input type="number" step="0.0001" class="chip-val" value="${
-      value !== '' ? value : ''
-    }">
-    <button class="btn btn-danger btn-del-chip">x</button>
-  `;
+  div.innerHTML = `<span class="small">Value</span><input type="number" step="0.0001" class="chip-val" value="${
+    value !== '' ? value : ''
+  }"><button class="btn btn-danger btn-del-chip">x</button>`;
   div
     .querySelector('.btn-del-chip')
     .addEventListener('click', () => div.remove());
   return div;
 }
-function renderChips(cfg) {
-  chipsBox.innerHTML = '';
-  const vals = cfg.chipValues || [];
-  if (!vals.length) {
-    chipsBox.appendChild(makeChipRow());
-    return;
-  }
-  vals.forEach((v) => chipsBox.appendChild(makeChipRow(v)));
+function renderChips(box, vals) {
+  box.innerHTML = '';
+  (vals && vals.length ? vals : ['']).forEach((v) =>
+    box.appendChild(makeChipRow(v))
+  );
 }
-function getChipsFromUI() {
+function getChipsFromUI(box) {
   const vals = [];
-  chipsBox.querySelectorAll('.chip-val').forEach((inp) => {
+  box.querySelectorAll('.chip-val').forEach((inp) => {
     const v = Number(inp.value);
     if (Number.isFinite(v) && v > 0) vals.push(v);
   });
   return vals;
 }
-
 function makeStepItemRow(chipIndex1 = 1, times = 1) {
   const row = document.createElement('div');
   row.className = 'row step-item';
-  row.innerHTML = `
-    <span class="small">Chip #</span>
-    <input type="number" min="1" step="1" class="step-chip-i" value="${chipIndex1}">
-    <span class="small">X</span>
-    <input type="number" min="1" step="1" class="step-times" value="${times}">
-    <button class="btn btn-danger btn-del-item">x</button>
-  `;
+  row.innerHTML = `<span class="small">Chip #</span><input type="number" min="1" step="1" class="step-chip-i" value="${chipIndex1}"><span class="small">X</span><input type="number" min="1" step="1" class="step-times" value="${times}"><button class="btn btn-danger btn-del-item">x</button>`;
   row
     .querySelector('.btn-del-item')
     .addEventListener('click', () => row.remove());
   return row;
 }
-function makeStepCard(stepIdx, items) {
+function makeStepCard(container, items) {
   const card = document.createElement('div');
   card.className = 'step-card';
-  card.innerHTML = `
-    <div class="row step-head">
-      <strong>Step <span class="step-idx">${
-        stepIdx + 1
-      }</span></strong>
-      <div class="row gap-tight">
-        <button class="btn btn-plain btn-add-item">+ Add item</button>
-        <button class="btn btn-danger btn-del-step">Remove step</button>
-      </div>
-    </div>
-    <div class="step-items"></div>
-  `;
+  card.innerHTML = `<div class="row step-head"><strong>Step</strong><div class="row gap-tight"><button class="btn btn-plain btn-add-item">+ Add item</button><button class="btn btn-danger btn-del-step">Remove step</button></div></div><div class="step-items"></div>`;
   const box = card.querySelector('.step-items');
   (items && items.length ? items : [{ chip: 1, times: 1 }]).forEach(
-    (it) => {
-      box.appendChild(makeStepItemRow(it.chip ?? 1, it.times ?? 1));
-    }
+    (it) =>
+      box.appendChild(makeStepItemRow(it.chip ?? 1, it.times ?? 1))
   );
   card
     .querySelector('.btn-add-item')
@@ -471,28 +513,19 @@ function makeStepCard(stepIdx, items) {
     .querySelector('.btn-del-step')
     .addEventListener('click', () => {
       card.remove();
-      renumberSteps();
     });
-  return card;
+  container.appendChild(card);
 }
-function renderSteps(cfg) {
-  stepsBox.innerHTML = '';
-  const steps =
-    Array.isArray(cfg.steps) && cfg.steps.length
-      ? cfg.steps
-      : [[{ chip: 1, times: 1 }]];
-  steps.forEach((st, idx) =>
-    stepsBox.appendChild(makeStepCard(idx, st))
-  );
+function renderSteps(box, steps) {
+  box.innerHTML = '';
+  (Array.isArray(steps) && steps.length
+    ? steps
+    : [[{ chip: 1, times: 1 }]]
+  ).forEach((st) => makeStepCard(box, st));
 }
-function renumberSteps() {
-  stepsBox
-    .querySelectorAll('.step-card .step-idx')
-    .forEach((el, i) => (el.textContent = String(i + 1)));
-}
-function getStepsFromUI() {
+function getStepsFromUI(box) {
   const out = [];
-  stepsBox.querySelectorAll('.step-card').forEach((card) => {
+  box.querySelectorAll('.step-card').forEach((card) => {
     const items = [];
     card.querySelectorAll('.step-item').forEach((it) => {
       const iVal = Number(it.querySelector('.step-chip-i').value);
@@ -502,79 +535,133 @@ function getStepsFromUI() {
         iVal >= 1 &&
         Number.isFinite(tVal) &&
         tVal >= 1
-      ) {
+      )
         items.push({
           chip: Math.floor(iVal),
           times: Math.floor(tVal),
         });
-      }
     });
     if (items.length) out.push(items);
   });
   return out;
 }
 
-async function loadConfigToUI() {
-  const cfg = await loadCfg();
-  cfgChipTpl.value = cfg.chipSelectorTemplate;
-  cfgPlaceBtn.value = cfg.placeButtonSel ?? '';
-  renderChips(cfg);
-  renderSteps(cfg);
-  ok('Loaded');
-}
-async function saveConfigFromUI() {
-  const tpl = (cfgChipTpl.value || '').trim();
-  if (!tpl.includes('{{value}}'))
-    return err('Template must include {{value}}');
-  const chipValues = getChipsFromUI();
-  if (!chipValues.length) return err('Add at least one chip value');
-  const steps = getStepsFromUI();
-  if (!steps.length) return err('Add at least one step');
-  for (const st of steps)
-    for (const it of st) {
-      if (it.chip < 1 || it.chip > chipValues.length)
-        return err('Step uses invalid Chip #');
-    }
-  const placeButtonSel = (cfgPlaceBtn.value || '').trim() || null;
+async function loadMarketUI(market) {
+  const isDozens = market === 'dozens';
+  const cfgKey = isDozens ? CFG_DZN_KEY : CFG_ROW_KEY;
+  const enKey = isDozens
+    ? 'autoBettingDozensEnabled'
+    : 'autoBettingRowsEnabled';
+  const statusKey = isDozens
+    ? 'bettingStatusDozens'
+    : 'bettingStatusRows';
+  const streakInp = isDozens ? dozensStreakInp : rowsStreakInp;
+  const toggle = isDozens ? autoBetToggleDozens : autoBetToggleRows;
 
-  const saved = await saveCfg({
+  const obj = await sget({
+    [enKey]: false,
+    [statusKey]: { state: 'off', message: '' },
+  });
+  toggle.checked = !!obj[enKey];
+  const st = obj[statusKey] || { state: 'off', message: '' };
+  (isDozens ? betStatusDozens : betStatusRows).textContent = `[${(
+    st.state || 'off'
+  ).toUpperCase()}] ${st.message || ''}`;
+
+  const cfg = await loadMktCfg(cfgKey);
+  streakInp.value = String(cfg.triggerStreak);
+
+  if (isDozens) {
+    cfgDznChipTpl.value = cfg.chipSelectorTemplate;
+    cfgDznPlaceBtn.value = cfg.placeButtonSel ?? '';
+    renderChips(dznChipsBox, cfg.chipValues);
+    renderSteps(dznStepsBox, cfg.steps);
+    cfgDznMsg.textContent = 'Loaded';
+  } else {
+    cfgRowChipTpl.value = cfg.chipSelectorTemplate;
+    cfgRowPlaceBtn.value = cfg.placeButtonSel ?? '';
+    renderChips(rowChipsBox, cfg.chipValues);
+    renderSteps(rowStepsBox, cfg.steps);
+    cfgRowMsg.textContent = 'Loaded';
+  }
+}
+
+async function saveMarketCfgFromUI(market) {
+  const isDozens = market === 'dozens';
+  const cfgKey = isDozens ? CFG_DZN_KEY : CFG_ROW_KEY;
+
+  const tpl = (
+    isDozens ? cfgDznChipTpl.value : cfgRowChipTpl.value
+  ).trim();
+  if (!tpl.includes('{{value}}'))
+    return ((isDozens ? cfgDznMsg : cfgRowMsg).textContent =
+      'Template must include {{value}}');
+
+  const chipValues = getChipsFromUI(
+    isDozens ? dznChipsBox : rowChipsBox
+  );
+  if (!chipValues.length)
+    return ((isDozens ? cfgDznMsg : cfgRowMsg).textContent =
+      'Add at least one chip value');
+
+  const steps = getStepsFromUI(isDozens ? dznStepsBox : rowStepsBox);
+  if (!steps.length)
+    return ((isDozens ? cfgDznMsg : cfgRowMsg).textContent =
+      'Add at least one step');
+
+  for (const st of steps)
+    for (const it of st)
+      if (it.chip < 1 || it.chip > chipValues.length)
+        return ((isDozens ? cfgDznMsg : cfgRowMsg).textContent =
+          'Step uses invalid Chip #');
+
+  const placeButtonSel =
+    (
+      (isDozens ? cfgDznPlaceBtn.value : cfgRowPlaceBtn.value) || ''
+    ).trim() || null;
+  const triggerStreak = Math.max(
+    2,
+    Math.floor(
+      Number(
+        (isDozens ? dozensStreakInp.value : rowsStreakInp.value) || 2
+      )
+    )
+  );
+
+  await saveMktCfg(cfgKey, {
     chipSelectorTemplate: tpl,
     chipValues,
     placeButtonSel,
     steps,
+    triggerStreak,
   });
-
-  // лог в таблицу
-  try {
-    const { betLogs = [] } = await sget({ betLogs: [] });
-    betLogs.push({
-      t: Date.now(),
-      type: 'config',
-      message: 'Конфиг сохранён',
-      chipsCount: saved.chipValues.length,
-      stepsCount: saved.steps.length,
-    });
-    if (betLogs.length > 2000)
-      betLogs.splice(0, betLogs.length - 2000);
-    await sset({ betLogs });
-  } catch {}
-
-  // пинок беттору на мгновенную перезагрузку
-  try {
-    await chrome.runtime.sendMessage({ type: 'AB_CONFIG_SAVED' });
-  } catch {}
-
-  ok('Saved.');
+  (isDozens ? cfgDznMsg : cfgRowMsg).textContent = 'Saved.';
 }
 
 // ===== INIT =====
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  // миграция старого единственного конфига (если был)
+  const mig = await sget({ abConfig: null });
+  if (mig.abConfig) {
+    const cleaned = sanitizeMktCfg(mig.abConfig);
+    await sset({ [CFG_DZN_KEY]: cleaned });
+    await sset({ abConfig: null });
+  }
+
   loadStatus();
   loadDomains();
   loadLogs(renderAll);
   loadBetLogs(renderBetAll);
-  loadAutoBet();
-  loadToggle();
+  await loadMarketUI('dozens');
+  await loadMarketUI('rows');
+  await loadToggle();
+
+  btnExport.addEventListener('click', exportCSV);
+  btnClear.addEventListener('click', clearLogs);
+  if (btnBetExport)
+    btnBetExport.addEventListener('click', exportBetCSV);
+  if (btnBetClear)
+    btnBetClear.addEventListener('click', clearBetLogs);
 
   document
     .getElementById('btnAddPattern')
@@ -593,47 +680,13 @@ document.addEventListener('DOMContentLoaded', () => {
       } catch {}
     });
 
-  btnExport.addEventListener('click', exportCSV);
-  btnClear.addEventListener('click', clearLogs);
-  if (btnBetExport)
-    btnBetExport.addEventListener('click', exportBetCSV);
-  if (btnBetClear)
-    btnBetClear.addEventListener('click', clearBetLogs);
-
   tgl.addEventListener('change', () => setToggle(tgl.checked));
-  autoBetToggle.addEventListener('change', () =>
-    setAutoBet(autoBetToggle.checked)
+  autoBetToggleDozens.addEventListener('change', () =>
+    sset({ autoBettingDozensEnabled: !!autoBetToggleDozens.checked })
   );
-
-  document
-    .getElementById('btnAddChip')
-    .addEventListener('click', () =>
-      chipsBox.appendChild(makeChipRow())
-    );
-  document
-    .getElementById('btnAddStep')
-    .addEventListener('click', () => {
-      stepsBox.appendChild(
-        makeStepCard(stepsBox.children.length, [
-          { chip: 1, times: 1 },
-        ])
-      );
-      renumberSteps();
-    });
-  document
-    .getElementById('btnCfgDefaults')
-    .addEventListener('click', async () => {
-      renderChips(DEFAULT_CFG);
-      renderSteps(DEFAULT_CFG);
-      cfgChipTpl.value = DEFAULT_CFG.chipSelectorTemplate;
-      cfgPlaceBtn.value = DEFAULT_CFG.placeButtonSel ?? '';
-      ok('Defaults loaded (not saved).');
-    });
-  document
-    .getElementById('btnCfgSave')
-    .addEventListener('click', saveConfigFromUI);
-
-  loadConfigToUI();
+  autoBetToggleRows.addEventListener('change', () =>
+    sset({ autoBettingRowsEnabled: !!autoBetToggleRows.checked })
+  );
 });
 
 // live updates
@@ -654,5 +707,31 @@ chrome.storage.onChanged.addListener((ch, area) => {
     else renderBetAll(Array.isArray(newValue) ? newValue : []);
   }
   if (ch.domains) loadDomains();
-  if (ch.autoBettingEnabled || ch.bettingStatus) loadAutoBet();
+
+  if (ch.bettingStatusDozens) {
+    const st = ch.bettingStatusDozens.newValue || {
+      state: 'off',
+      message: '',
+    };
+    betStatusDozens.textContent = `[${(
+      st.state || 'off'
+    ).toUpperCase()}] ${st.message || ''}`;
+  }
+  if (ch.bettingStatusRows) {
+    const st = ch.bettingStatusRows.newValue || {
+      state: 'off',
+      message: '',
+    };
+    betStatusRows.textContent = `[${(
+      st.state || 'off'
+    ).toUpperCase()}] ${st.message || ''}`;
+  }
+  if (ch.abDozensConfig) {
+    const cfg = ch.abDozensConfig.newValue;
+    dozensStreakInp.value = String(cfg?.triggerStreak ?? 2);
+  }
+  if (ch.abRowsConfig) {
+    const cfg = ch.abRowsConfig.newValue;
+    rowsStreakInp.value = String(cfg?.triggerStreak ?? 2);
+  }
 });

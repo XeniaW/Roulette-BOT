@@ -1,4 +1,3 @@
-/* твоя базовая */
 body {
   font: 13px/1.4 system-ui, sans-serif;
   width: 340px;
@@ -92,7 +91,6 @@ ul li button {
   white-space: pre-wrap;
 }
 
-/* добавлено для конфигуратора */
 .btn {
   padding: 5px 10px;
   border: 1px solid #ddd;
@@ -131,25 +129,23 @@ ul li button {
 .card-inner {
   margin-top: 8px;
 }
-
 .label-w {
   min-width: 160px;
 }
-
 .row-end {
   justify-content: space-between;
   align-items: center;
 }
-
 .gap-tight {
   gap: 4px;
 }
-
 .chip-row input[type='number'] {
   width: 120px;
 }
-#cfgChipTpl,
-#cfgPlaceBtn {
+#cfgDznChipTpl,
+#cfgDznPlaceBtn,
+#cfgRowChipTpl,
+#cfgRowPlaceBtn {
   width: 100%;
 }
 .step-card {
@@ -169,9 +165,11 @@ ul li button {
 .step-item .step-times {
   width: 70px;
 }
-#cfgMsg.ok {
+#cfgDznMsg.ok,
+#cfgRowMsg.ok {
   color: #1b5e20;
 }
-#cfgMsg.err {
+#cfgDznMsg.err,
+#cfgRowMsg.err {
   color: #b71c1c;
 }

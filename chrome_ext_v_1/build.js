@@ -7,68 +7,56 @@ const { obfuscate } = obfuscator;
 const isWatch = process.argv.includes('--watch');
 const OBFUSCATE = process.env.OBFUSCATE === '1';
 
-// clean dist
+// ---------- clean dist ----------
 await fs.rm('dist', { recursive: true, force: true });
 await fs.mkdir('dist', { recursive: true });
 
-// copy static files
+// ---------- copy statics ----------
 await fs.copy('src/manifest.json', 'dist/manifest.json');
 await fs.copy('src/popup.html', 'dist/popup.html');
 await fs.copy('src/popup.css', 'dist/popup.css');
+// (добавь сюда копирование иконок/других статик-файлов, если есть)
 
-// main entry points (bundled normally)
-const ENTRY_POINTS = {
-  content: 'src/content.js',
-  bettor: 'src/bettor.js',
-  popup: 'src/popup.js',
-  bg: 'src/bg.js',
+// ---------- entry points ----------
+// Собираем как отдельные IIFE-файлы, сохраняя структуру папок src -> dist
+const ENTRY_POINTS = [
+  'src/content.js',
+  'src/bg.js',
+  'src/popup.js',
+  'src/auto/engine.js',
+  'src/auto/market-base.js',
+  'src/auto/dozens.js',
+  'src/auto/rows.js',
+];
+
+// общий esbuild-конфиг
+const BASE_BUILD_OPTS = {
+  entryPoints: ENTRY_POINTS,
+  outdir: 'dist',
+  outbase: 'src', // важен для сохранения структуры (dist/auto/..)
+  entryNames: '[dir]/[name]', // имя файла = как в src
+  bundle: true,
+  target: ['chrome120'],
+  format: 'iife',
+  platform: 'browser',
+  logLevel: 'info',
 };
 
-// separate “global” bundle so manifest/popup can load bet-config.js directly
-const GLOBAL_ENTRY = {
-  'bet-config': 'src/bet-config.js',
-};
-
-// ---- one-off build mode ----
+// ---------- one-off build ----------
 async function buildOnce() {
-  // 1) build normal entries
   await esbuild.build({
-    entryPoints: ENTRY_POINTS,
-    outdir: 'dist',
-    bundle: true,
+    ...BASE_BUILD_OPTS,
     minify: true,
     sourcemap: false,
-    target: ['chrome120'],
-    format: 'iife',
-    platform: 'browser',
-    logLevel: 'info',
   });
 
-  // 2) build global BetConfig (window.BetConfig = {...})
-  await esbuild.build({
-    entryPoints: GLOBAL_ENTRY,
-    outdir: 'dist',
-    bundle: true,
-    minify: true,
-    sourcemap: false,
-    target: ['chrome120'],
-    format: 'iife',
-    platform: 'browser',
-    logLevel: 'info',
-    globalName: 'BetConfig', // exposes named exports on window.BetConfig
-  });
-
-  // 3) optional obfuscation
+  // optional obfuscation (по собранным файлам)
   if (OBFUSCATE) {
-    const FILES_TO_OBFUSCATE = [
-      'content.js',
-      'bettor.js',
-      'popup.js',
-      'bg.js',
-      'bet-config.js', // include the global bundle too
-    ];
-    for (const name of FILES_TO_OBFUSCATE) {
-      const file = `dist/${name}`;
+    // генерируем список исходя из ENTRY_POINTS, мапим src/ -> dist/
+    const files = ENTRY_POINTS.map((p) =>
+      p.replace(/^src\//, 'dist/')
+    );
+    for (const file of files) {
       const code = await fs.readFile(file, 'utf8');
       const obf = obfuscate(code, {
         compact: true,
@@ -89,36 +77,14 @@ async function buildOnce() {
   console.log('Built → dist/');
 }
 
-// ---- watch mode ----
+// ---------- watch mode ----------
 async function watchMode() {
-  // normal entries
-  const ctxMain = await esbuild.context({
-    entryPoints: ENTRY_POINTS,
-    outdir: 'dist',
-    bundle: true,
+  const ctx = await esbuild.context({
+    ...BASE_BUILD_OPTS,
     minify: false,
     sourcemap: true,
-    target: ['chrome120'],
-    format: 'iife',
-    platform: 'browser',
-    logLevel: 'info',
   });
-
-  // global bet-config
-  const ctxGlobal = await esbuild.context({
-    entryPoints: GLOBAL_ENTRY,
-    outdir: 'dist',
-    bundle: true,
-    minify: false,
-    sourcemap: true,
-    target: ['chrome120'],
-    format: 'iife',
-    platform: 'browser',
-    logLevel: 'info',
-    globalName: 'BetConfig',
-  });
-
-  await Promise.all([ctxMain.watch(), ctxGlobal.watch()]);
+  await ctx.watch();
   console.log('Watching… Load dist/ as the extension.');
 }
 
