@@ -16,7 +16,6 @@ async function registerCS() {
   await unregisterAll();
   if (!origins.length) return;
 
-  // Порядок важен: engine -> base -> strategies
   await chrome.scripting.registerContentScripts([
     {
       id: CS_ID,
@@ -26,6 +25,7 @@ async function registerCS() {
         'auto/market-base.js',
         'auto/dozens.js',
         'auto/rows.js',
+        'auto/combo.js',
       ],
       matches: origins,
       runAt: 'document_idle',
@@ -35,7 +35,6 @@ async function registerCS() {
   ]);
 }
 
-// Seed defaults once, request them, then register
 chrome.runtime.onInstalled.addListener(async () => {
   const { domains = [] } = await chrome.storage.local.get({
     domains: [],
@@ -55,7 +54,6 @@ chrome.runtime.onInstalled.addListener(async () => {
 
 chrome.runtime.onStartup.addListener(registerCS);
 
-// Popup → re-register after domain changes
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === 'REREGISTER_CS') {
     registerCS()

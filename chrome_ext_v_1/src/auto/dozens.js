@@ -1,8 +1,5 @@
 (() => {
   const DEFAULT_CFG = Object.freeze({
-    chipSelectorTemplate: '[data-e2e="chip-{{value}}"]',
-    chipValues: [0.2, 1, 5, 20],
-    placeButtonSel: null,
     triggerStreak: 2,
     steps: [
       [{ chip: 1, times: 1 }],
@@ -24,22 +21,22 @@
 
   function dozenIndex(n) {
     if (n === 0) return -1;
-    if (n >= 1 && n <= 12) return 0;
-    if (n >= 13 && n <= 24) return 1;
-    if (n >= 25 && n <= 36) return 2;
+    if (n <= 12) return 0;
+    if (n <= 24) return 1;
+    if (n <= 36) return 2;
     return -1;
   }
   function otherTwo(skip) {
     return [0, 1, 2].filter((d) => d !== skip);
   }
   function getDozenNode(idx) {
-    const fallbackSel =
+    const sel =
       idx === 0
         ? '#index-800'
         : idx === 1
         ? '#index-801'
         : '#index-802';
-    return dozenButtons[idx] || document.querySelector(fallbackSel);
+    return dozenButtons[idx] || document.querySelector(sel);
   }
 
   class DozensStrategy extends window.MarketBase {
@@ -56,6 +53,205 @@
         defaultCfg: DEFAULT_CFG,
       });
     }
+
+    async onSpin(n) {
+      const exec = await this.getExec();
+      if (!exec.enabled) return;
+
+      const { spinLogs = [] } = await this.sget({ spinLogs: [] });
+      const ix = this.getIndex(n);
+
+      if (exec.phase === 'idle') {
+        const { triggerStreak, steps } = await this.loadCfg();
+        let last = [];
+        for (
+          let i = spinLogs.length - 1;
+          i >= 0 && last.length < triggerStreak;
+          i--
+        ) {
+          const di = this.getIndex(spinLogs[i].n);
+          if (di !== -1) last.push(di);
+        }
+        const allSame =
+          last.length >= triggerStreak &&
+          last.every((z) => z === last[0]);
+        if (allSame) {
+          const t = this.getOthers(last[0]);
+          const next = {
+            ...exec,
+            phase: 'armed',
+            target: t,
+            step: 1,
+            armedAt: Date.now(),
+          };
+          await this.setExec(
+            next,
+            `ВХОД → дюжины ${t
+              .map((x) => this.label(x))
+              .join(',')} | шаг 1`
+          );
+
+          const ok = await BET.tryPlace({
+            step: 1,
+            targets: t,
+            steps,
+            getTargetNode: (i) => this.getTargetNode(i),
+            mutex: this.mutex,
+          });
+          if (ok) {
+            const chips = await BET.loadGlobalChips();
+            const amount =
+              BET.perTargetAmountForStep(1, steps, chips.chipValues) *
+              t.length;
+            try {
+              const { betLogs = [] } = await this.sget({
+                betLogs: [],
+              });
+              betLogs.push({
+                t: Date.now(),
+                type: 'placed',
+                market: 'dozens',
+                phase: 'armed',
+                message: 'Шаг 1 поставлен',
+                amount,
+                step: 1,
+              });
+              if (betLogs.length > 2000)
+                betLogs.splice(0, betLogs.length - 2000);
+              await this.sset({ betLogs });
+            } catch {}
+          }
+          BET.setBetStatus(
+            'bettingStatusDozens',
+            ok ? 'armed' : 'error',
+            ok ? 'Шаг 1 поставлен' : 'Не удалось поставить шаг 1'
+          );
+        }
+        return;
+      }
+
+      if (exec.phase === 'armed') {
+        const win = ix !== -1 && exec.target.includes(ix);
+        if (win) {
+          const next = {
+            ...exec,
+            phase: 'idle',
+            target: null,
+            step: 1,
+            armedAt: 0,
+          };
+          await this.setExec(
+            next,
+            `ВЫИГРЫШ на дюжине ${this.label(ix)} → сброс`
+          );
+          return;
+        }
+        const { steps } = await this.loadCfg();
+        const lastStep = Math.max(1, steps.length);
+        if (exec.step >= lastStep) {
+          const reset = {
+            ...exec,
+            phase: 'idle',
+            target: null,
+            step: 1,
+            armedAt: 0,
+          };
+          await this.setExec(
+            reset,
+            `ПРОИГРЫШ на шаге ${lastStep} → сброс`
+          );
+          return;
+        }
+        const next = {
+          ...exec,
+          phase: 'waiting',
+          step: exec.step + 1,
+        };
+        await this.setExec(
+          next,
+          `ПРОИГРЫШ → ожидание, следующий шаг ${next.step}`
+        );
+        return;
+      }
+
+      if (exec.phase === 'waiting') {
+        if (ix !== -1 && exec.target?.includes(ix)) {
+          const step = exec.step,
+            t = exec.target;
+          const { steps } = await this.loadCfg();
+          const next = {
+            ...exec,
+            phase: 'armed',
+            target: t,
+            step,
+            armedAt: Date.now(),
+          };
+          await this.setExec(
+            next,
+            `ГОТОВ шаг ${step} на дюжины ${t
+              .map((x) => this.label(x))
+              .join(',')}`
+          );
+          const ok = await BET.tryPlace({
+            step,
+            targets: t,
+            steps,
+            getTargetNode: (i) => this.getTargetNode(i),
+            mutex: this.mutex,
+          });
+          if (ok) {
+            const chips = await BET.loadGlobalChips();
+            const amount =
+              BET.perTargetAmountForStep(
+                step,
+                steps,
+                chips.chipValues
+              ) * t.length;
+            try {
+              const { betLogs = [] } = await this.sget({
+                betLogs: [],
+              });
+              betLogs.push({
+                t: Date.now(),
+                type: 'placed',
+                market: 'dozens',
+                phase: 'armed',
+                message: `Шаг ${step} поставлен`,
+                amount,
+                step,
+              });
+              if (betLogs.length > 2000)
+                betLogs.splice(0, betLogs.length - 2000);
+              await this.sset({ betLogs });
+            } catch {}
+          }
+          BET.setBetStatus(
+            'bettingStatusDozens',
+            ok ? 'armed' : 'error',
+            ok
+              ? `Шаг ${step} поставлен`
+              : `Не удалось поставить шаг ${step}`
+          );
+        }
+      }
+    }
+
+    attachStorageListener() {
+      chrome.storage.onChanged.addListener(async (ch, area) => {
+        if (area !== 'local') return;
+        if (this.enabledKey in ch) this.loadEnabled();
+        if (ch.spinLogs) {
+          const { oldValue = [], newValue = [] } = ch.spinLogs;
+          if (
+            Array.isArray(newValue) &&
+            newValue.length > oldValue.length
+          ) {
+            const added = newValue.slice(oldValue.length);
+            for (const e of added) await this.onSpin(e.n);
+          }
+        }
+      });
+    }
   }
 
   window.__STRAT_DOZENS__ = new DozensStrategy();
@@ -70,8 +266,4 @@
       () => window.__STRAT_DOZENS__.init(),
       { once: true }
     );
-
-  window.addEventListener('beforeunload', () => {
-    window.__STRAT_DOZENS__.destroyed = true;
-  });
 })();

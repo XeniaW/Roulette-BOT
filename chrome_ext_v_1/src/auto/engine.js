@@ -2,6 +2,13 @@
   const RETRY_MS = 250;
   const RETRY_TIME_LIMIT_MS = 7000;
 
+  // ---- GLOBAL CHIPS CONFIG ----
+  const GLOBAL_CHIPS_KEY = 'abGlobalChips';
+  const DEFAULT_CHIPS = Object.freeze({
+    chipSelectorTemplate: '[data-e2e="chip-{{value}}"]',
+    chipValues: [0.2, 1, 5, 20],
+  });
+
   class Mutex {
     constructor() {
       this._p = Promise.resolve();
@@ -32,6 +39,36 @@
     } catch {}
   }
 
+  function sanitizeChips(raw) {
+    const src = raw || {};
+    const tpl =
+      typeof src.chipSelectorTemplate === 'string' &&
+      src.chipSelectorTemplate.includes('{{value}}')
+        ? src.chipSelectorTemplate
+        : DEFAULT_CHIPS.chipSelectorTemplate;
+    let chipValues = Array.isArray(src.chipValues)
+      ? src.chipValues
+          .map(Number)
+          .filter((v) => Number.isFinite(v) && v > 0)
+      : [];
+    if (!chipValues.length)
+      chipValues = [...DEFAULT_CHIPS.chipValues];
+    return { chipSelectorTemplate: tpl, chipValues };
+  }
+
+  async function loadGlobalChips() {
+    const { [GLOBAL_CHIPS_KEY]: cfg = DEFAULT_CHIPS } = await sget({
+      [GLOBAL_CHIPS_KEY]: DEFAULT_CHIPS,
+    });
+    return sanitizeChips(cfg);
+  }
+  async function saveGlobalChips(cfg) {
+    const clean = sanitizeChips(cfg);
+    await sset({ [GLOBAL_CHIPS_KEY]: clean });
+    return clean;
+  }
+
+  // ---- DOM helpers ----
   function isEnabled(el) {
     if (!el) return false;
     const ds = el.getAttribute?.('data-disabled');
@@ -41,7 +78,6 @@
       st && st.pointerEvents !== 'none' && st.visibility !== 'hidden'
     );
   }
-
   async function clickElement(el) {
     try {
       el.dispatchEvent(
@@ -69,7 +105,9 @@
         variants.add(v.toFixed(1));
         variants.add(v.toFixed(2));
         variants.add(v.toFixed(3));
-      } else variants.add(String(Math.trunc(v)));
+      } else {
+        variants.add(String(Math.trunc(v)));
+      }
       let el = null,
         selUsed = null;
       for (const vv of variants) {
@@ -86,19 +124,20 @@
     return out;
   }
 
-  function chipsForStep(step, cfg) {
-    const steps = cfg.steps;
+  // steps: массив шагов; каждый шаг — массив {chip:1-based, times}
+  function planForStep(step, steps, chipCount) {
     const idx = Math.max(0, Math.min(steps.length - 1, step - 1));
     const plan = steps[idx] || [{ chip: 1, times: 1 }];
     return plan.map((it) => ({
-      i: Math.max(0, it.chip - 1),
-      times: it.times,
+      i: Math.max(0, Math.min(chipCount - 1, (it.chip | 0) - 1)),
+      times: Math.max(1, it.times | 0),
     }));
   }
-  function perTargetAmountForStep(step, cfg) {
-    return chipsForStep(step, cfg).reduce(
+  function perTargetAmountForStep(step, steps, chipValues) {
+    const plan = planForStep(step, steps, chipValues.length);
+    return plan.reduce(
       (s, c) =>
-        s + Number(cfg.chipValues[c.i] ?? 0) * Number(c.times ?? 0),
+        s + Number(chipValues[c.i] ?? 0) * Number(c.times ?? 0),
       0
     );
   }
@@ -133,20 +172,23 @@
     });
   }
 
+  // Универсальная постановка: использует ГЛОБАЛЬНЫЕ фишки + локальные steps
   async function tryPlace({
     step,
     targets,
-    cfg,
+    steps,
     getTargetNode,
     mutex,
   }) {
+    const chips = await loadGlobalChips(); // {chipSelectorTemplate, chipValues}
     const deadline = Date.now() + RETRY_TIME_LIMIT_MS;
-    const plan = chipsForStep(step, cfg);
+    const plan = planForStep(step, steps, chips.chipValues.length);
+
     return mutex.run(async () => {
       while (Date.now() < deadline) {
         const chipNodes = selectorsFromTemplate(
-          cfg.chipValues,
-          cfg.chipSelectorTemplate
+          chips.chipValues,
+          chips.chipSelectorTemplate
         ).map((x) => x.node);
         const okChips = plan.every((c) => isEnabled(chipNodes[c.i]));
         const tNodes = targets.map((t) => getTargetNode(t));
@@ -160,10 +202,6 @@
                 await new Promise((r) => setTimeout(r, 40));
               }
             }
-          }
-          if (cfg.placeButtonSel) {
-            const btn = document.querySelector(cfg.placeButtonSel);
-            if (isEnabled(btn)) await clickElement(btn);
           }
           return true;
         }
@@ -180,5 +218,11 @@
     setBetStatus,
     tryPlace,
     perTargetAmountForStep,
+    // global chips API (для popup.js)
+    loadGlobalChips,
+    saveGlobalChips,
+    sanitizeChips,
+    DEFAULT_CHIPS,
+    GLOBAL_CHIPS_KEY,
   };
 })();

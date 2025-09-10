@@ -7,18 +7,16 @@ const { obfuscate } = obfuscator;
 const isWatch = process.argv.includes('--watch');
 const OBFUSCATE = process.env.OBFUSCATE === '1';
 
-// ---------- clean dist ----------
+// clean dist
 await fs.rm('dist', { recursive: true, force: true });
 await fs.mkdir('dist', { recursive: true });
 
-// ---------- copy statics ----------
+// copy statics
 await fs.copy('src/manifest.json', 'dist/manifest.json');
 await fs.copy('src/popup.html', 'dist/popup.html');
 await fs.copy('src/popup.css', 'dist/popup.css');
-// (добавь сюда копирование иконок/других статик-файлов, если есть)
 
-// ---------- entry points ----------
-// Собираем как отдельные IIFE-файлы, сохраняя структуру папок src -> dist
+// entries (сохраняем структуру src → dist)
 const ENTRY_POINTS = [
   'src/content.js',
   'src/bg.js',
@@ -27,14 +25,14 @@ const ENTRY_POINTS = [
   'src/auto/market-base.js',
   'src/auto/dozens.js',
   'src/auto/rows.js',
+  'src/auto/combo.js',
 ];
 
-// общий esbuild-конфиг
-const BASE_BUILD_OPTS = {
+const BASE = {
   entryPoints: ENTRY_POINTS,
   outdir: 'dist',
-  outbase: 'src', // важен для сохранения структуры (dist/auto/..)
-  entryNames: '[dir]/[name]', // имя файла = как в src
+  outbase: 'src',
+  entryNames: '[dir]/[name]',
   bundle: true,
   target: ['chrome120'],
   format: 'iife',
@@ -42,17 +40,10 @@ const BASE_BUILD_OPTS = {
   logLevel: 'info',
 };
 
-// ---------- one-off build ----------
 async function buildOnce() {
-  await esbuild.build({
-    ...BASE_BUILD_OPTS,
-    minify: true,
-    sourcemap: false,
-  });
+  await esbuild.build({ ...BASE, minify: true, sourcemap: false });
 
-  // optional obfuscation (по собранным файлам)
   if (OBFUSCATE) {
-    // генерируем список исходя из ENTRY_POINTS, мапим src/ -> dist/
     const files = ENTRY_POINTS.map((p) =>
       p.replace(/^src\//, 'dist/')
     );
@@ -77,10 +68,9 @@ async function buildOnce() {
   console.log('Built → dist/');
 }
 
-// ---------- watch mode ----------
 async function watchMode() {
   const ctx = await esbuild.context({
-    ...BASE_BUILD_OPTS,
+    ...BASE,
     minify: false,
     sourcemap: true,
   });
@@ -88,8 +78,5 @@ async function watchMode() {
   console.log('Watching… Load dist/ as the extension.');
 }
 
-if (isWatch) {
-  await watchMode();
-} else {
-  await buildOnce();
-}
+if (isWatch) await watchMode();
+else await buildOnce();

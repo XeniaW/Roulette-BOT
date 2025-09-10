@@ -1,4 +1,9 @@
-/* Popup UI + логика: трекинг/домены/логи + ДЮЖИНЫ/РЯДЫ */
+/* Popup main — трекинг/домены/логи без изменений; добавлены:
+   - Global Chips (один раз)
+   - Steps + Streak по рынкам (Dozens/Rows/Combo)
+   - Save All: сохраняет global chips + все steps/streak
+*/
+
 const TIME_FMT = {
   year: 'numeric',
   month: '2-digit',
@@ -9,8 +14,6 @@ const TIME_FMT = {
   hour12: false,
 };
 const LOCALE = navigator.language || 'en-US';
-
-// ====== утилиты хранилища ======
 async function sget(defs) {
   try {
     return await chrome.storage.local.get(defs || {});
@@ -24,7 +27,7 @@ async function sset(obj) {
   } catch {}
 }
 
-// ====== базовые DOM (трекинг/домены/логи) ======
+// ===== базовые DOM из твоего попапа =====
 const tgl = document.getElementById('toggleTrack');
 const statusEl = document.getElementById('status');
 const statusMsg = document.getElementById('statusMsg');
@@ -44,6 +47,28 @@ const betCountEl = document.getElementById('betCount');
 const btnBetExport = document.getElementById('btnBetExport');
 const btnBetClear = document.getElementById('btnBetClear');
 
+// ===== Тумблеры рынков + статусы + стрики =====
+const autoBetToggleDozens = document.getElementById(
+  'autoBetToggleDozens'
+);
+const autoBetToggleRows = document.getElementById(
+  'autoBetToggleRows'
+);
+const autoBetToggleCombo = document.getElementById(
+  'autoBetToggleCombo'
+);
+
+const betStatusDozens = document.getElementById('betStatusDozens');
+const betStatusRows = document.getElementById('betStatusRows');
+const betStatusCombo = document.getElementById('betStatusCombo');
+
+const dozensStreakInp = document.getElementById('dozensStreak');
+const rowsStreakInp = document.getElementById('rowsStreak');
+const comboStreakInp = document.getElementById('comboStreak');
+
+const btnSaveAll = document.getElementById('btnSaveAll');
+
+// ===== Helpers (status/domains/logs) =====
 function fmtTime(x) {
   const t = typeof x === 'number' ? x : Date.parse(x);
   return new Date(t).toLocaleString(LOCALE, TIME_FMT);
@@ -283,14 +308,106 @@ function setToggle(val) {
   chrome.storage.local.set({ trackingEnabled: !!val });
 }
 
-// ====== РЫНКИ (дюжины/ряды) ======
-const CFG_DZN_KEY = 'abDozensConfig';
-const CFG_ROW_KEY = 'abRowsConfig';
-
-const DEFAULT_MKT_CFG = Object.freeze({
+// ===== GLOBAL CHIPS UI =====
+const GLOBAL_CHIPS_KEY = 'abGlobalChips';
+const DEFAULT_CHIPS = {
   chipSelectorTemplate: '[data-e2e="chip-{{value}}"]',
   chipValues: [0.2, 1, 5, 20],
-  placeButtonSel: null,
+};
+
+const cfgChipTpl = document.getElementById('cfgChipTpl');
+const chipsBox = document.getElementById('chipsBox');
+const cfgChipsMsg = document.getElementById('cfgChipsMsg');
+document
+  .getElementById('btnAddChip')
+  .addEventListener('click', () =>
+    chipsBox.appendChild(makeChipRow())
+  );
+
+function sanitizeChips(raw) {
+  const src = raw || {};
+  const tpl =
+    typeof src.chipSelectorTemplate === 'string' &&
+    src.chipSelectorTemplate.includes('{{value}}')
+      ? src.chipSelectorTemplate
+      : DEFAULT_CHIPS.chipSelectorTemplate;
+  let chipValues = Array.isArray(src.chipValues)
+    ? src.chipValues
+        .map(Number)
+        .filter((v) => Number.isFinite(v) && v > 0)
+    : [];
+  if (!chipValues.length) chipValues = [...DEFAULT_CHIPS.chipValues];
+  return { chipSelectorTemplate: tpl, chipValues };
+}
+async function loadGlobalChipsUI() {
+  // миграция из старого десяткового конфига
+  const { [GLOBAL_CHIPS_KEY]: g = null, abDozensConfig = null } =
+    await sget({ [GLOBAL_CHIPS_KEY]: null, abDozensConfig: null });
+  let use = g;
+  if (!use && abDozensConfig && abDozensConfig.chipSelectorTemplate) {
+    use = sanitizeChips({
+      chipSelectorTemplate: abDozensConfig.chipSelectorTemplate,
+      chipValues: abDozensConfig.chipValues,
+    });
+    await sset({
+      [GLOBAL_CHIPS_KEY]: use,
+      abDozensConfig: {
+        triggerStreak:
+          Math.max(2, abDozensConfig.triggerStreak | 0) || 2,
+        steps: Array.isArray(abDozensConfig.steps)
+          ? abDozensConfig.steps
+          : [],
+      },
+    });
+  }
+  if (!use) use = DEFAULT_CHIPS;
+
+  const clean = sanitizeChips(use);
+  cfgChipTpl.value = clean.chipSelectorTemplate;
+  renderChips(chipsBox, clean.chipValues);
+  cfgChipsMsg.textContent = 'Loaded global chips';
+}
+async function saveGlobalChipsFromUI() {
+  const tpl = (cfgChipTpl.value || '').trim();
+  if (!tpl.includes('{{value}}')) {
+    cfgChipsMsg.textContent = 'Template must include {{value}}';
+    return;
+  }
+  const chipValues = getChipsFromUI(chipsBox);
+  if (!chipValues.length) {
+    cfgChipsMsg.textContent = 'Add at least one chip value';
+    return;
+  }
+
+  const clean = sanitizeChips({
+    chipSelectorTemplate: tpl,
+    chipValues,
+  });
+  await sset({ [GLOBAL_CHIPS_KEY]: clean });
+
+  // лог
+  try {
+    const { betLogs = [] } = await sget({ betLogs: [] });
+    betLogs.push({
+      t: Date.now(),
+      type: 'config',
+      market: 'global',
+      message: 'Global chips saved',
+      chipsCount: clean.chipValues.length,
+    });
+    if (betLogs.length > 2000)
+      betLogs.splice(0, betLogs.length - 2000);
+    await sset({ betLogs });
+  } catch {}
+  cfgChipsMsg.textContent = 'Saved global chips';
+}
+
+// ===== Market steps/streak (Dozens/Rows/Combo) =====
+const CFG_DZN_KEY = 'abDozensConfig';
+const CFG_ROW_KEY = 'abRowsConfig';
+const CFG_COMBO_KEY = 'abComboConfig';
+
+const DEFAULT_MKT = Object.freeze({
   triggerStreak: 2,
   steps: [
     [{ chip: 1, times: 1 }],
@@ -303,42 +420,21 @@ const DEFAULT_MKT_CFG = Object.freeze({
   ],
 });
 
-function sanitizeMktCfg(raw) {
-  const d = DEFAULT_MKT_CFG;
+function sanitizeMkt(raw) {
   const src = raw || {};
-  const tpl =
-    typeof src.chipSelectorTemplate === 'string' &&
-    src.chipSelectorTemplate.includes('{{value}}')
-      ? src.chipSelectorTemplate
-      : d.chipSelectorTemplate;
-  let chipValues = Array.isArray(src.chipValues)
-    ? src.chipValues
-        .map(Number)
-        .filter((v) => Number.isFinite(v) && v > 0)
-    : [];
-  if (!chipValues.length) chipValues = [...d.chipValues];
-  const placeButtonSel =
-    typeof src.placeButtonSel === 'string' &&
-    src.placeButtonSel.trim()
-      ? src.placeButtonSel.trim()
-      : null;
   const triggerStreak = Math.max(
     2,
-    Math.floor(Number(src.triggerStreak ?? d.triggerStreak))
+    Math.floor(Number(src.triggerStreak ?? DEFAULT_MKT.triggerStreak))
   );
-  let steps = Array.isArray(src.steps) ? src.steps : d.steps;
+  let steps = Array.isArray(src.steps)
+    ? src.steps
+    : DEFAULT_MKT.steps;
   steps = steps
     .map((st) => (Array.isArray(st) ? st : []))
     .map((st) =>
       st
         .map((it) => ({
-          chip: Math.max(
-            1,
-            Math.min(
-              chipValues.length,
-              Math.floor(Number(it?.chip ?? 1))
-            )
-          ),
+          chip: Math.max(1, Math.floor(Number(it?.chip ?? 1))),
           times: Math.max(1, Math.floor(Number(it?.times ?? 1))),
         }))
         .filter(
@@ -347,120 +443,65 @@ function sanitizeMktCfg(raw) {
         )
     )
     .filter((st) => st.length);
-  if (!steps.length) steps = JSON.parse(JSON.stringify(d.steps));
-  return {
-    chipSelectorTemplate: tpl,
-    chipValues,
-    placeButtonSel,
-    steps,
-    triggerStreak,
-  };
-}
-async function loadMktCfg(key) {
-  const { [key]: cfg = DEFAULT_MKT_CFG } = await sget({
-    [key]: DEFAULT_MKT_CFG,
-  });
-  return sanitizeMktCfg(cfg);
-}
-async function saveMktCfg(key, cfg) {
-  const clean = sanitizeMktCfg(cfg);
-  await sset({ [key]: clean });
-  try {
-    const { betLogs = [] } = await sget({ betLogs: [] });
-    betLogs.push({
-      t: Date.now(),
-      type: 'config',
-      market: key.includes('Rows') ? 'rows' : 'dozens',
-      message: 'Конфиг сохранён',
-      chipsCount: clean.chipValues.length,
-      stepsCount: clean.steps.length,
-      triggerStreak: clean.triggerStreak,
-    });
-    if (betLogs.length > 2000)
-      betLogs.splice(0, betLogs.length - 2000);
-    await sset({ betLogs });
-  } catch {}
-  try {
-    await chrome.runtime.sendMessage({ type: 'AB_CONFIG_SAVED' });
-  } catch {}
-  return clean;
+  if (!steps.length)
+    steps = JSON.parse(JSON.stringify(DEFAULT_MKT.steps));
+  return { triggerStreak, steps };
 }
 
-// DOM для рынков
-const autoBetToggleDozens = document.getElementById(
-  'autoBetToggleDozens'
-);
-const autoBetToggleRows = document.getElementById(
-  'autoBetToggleRows'
-);
-const betStatusDozens = document.getElementById('betStatusDozens');
-const betStatusRows = document.getElementById('betStatusRows');
-const dozensStreakInp = document.getElementById('dozensStreak');
-const rowsStreakInp = document.getElementById('rowsStreak');
-
-// Dozens config widgets
-const cfgDznMsg = document.getElementById('cfgDznMsg');
-const cfgDznChipTpl = document.getElementById('cfgDznChipTpl');
-const cfgDznPlaceBtn = document.getElementById('cfgDznPlaceBtn');
-const dznChipsBox = document.getElementById('dznChipsBox');
 const dznStepsBox = document.getElementById('dznStepsBox');
-document
-  .getElementById('btnAddDznChip')
-  .addEventListener('click', () =>
-    dznChipsBox.appendChild(makeChipRow())
-  );
+const rowStepsBox = document.getElementById('rowStepsBox');
+const comboStepsBox = document.getElementById('comboStepsBox');
+
+const cfgDznMsg = document.getElementById('cfgDznMsg');
+const cfgRowMsg = document.getElementById('cfgRowMsg');
+const cfgComboMsg = document.getElementById('cfgComboMsg');
+
 document
   .getElementById('btnAddDznStep')
-  .addEventListener('click', () => {
-    makeStepCard(dznStepsBox, [{ chip: 1, times: 1 }]);
-  });
-document
-  .getElementById('btnCfgDznDefaults')
-  .addEventListener('click', async () => {
-    const d = DEFAULT_MKT_CFG;
-    cfgDznChipTpl.value = d.chipSelectorTemplate;
-    cfgDznPlaceBtn.value = d.placeButtonSel ?? '';
-    dozensStreakInp.value = String(d.triggerStreak);
-    renderChips(dznChipsBox, d.chipValues);
-    renderSteps(dznStepsBox, d.steps);
-    cfgDznMsg.textContent = 'Defaults loaded (not saved).';
-  });
-document
-  .getElementById('btnCfgDznSave')
-  .addEventListener('click', () => saveMarketCfgFromUI('dozens'));
-
-// Rows config widgets
-const cfgRowMsg = document.getElementById('cfgRowMsg');
-const cfgRowChipTpl = document.getElementById('cfgRowChipTpl');
-const cfgRowPlaceBtn = document.getElementById('cfgRowPlaceBtn');
-const rowChipsBox = document.getElementById('rowChipsBox');
-const rowStepsBox = document.getElementById('rowStepsBox');
-document
-  .getElementById('btnAddRowChip')
   .addEventListener('click', () =>
-    rowChipsBox.appendChild(makeChipRow())
+    makeStepCard(dznStepsBox, [{ chip: 1, times: 1 }])
   );
 document
   .getElementById('btnAddRowStep')
+  .addEventListener('click', () =>
+    makeStepCard(rowStepsBox, [{ chip: 1, times: 1 }])
+  );
+document
+  .getElementById('btnAddComboStep')
+  .addEventListener('click', () =>
+    makeStepCard(comboStepsBox, [{ chip: 1, times: 1 }])
+  );
+
+document
+  .getElementById('btnCfgDznDefaults')
   .addEventListener('click', () => {
-    makeStepCard(rowStepsBox, [{ chip: 1, times: 1 }]);
+    renderSteps(dznStepsBox, DEFAULT_MKT.steps);
+    cfgDznMsg.textContent = 'Defaults loaded (not saved).';
   });
 document
   .getElementById('btnCfgRowDefaults')
-  .addEventListener('click', async () => {
-    const d = DEFAULT_MKT_CFG;
-    cfgRowChipTpl.value = d.chipSelectorTemplate;
-    cfgRowPlaceBtn.value = d.placeButtonSel ?? '';
-    rowsStreakInp.value = String(d.triggerStreak);
-    renderChips(rowChipsBox, d.chipValues);
-    renderSteps(rowStepsBox, d.steps);
+  .addEventListener('click', () => {
+    renderSteps(rowStepsBox, DEFAULT_MKT.steps);
     cfgRowMsg.textContent = 'Defaults loaded (not saved).';
   });
 document
+  .getElementById('btnCfgComboDefaults')
+  .addEventListener('click', () => {
+    renderSteps(comboStepsBox, DEFAULT_MKT.steps);
+    cfgComboMsg.textContent = 'Defaults loaded (not saved).';
+  });
+
+document
+  .getElementById('btnCfgDznSave')
+  .addEventListener('click', () => saveMarketCfgFromUI('dozens'));
+document
   .getElementById('btnCfgRowSave')
   .addEventListener('click', () => saveMarketCfgFromUI('rows'));
+document
+  .getElementById('btnCfgComboSave')
+  .addEventListener('click', () => saveMarketCfgFromUI('combo'));
 
-// helpers для конфиг-UI
+// helpers UI (chips and steps)
 function makeChipRow(value = '') {
   const div = document.createElement('div');
   div.className = 'row chip-row';
@@ -486,6 +527,7 @@ function getChipsFromUI(box) {
   });
   return vals;
 }
+
 function makeStepItemRow(chipIndex1 = 1, times = 1) {
   const row = document.createElement('div');
   row.className = 'row step-item';
@@ -546,107 +588,152 @@ function getStepsFromUI(box) {
   return out;
 }
 
+// load/save per market UI
 async function loadMarketUI(market) {
-  const isDozens = market === 'dozens';
-  const cfgKey = isDozens ? CFG_DZN_KEY : CFG_ROW_KEY;
-  const enKey = isDozens
-    ? 'autoBettingDozensEnabled'
-    : 'autoBettingRowsEnabled';
-  const statusKey = isDozens
-    ? 'bettingStatusDozens'
-    : 'bettingStatusRows';
-  const streakInp = isDozens ? dozensStreakInp : rowsStreakInp;
-  const toggle = isDozens ? autoBetToggleDozens : autoBetToggleRows;
+  const cfgKey =
+    market === 'dozens'
+      ? CFG_DZN_KEY
+      : market === 'rows'
+      ? CFG_ROW_KEY
+      : CFG_COMBO_KEY;
+  const enKey =
+    market === 'dozens'
+      ? 'autoBettingDozensEnabled'
+      : market === 'rows'
+      ? 'autoBettingRowsEnabled'
+      : 'autoBettingComboEnabled';
+  const statusKey =
+    market === 'dozens'
+      ? 'bettingStatusDozens'
+      : market === 'rows'
+      ? 'bettingStatusRows'
+      : 'bettingStatusCombo';
+  const streakInp =
+    market === 'dozens'
+      ? dozensStreakInp
+      : market === 'rows'
+      ? rowsStreakInp
+      : comboStreakInp;
+  const toggle =
+    market === 'dozens'
+      ? autoBetToggleDozens
+      : market === 'rows'
+      ? autoBetToggleRows
+      : autoBetToggleCombo;
+  const stepsBox =
+    market === 'dozens'
+      ? dznStepsBox
+      : market === 'rows'
+      ? rowStepsBox
+      : comboStepsBox;
+  const msgEl =
+    market === 'dozens'
+      ? cfgDznMsg
+      : market === 'rows'
+      ? cfgRowMsg
+      : cfgComboMsg;
 
-  const obj = await sget({
+  const st = await sget({
     [enKey]: false,
     [statusKey]: { state: 'off', message: '' },
   });
-  toggle.checked = !!obj[enKey];
-  const st = obj[statusKey] || { state: 'off', message: '' };
-  (isDozens ? betStatusDozens : betStatusRows).textContent = `[${(
-    st.state || 'off'
-  ).toUpperCase()}] ${st.message || ''}`;
+  toggle.checked = !!st[enKey];
+  const stat = st[statusKey] || { state: 'off', message: '' };
+  (market === 'dozens'
+    ? betStatusDozens
+    : market === 'rows'
+    ? betStatusRows
+    : betStatusCombo
+  ).textContent = `[${(stat.state || 'off').toUpperCase()}] ${
+    stat.message || ''
+  }`;
 
-  const cfg = await loadMktCfg(cfgKey);
-  streakInp.value = String(cfg.triggerStreak);
-
-  if (isDozens) {
-    cfgDznChipTpl.value = cfg.chipSelectorTemplate;
-    cfgDznPlaceBtn.value = cfg.placeButtonSel ?? '';
-    renderChips(dznChipsBox, cfg.chipValues);
-    renderSteps(dznStepsBox, cfg.steps);
-    cfgDznMsg.textContent = 'Loaded';
-  } else {
-    cfgRowChipTpl.value = cfg.chipSelectorTemplate;
-    cfgRowPlaceBtn.value = cfg.placeButtonSel ?? '';
-    renderChips(rowChipsBox, cfg.chipValues);
-    renderSteps(rowStepsBox, cfg.steps);
-    cfgRowMsg.textContent = 'Loaded';
-  }
-}
-
-async function saveMarketCfgFromUI(market) {
-  const isDozens = market === 'dozens';
-  const cfgKey = isDozens ? CFG_DZN_KEY : CFG_ROW_KEY;
-
-  const tpl = (
-    isDozens ? cfgDznChipTpl.value : cfgRowChipTpl.value
-  ).trim();
-  if (!tpl.includes('{{value}}'))
-    return ((isDozens ? cfgDznMsg : cfgRowMsg).textContent =
-      'Template must include {{value}}');
-
-  const chipValues = getChipsFromUI(
-    isDozens ? dznChipsBox : rowChipsBox
+  const cfg = sanitizeMkt(
+    (await sget({ [cfgKey]: DEFAULT_MKT }))[cfgKey]
   );
-  if (!chipValues.length)
-    return ((isDozens ? cfgDznMsg : cfgRowMsg).textContent =
-      'Add at least one chip value');
-
-  const steps = getStepsFromUI(isDozens ? dznStepsBox : rowStepsBox);
-  if (!steps.length)
-    return ((isDozens ? cfgDznMsg : cfgRowMsg).textContent =
-      'Add at least one step');
-
-  for (const st of steps)
-    for (const it of st)
-      if (it.chip < 1 || it.chip > chipValues.length)
-        return ((isDozens ? cfgDznMsg : cfgRowMsg).textContent =
-          'Step uses invalid Chip #');
-
-  const placeButtonSel =
-    (
-      (isDozens ? cfgDznPlaceBtn.value : cfgRowPlaceBtn.value) || ''
-    ).trim() || null;
-  const triggerStreak = Math.max(
+  streakInp.value = String(cfg.triggerStreak);
+  renderSteps(stepsBox, cfg.steps);
+  msgEl.textContent = 'Loaded';
+}
+async function saveMarketCfgFromUI(market) {
+  const cfgKey =
+    market === 'dozens'
+      ? CFG_DZN_KEY
+      : market === 'rows'
+      ? CFG_ROW_KEY
+      : CFG_COMBO_KEY;
+  const stepsBox =
+    market === 'dozens'
+      ? dznStepsBox
+      : market === 'rows'
+      ? rowStepsBox
+      : comboStepsBox;
+  const msgEl =
+    market === 'dozens'
+      ? cfgDznMsg
+      : market === 'rows'
+      ? cfgRowMsg
+      : cfgComboMsg;
+  const streak = Math.max(
     2,
     Math.floor(
       Number(
-        (isDozens ? dozensStreakInp.value : rowsStreakInp.value) || 2
+        (market === 'dozens'
+          ? dozensStreakInp.value
+          : market === 'rows'
+          ? rowsStreakInp.value
+          : comboStreakInp.value) || 2
       )
     )
   );
 
-  await saveMktCfg(cfgKey, {
-    chipSelectorTemplate: tpl,
-    chipValues,
-    placeButtonSel,
-    steps,
-    triggerStreak,
+  // валидация chip# против глобальных фишек
+  const { [GLOBAL_CHIPS_KEY]: chips = DEFAULT_CHIPS } = await sget({
+    [GLOBAL_CHIPS_KEY]: DEFAULT_CHIPS,
   });
-  (isDozens ? cfgDznMsg : cfgRowMsg).textContent = 'Saved.';
+  const chipCount = Array.isArray(chips?.chipValues)
+    ? chips.chipValues.length
+    : DEFAULT_CHIPS.chipValues.length;
+
+  const steps = getStepsFromUI(stepsBox);
+  if (!steps.length) {
+    msgEl.textContent = 'Add at least one step';
+    return;
+  }
+  for (const st of steps)
+    for (const it of st)
+      if (it.chip < 1 || it.chip > chipCount) {
+        msgEl.textContent = 'Step uses invalid Chip #';
+        return;
+      }
+
+  const clean = sanitizeMkt({ triggerStreak: streak, steps });
+  await sset({ [cfgKey]: clean });
+
+  try {
+    const { betLogs = [] } = await sget({ betLogs: [] });
+    betLogs.push({
+      t: Date.now(),
+      type: 'config',
+      market,
+      message: 'Конфиг сохранён',
+      stepsCount: clean.steps.length,
+      triggerStreak: clean.triggerStreak,
+    });
+    if (betLogs.length > 2000)
+      betLogs.splice(0, betLogs.length - 2000);
+    await sset({ betLogs });
+  } catch {}
+  try {
+    await chrome.runtime.sendMessage({ type: 'AB_CONFIG_SAVED' });
+  } catch {}
+  msgEl.textContent = 'Saved.';
 }
 
 // ===== INIT =====
 document.addEventListener('DOMContentLoaded', async () => {
-  // миграция старого единственного конфига (если был)
-  const mig = await sget({ abConfig: null });
-  if (mig.abConfig) {
-    const cleaned = sanitizeMktCfg(mig.abConfig);
-    await sset({ [CFG_DZN_KEY]: cleaned });
-    await sset({ abConfig: null });
-  }
+  // migrate old chips from abDozensConfig if needed
+  await loadGlobalChipsUI();
 
   loadStatus();
   loadDomains();
@@ -654,6 +741,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   loadBetLogs(renderBetAll);
   await loadMarketUI('dozens');
   await loadMarketUI('rows');
+  await loadMarketUI('combo');
   await loadToggle();
 
   btnExport.addEventListener('click', exportCSV);
@@ -663,22 +751,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (btnBetClear)
     btnBetClear.addEventListener('click', clearBetLogs);
 
-  document
-    .getElementById('btnAddPattern')
-    .addEventListener('click', () => addPattern(inpPattern.value));
-  document
-    .getElementById('btnAddCurrent')
-    .addEventListener('click', async () => {
-      const [tab] = await chrome.tabs.query({
-        active: true,
-        currentWindow: true,
-      });
-      if (!tab?.url) return;
-      try {
-        const u = new URL(tab.url);
-        addPattern(`${u.origin}/*`);
-      } catch {}
+  btnAddPattern.addEventListener('click', () =>
+    addPattern(inpPattern.value)
+  );
+  btnAddCurrent.addEventListener('click', async () => {
+    const [tab] = await chrome.tabs.query({
+      active: true,
+      currentWindow: true,
     });
+    if (!tab?.url) return;
+    try {
+      const u = new URL(tab.url);
+      addPattern(`${u.origin}/*`);
+    } catch {}
+  });
 
   tgl.addEventListener('change', () => setToggle(tgl.checked));
   autoBetToggleDozens.addEventListener('change', () =>
@@ -687,6 +773,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   autoBetToggleRows.addEventListener('change', () =>
     sset({ autoBettingRowsEnabled: !!autoBetToggleRows.checked })
   );
+  autoBetToggleCombo.addEventListener('change', () =>
+    sset({ autoBettingComboEnabled: !!autoBetToggleCombo.checked })
+  );
+
+  // SAVE ALL
+  btnSaveAll.addEventListener('click', async () => {
+    await saveGlobalChipsFromUI();
+    await saveMarketCfgFromUI('dozens');
+    await saveMarketCfgFromUI('rows');
+    await saveMarketCfgFromUI('combo');
+  });
 });
 
 // live updates
@@ -726,12 +823,30 @@ chrome.storage.onChanged.addListener((ch, area) => {
       st.state || 'off'
     ).toUpperCase()}] ${st.message || ''}`;
   }
+  if (ch.bettingStatusCombo) {
+    const st = ch.bettingStatusCombo.newValue || {
+      state: 'off',
+      message: '',
+    };
+    betStatusCombo.textContent = `[${(
+      st.state || 'off'
+    ).toUpperCase()}] ${st.message || ''}`;
+  }
+
+  if (ch[GLOBAL_CHIPS_KEY]) loadGlobalChipsUI();
   if (ch.abDozensConfig) {
-    const cfg = ch.abDozensConfig.newValue;
-    dozensStreakInp.value = String(cfg?.triggerStreak ?? 2);
+    const cfg = sanitizeMkt(ch.abDozensConfig.newValue);
+    dozensStreakInp.value = cfg.triggerStreak;
+    renderSteps(dznStepsBox, cfg.steps);
   }
   if (ch.abRowsConfig) {
-    const cfg = ch.abRowsConfig.newValue;
-    rowsStreakInp.value = String(cfg?.triggerStreak ?? 2);
+    const cfg = sanitizeMkt(ch.abRowsConfig.newValue);
+    rowsStreakInp.value = cfg.triggerStreak;
+    renderSteps(rowStepsBox, cfg.steps);
+  }
+  if (ch.abComboConfig) {
+    const cfg = sanitizeMkt(ch.abComboConfig.newValue);
+    comboStreakInp.value = cfg.triggerStreak;
+    renderSteps(comboStepsBox, cfg.steps);
   }
 });

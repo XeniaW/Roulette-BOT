@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Spins Logger",
-  "version": "4.0.0",
-  "description": "Logs spins; auto-betting for dozens & rows.",
+  "version": "4.0.1",
+  "description": "Logs spins; auto-betting for dozens, rows, and combo (dozen+row).",
   "permissions": ["storage", "downloads", "scripting", "activeTab"],
   "host_permissions": ["https://play.livetables.io/*"],
   "optional_host_permissions": ["<all_urls>"],
@@ -16,7 +16,8 @@
         "auto/engine.js",
         "auto/market-base.js",
         "auto/dozens.js",
-        "auto/rows.js"
+        "auto/rows.js",
+        "auto/combo.js"
       ],
       "run_at": "document_idle",
       "all_frames": true

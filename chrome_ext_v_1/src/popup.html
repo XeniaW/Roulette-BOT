@@ -75,67 +75,113 @@
 
     <hr />
 
-    <!-- ==== ДОБАВЛЕНО: отдельные переключатели и streak для дюжин/рядов ==== -->
-    <section>
-      <label
-        ><input type="checkbox" id="autoBetToggleDozens" />
-        Auto-betting (Dozens)</label
-      >
-      <div class="row">
-        <label class="small label-w">Сколько ДЮЖИН подряд</label>
-        <input
-          id="dozensStreak"
-          type="number"
-          min="2"
-          step="1"
-          value="2"
-        />
-      </div>
-      <div id="betStatusDozens" class="small"></div>
-    </section>
-
-    <section>
-      <label
-        ><input type="checkbox" id="autoBetToggleRows" /> Auto-betting
-        (Rows)</label
-      >
-      <div class="row">
-        <label class="small label-w">Сколько РЯДОВ подряд</label>
-        <input
-          id="rowsStreak"
-          type="number"
-          min="2"
-          step="1"
-          value="2"
-        />
-      </div>
-      <div id="betStatusRows" class="small"></div>
-    </section>
-
-    <!-- ==== CONFIG: ДЮЖИНЫ ==== -->
+    <!-- ===== ТУМБЛЕРЫ + СТРИКИ + SAVE ALL ===== -->
     <section class="card">
-      <h3>Auto-bet Config — Dozens</h3>
+      <h3>Auto-betting</h3>
+
+      <!-- Dozens -->
+      <div class="row ai-center">
+        <label
+          ><input type="checkbox" id="autoBetToggleDozens" />
+          Дюжины</label
+        >
+        <div class="col">
+          <label for="dozensStreak" class="small label-block"
+            >Стрик</label
+          >
+          <input
+            id="dozensStreak"
+            type="number"
+            min="2"
+            step="1"
+            value="2"
+          />
+        </div>
+      </div>
+      <div class="row">
+        <span id="betStatusDozens" class="small"></span>
+      </div>
+
+      <!-- Rows -->
+      <div class="row ai-center">
+        <label
+          ><input type="checkbox" id="autoBetToggleRows" />
+          Ряды</label
+        >
+        <div class="col">
+          <label for="rowsStreak" class="small label-block"
+            >Стрик</label
+          >
+          <input
+            id="rowsStreak"
+            type="number"
+            min="2"
+            step="1"
+            value="2"
+          />
+        </div>
+      </div>
+      <div class="row">
+        <span id="betStatusRows" class="small"></span>
+      </div>
+
+      <!-- Combo -->
+      <div class="row ai-center">
+        <label
+          ><input type="checkbox" id="autoBetToggleCombo" /> Дюжина +
+          ряд</label
+        >
+        <div class="col">
+          <label for="comboStreak" class="small label-block"
+            >Стрик</label
+          >
+          <input
+            id="comboStreak"
+            type="number"
+            min="2"
+            step="1"
+            value="2"
+          />
+        </div>
+      </div>
+      <div class="row">
+        <span id="betStatusCombo" class="small"></span>
+      </div>
+
+      <div class="row row-end">
+        <span class="small muted"
+          >Save All сохранит общие фишки и steps/streak для всех
+          рынков</span
+        >
+        <button id="btnSaveAll" class="btn btn-primary">
+          Save All
+        </button>
+      </div>
+    </section>
+
+    <!-- ==== GLOBAL CHIPS (один раз для всех) ==== -->
+    <section class="card">
+      <h3>Global Chips</h3>
       <div class="row">
         <label class="small label-w">Chip selector template</label>
         <input
-          id="cfgDznChipTpl"
+          id="cfgChipTpl"
           placeholder='[data-e2e="chip-{{value}}"]'
         />
       </div>
       <div class="card card-inner">
         <h4>Chips (values)</h4>
-        <div id="dznChipsBox"></div>
+        <div id="chipsBox"></div>
         <div class="row">
-          <button id="btnAddDznChip" class="btn">+ Add chip</button>
+          <button id="btnAddChip" class="btn">+ Add chip</button>
         </div>
       </div>
-      <div class="row">
-        <label class="small label-w">Place button (optional)</label>
-        <input
-          id="cfgDznPlaceBtn"
-          placeholder='e.g. [data-e2e="place-bet"]'
-        />
-      </div>
+      <div id="cfgChipsMsg" class="small"></div>
+    </section>
+
+    <!-- ==== STEPS: DOZENS ==== -->
+    <section class="card">
+      <h3>Steps — Dozens</h3>
       <div class="card card-inner">
         <h4>Steps</h4>
         <div id="dznStepsBox"></div>
@@ -145,37 +191,14 @@
       </div>
       <div class="row row-end">
         <button id="btnCfgDznDefaults" class="btn">Defaults</button>
-        <button id="btnCfgDznSave" class="btn btn-primary">
-          Save
-        </button>
+        <button id="btnCfgDznSave" class="btn">Save</button>
       </div>
       <div id="cfgDznMsg" class="small"></div>
     </section>
 
-    <!-- ==== CONFIG: РЯДЫ ==== -->
+    <!-- ==== STEPS: ROWS ==== -->
     <section class="card">
-      <h3>Auto-bet Config — Rows</h3>
-      <div class="row">
-        <label class="small label-w">Chip selector template</label>
-        <input
-          id="cfgRowChipTpl"
-          placeholder='[data-e2e="chip-{{value}}"]'
-        />
-      </div>
-      <div class="card card-inner">
-        <h4>Chips (values)</h4>
-        <div id="rowChipsBox"></div>
-        <div class="row">
-          <button id="btnAddRowChip" class="btn">+ Add chip</button>
-        </div>
-      </div>
-      <div class="row">
-        <label class="small label-w">Place button (optional)</label>
-        <input
-          id="cfgRowPlaceBtn"
-          placeholder='e.g. [data-e2e="place-bet"]'
-        />
-      </div>
+      <h3>Steps — Rows</h3>
       <div class="card card-inner">
         <h4>Steps</h4>
         <div id="rowStepsBox"></div>
@@ -185,11 +208,26 @@
       </div>
       <div class="row row-end">
         <button id="btnCfgRowDefaults" class="btn">Defaults</button>
-        <button id="btnCfgRowSave" class="btn btn-primary">
-          Save
-        </button>
+        <button id="btnCfgRowSave" class="btn">Save</button>
       </div>
       <div id="cfgRowMsg" class="small"></div>
+    </section>
+
+    <!-- ==== STEPS: COMBO ==== -->
+    <section class="card">
+      <h3>Steps — Combo (Dozen + Row)</h3>
+      <div class="card card-inner">
+        <h4>Steps</h4>
+        <div id="comboStepsBox"></div>
+        <div class="row">
+          <button id="btnAddComboStep" class="btn">+ Add step</button>
+        </div>
+      </div>
+      <div class="row row-end">
+        <button id="btnCfgComboDefaults" class="btn">Defaults</button>
+        <button id="btnCfgComboSave" class="btn">Save</button>
+      </div>
+      <div id="cfgComboMsg" class="small"></div>
     </section>
 
     <script src="popup.js"></script>
