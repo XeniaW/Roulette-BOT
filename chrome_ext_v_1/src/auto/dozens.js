@@ -1,6 +1,8 @@
+// src/auto/dozens.js
 (() => {
   const DEFAULT_CFG = Object.freeze({
     triggerStreak: 2,
+    autoContinue: false, // NEW: сразу ставить следующий шаг после проигрыша
     steps: [
       [{ chip: 1, times: 1 }],
       [{ chip: 1, times: 3 }],
@@ -146,7 +148,7 @@
           );
           return;
         }
-        const { steps } = await this.loadCfg();
+        const { steps, autoContinue } = await this.loadCfg();
         const lastStep = Math.max(1, steps.length);
         if (exec.step >= lastStep) {
           const reset = {
@@ -162,6 +164,67 @@
           );
           return;
         }
+
+        if (autoContinue) {
+          const step = exec.step + 1;
+          const t = exec.target.slice();
+          const next = {
+            ...exec,
+            phase: 'armed',
+            target: t,
+            step,
+            armedAt: Date.now(),
+          };
+          await this.setExec(
+            next,
+            `ПРОИГРЫШ → сразу ставим шаг ${step} на дюжины ${t
+              .map((x) => this.label(x))
+              .join(',')}`
+          );
+          const ok = await BET.tryPlace({
+            step,
+            targets: t,
+            steps,
+            getTargetNode: (i) => this.getTargetNode(i),
+            mutex: this.mutex,
+          });
+          const chips = await BET.loadGlobalChips();
+          if (ok) {
+            const amount =
+              BET.perTargetAmountForStep(
+                step,
+                steps,
+                chips.chipValues
+              ) * t.length;
+            try {
+              const { betLogs = [] } = await this.sget({
+                betLogs: [],
+              });
+              betLogs.push({
+                t: Date.now(),
+                type: 'placed',
+                market: 'dozens',
+                phase: 'armed',
+                message: `Шаг ${step} поставлен (auto)`,
+                amount,
+                step,
+              });
+              if (betLogs.length > 2000)
+                betLogs.splice(0, betLogs.length - 2000);
+              await this.sset({ betLogs });
+            } catch {}
+          }
+          BET.setBetStatus(
+            'bettingStatusDozens',
+            ok ? 'armed' : 'error',
+            ok
+              ? `Шаг ${step} поставлен`
+              : `Не удалось поставить шаг ${step}`
+          );
+          return;
+        }
+
+        // режим ожидания (как раньше)
         const next = {
           ...exec,
           phase: 'waiting',
@@ -176,8 +239,8 @@
 
       if (exec.phase === 'waiting') {
         if (ix !== -1 && exec.target?.includes(ix)) {
-          const step = exec.step,
-            t = exec.target;
+          const step = exec.step;
+          const t = exec.target;
           const { steps } = await this.loadCfg();
           const next = {
             ...exec,

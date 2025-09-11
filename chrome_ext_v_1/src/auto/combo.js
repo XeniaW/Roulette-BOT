@@ -2,6 +2,7 @@
 (() => {
   const DEFAULT_COMBO = Object.freeze({
     triggerStreak: 2,
+    autoContinue: false, // NEW
     steps: [
       [{ chip: 1, times: 1 }],
       [{ chip: 1, times: 3 }],
@@ -13,7 +14,7 @@
     ],
   });
 
-  // --- dozens mapping
+  // --- dozens
   function dozenIndex(n) {
     if (n === 0) return -1;
     if (n <= 12) return 0;
@@ -30,11 +31,8 @@
         : '#index-802';
     return document.querySelector(sel);
   }
-  function dozenLabel(i) {
-    return i + 1;
-  }
 
-  // --- rows mapping (0→#index-702, 1→#index-701, 2→#index-700)
+  // --- rows (0→#index-702, 1→#index-701, 2→#index-700)
   function rowIndex(n) {
     if (n === 0) return -1;
     const r = n % 3;
@@ -48,15 +46,11 @@
     if (idx === 1) return document.querySelector('#index-701');
     return document.querySelector('#index-700');
   }
-  function rowLabel(i) {
-    return i + 1;
-  }
 
   function otherTwo(x) {
     return [0, 1, 2].filter((i) => i !== x);
   }
 
-  // ---- storage utils ----
   async function sget(defs) {
     try {
       return await chrome.storage.local.get(defs || {});
@@ -70,7 +64,7 @@
     } catch {}
   }
 
-  // --- per-market combo config
+  // config
   function sanitizeCombo(raw) {
     const src = raw || {};
     const triggerStreak = Math.max(
@@ -78,6 +72,9 @@
       Math.floor(
         Number(src.triggerStreak ?? DEFAULT_COMBO.triggerStreak)
       )
+    );
+    const autoContinue = !!(
+      src.autoContinue ?? DEFAULT_COMBO.autoContinue
     );
     let steps = Array.isArray(src.steps)
       ? src.steps
@@ -97,7 +94,7 @@
       )
       .filter((st) => st.length);
     if (!steps.length) steps = DEFAULT_COMBO.steps;
-    return { triggerStreak, steps };
+    return { triggerStreak, steps, autoContinue };
   }
   async function loadComboCfg() {
     const { abComboConfig = DEFAULT_COMBO } = await sget({
@@ -111,7 +108,7 @@
     return clean;
   }
 
-  // --- exec
+  // exec
   async function getExec() {
     const { betExecCombo = null } = await sget({
       betExecCombo: null,
@@ -154,9 +151,7 @@
 
   const mutex = new BET.Mutex();
 
-  // ——— ключ: ставим ОДНОВРЕМЕННО на две дюжины И два ряда
   async function tryPlaceCombo(step, targets, steps) {
-    // две независимые постановки; каждая — через общий движок BET.tryPlace
     const [okDz, okRw] = await (async () => {
       const r1 = await BET.tryPlace({
         step,
@@ -175,7 +170,6 @@
       return [r1, r2];
     })();
 
-    // подробный лог
     try {
       const chips = await BET.loadGlobalChips();
       const amountDz = okDz
@@ -289,7 +283,7 @@
         await setExec(reset, `ВЫИГРЫШ (комбо) → сброс`);
         return;
       }
-      const { steps } = await loadComboCfg();
+      const { steps, autoContinue } = await loadComboCfg();
       const lastStep = Math.max(1, steps.length);
       if (exec.step >= lastStep) {
         const reset = {
@@ -305,6 +299,38 @@
         );
         return;
       }
+
+      if (autoContinue) {
+        const step = exec.step + 1;
+        const t = exec.target;
+        const next = {
+          ...exec,
+          phase: 'armed',
+          step,
+          armedAt: Date.now(),
+          target: t,
+        };
+        await setExec(
+          next,
+          `ПРОИГРЫШ (комбо) → сразу ставим шаг ${step} (дюжины ${t.dz
+            .map((x) => x + 1)
+            .join(',')}, ряды ${t.rw.map((x) => x + 1).join(',')})`
+        );
+        const res = await tryPlaceCombo(step, t, steps);
+        const anyOk = res.okDz || res.okRw;
+        const msg = anyOk
+          ? `Шаг ${step} поставлен (комбо): дюжины ${
+              res.okDz ? 'OK' : 'FAIL'
+            }, ряды ${res.okRw ? 'OK' : 'FAIL'}`
+          : `Не удалось поставить шаг ${step} (комбо)`;
+        BET.setBetStatus(
+          'bettingStatusCombo',
+          anyOk ? 'armed' : 'error',
+          msg
+        );
+        return;
+      }
+
       const next = { ...exec, phase: 'waiting', step: exec.step + 1 };
       await setExec(
         next,
@@ -334,7 +360,6 @@
             .map((x) => x + 1)
             .join(',')} и ряды ${t.rw.map((x) => x + 1).join(',')}`
         );
-
         const res = await tryPlaceCombo(step, t, steps);
         const anyOk = res.okDz || res.okRw;
         const msg = anyOk

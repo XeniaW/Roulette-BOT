@@ -1,22 +1,22 @@
+// src/auto/market-base.js
 (() => {
   class MarketBase {
     constructor(opts) {
       this.marketKey = opts.marketKey; // 'dozens' | 'rows'
-      this.cfgKey = opts.cfgKey; // per-market: steps+trigger
+      this.cfgKey = opts.cfgKey; // per-market cfg
       this.enabledKey = opts.enabledKey;
       this.statusKey = opts.statusKey;
       this.execKey = opts.execKey;
       this.getIndex = opts.getIndex; // (n)=>0..2|-1
       this.getOthers = opts.getOthers; // (i)=>[...]
       this.getTargetNode = opts.getTargetNode; // (i)=>HTMLElement
-      this.defaultCfg = opts.defaultCfg; // { triggerStreak, steps }
+      this.defaultCfg = opts.defaultCfg; // { triggerStreak, steps, autoContinue }
 
       this.mutex = new BET.Mutex();
       this._inited = false;
       this.destroyed = false;
     }
 
-    // ---- storage utils ----
     async sget(defs) {
       return BET.sget(defs);
     }
@@ -24,7 +24,7 @@
       return BET.sset(obj);
     }
 
-    // ---- per-market config (NO chips here) ----
+    // ---- per-market config
     sanitizeCfg(raw) {
       const src = raw || {};
       const triggerStreak = Math.max(
@@ -35,8 +35,12 @@
           )
         )
       );
+      const autoContinue = !!(
+        src.autoContinue ??
+        this.defaultCfg.autoContinue ??
+        false
+      );
 
-      // steps нормализуем (chip индексы валидируются позже относительно global chips count)
       let steps = Array.isArray(src.steps) ? src.steps : [];
       steps = steps
         .map((st) => (Array.isArray(st) ? st : []))
@@ -55,7 +59,7 @@
       if (!steps.length)
         steps = JSON.parse(JSON.stringify(this.defaultCfg.steps));
 
-      return { triggerStreak, steps };
+      return { triggerStreak, steps, autoContinue };
     }
 
     async loadCfg() {
@@ -113,9 +117,8 @@
     label(idx) {
       return idx + 1;
     }
-
     attachStorageListener() {
-      /* стратегии переопределяют */
+      /* override in strategies */
     }
 
     async init() {
@@ -124,8 +127,8 @@
 
       await this.loadEnabled();
       this.attachStorageListener();
-
       BET.setBetStatus(this.statusKey, 'idle', 'Готово');
+
       window.addEventListener(
         'beforeunload',
         () => {

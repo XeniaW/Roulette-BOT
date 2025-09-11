@@ -1,6 +1,8 @@
+// src/auto/rows.js
 (() => {
   const DEFAULT_CFG = Object.freeze({
     triggerStreak: 2,
+    autoContinue: false, // NEW
     steps: [
       [{ chip: 1, times: 1 }],
       [{ chip: 1, times: 3 }],
@@ -52,10 +54,6 @@
         getTargetNode: getRowNode,
         defaultCfg: DEFAULT_CFG,
       });
-    }
-
-    label(idx) {
-      return idx + 1;
     }
 
     async onSpin(n) {
@@ -149,7 +147,7 @@
           );
           return;
         }
-        const { steps } = await this.loadCfg();
+        const { steps, autoContinue } = await this.loadCfg();
         const lastStep = Math.max(1, steps.length);
         if (exec.step >= lastStep) {
           const reset = {
@@ -165,6 +163,67 @@
           );
           return;
         }
+
+        if (autoContinue) {
+          const step = exec.step + 1;
+          const t = exec.target.slice();
+          const next = {
+            ...exec,
+            phase: 'armed',
+            target: t,
+            step,
+            armedAt: Date.now(),
+          };
+          await this.setExec(
+            next,
+            `ПРОИГРЫШ → сразу ставим шаг ${step} на ряды ${t
+              .map((x) => this.label(x))
+              .join(',')}`
+          );
+          const ok = await BET.tryPlace({
+            step,
+            targets: t,
+            steps,
+            getTargetNode: (i) => this.getTargetNode(i),
+            mutex: this.mutex,
+          });
+          const chips = await BET.loadGlobalChips();
+          if (ok) {
+            const amount =
+              BET.perTargetAmountForStep(
+                step,
+                steps,
+                chips.chipValues
+              ) * t.length;
+            try {
+              const { betLogs = [] } = await this.sget({
+                betLogs: [],
+              });
+              betLogs.push({
+                t: Date.now(),
+                type: 'placed',
+                market: 'rows',
+                phase: 'armed',
+                message: `Шаг ${step} поставлен (auto)`,
+                amount,
+                step,
+              });
+              if (betLogs.length > 2000)
+                betLogs.splice(0, betLogs.length - 2000);
+              await this.sset({ betLogs });
+            } catch {}
+          }
+          BET.setBetStatus(
+            'bettingStatusRows',
+            ok ? 'armed' : 'error',
+            ok
+              ? `Шаг ${step} поставлен`
+              : `Не удалось поставить шаг ${step}`
+          );
+          return;
+        }
+
+        // режим ожидания
         const next = {
           ...exec,
           phase: 'waiting',

@@ -1,3 +1,4 @@
+/* базовая */
 body {
   font: 13px/1.4 system-ui, sans-serif;
   width: 340px;
@@ -33,14 +34,45 @@ header {
   margin-top: 4px;
   color: #666;
 }
+
 section {
   margin-top: 12px;
 }
+
+/* строки */
 .row {
   display: flex;
   gap: 6px;
-  justify-content: space-between;
+  align-items: center;
 }
+.ai-center {
+  align-items: center;
+}
+
+/* одинаковые пропорции: у лейбла (названия) больше места, у правой части чуть меньше */
+.row.ai-center > label {
+  flex: 2 1 0;
+  min-width: 120px;
+}
+.row.ai-center > .col {
+  flex: 3 1 0;
+  min-width: 0;
+}
+
+/* внутри правой колонки — столбец */
+.col {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+}
+
+/* уменьшить поле под number-инпуты, чтобы они не растягивались */
+.col input[type='number'] {
+  width: 90px;
+  flex: 0 0 auto;
+}
+
+/* таблицы и списки */
 #inpPattern {
   flex: 1;
 }
@@ -70,6 +102,7 @@ td.num {
   text-align: right;
   font-weight: 600;
 }
+
 ul {
   padding-left: 18px;
 }
@@ -82,15 +115,16 @@ ul li {
 ul li button {
   margin-left: 8px;
 }
+
 .muted {
   color: #777;
 }
 .small {
   font-size: 12px;
-  color: #444;
-  margin-top: 4px;
+  color: #444; /* white-space: pre-wrap; — УДАЛЕНО */
 }
 
+/* кнопки */
 .btn {
   padding: 5px 10px;
   border: 1px solid #ddd;
@@ -117,6 +151,7 @@ ul li button {
   color: #333;
 }
 
+/* карточки */
 .card {
   border: 1px solid #e5e7eb;
   border-radius: 10px;
@@ -129,9 +164,15 @@ ul li button {
 .card-inner {
   margin-top: 8px;
 }
+
 .label-w {
   min-width: 160px;
 }
+.label-block {
+  display: block;
+  margin-bottom: 4px;
+}
+
 .row-end {
   justify-content: space-between;
   align-items: center;
@@ -139,13 +180,12 @@ ul li button {
 .gap-tight {
   gap: 4px;
 }
+
+/* чипы/степы */
 .chip-row input[type='number'] {
   width: 120px;
 }
-#cfgDznChipTpl,
-#cfgDznPlaceBtn,
-#cfgRowChipTpl,
-#cfgRowPlaceBtn {
+#cfgChipTpl {
   width: 100%;
 }
 .step-card {
@@ -165,22 +205,26 @@ ul li button {
 .step-item .step-times {
   width: 70px;
 }
-#cfgDznMsg.ok,
-#cfgRowMsg.ok {
-  color: #1b5e20;
-}
-#cfgDznMsg.err,
-#cfgRowMsg.err {
-  color: #b71c1c;
-}
-/* layout helpers for streak label over input + separate status row */
-.col {
+
+/* streak dots */
+.dots {
   display: flex;
-  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 4px;
+  flex-wrap: nowrap;
 }
-.label-block {
-  margin-bottom: 2px;
+.dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #e5e7eb; /* серый — пустой */
+  border: 1px solid #cfd8dc;
+  box-sizing: border-box;
 }
-.row.ai-center {
-  align-items: center;
+.dot.filled {
+  background: #22c55e; /* зелёный — заполненный */
+  border-color: #16a34a;
+  /* небольшой намёк на активность */
+  box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.15);
 }
