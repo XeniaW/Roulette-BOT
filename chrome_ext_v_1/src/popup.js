@@ -878,6 +878,52 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
+  // --- Add Step buttons ---
+  function addBlankStep(box) {
+    // новая карточка шага с одним элементом по умолчанию
+    makeStepCard(box, [{ chip: 1, times: 1 }]);
+  }
+
+  document
+    .getElementById('btnAddDznStep')
+    ?.addEventListener('click', () => addBlankStep(dznStepsBox));
+
+  document
+    .getElementById('btnAddRowStep')
+    ?.addEventListener('click', () => addBlankStep(rowStepsBox));
+
+  document
+    .getElementById('btnAddComboStep')
+    ?.addEventListener('click', () => addBlankStep(comboStepsBox));
+
+  // Defaults
+  document
+    .getElementById('btnCfgDznDefaults')
+    ?.addEventListener('click', () =>
+      renderSteps(dznStepsBox, DEFAULT_MKT.steps)
+    );
+  document
+    .getElementById('btnCfgRowDefaults')
+    ?.addEventListener('click', () =>
+      renderSteps(rowStepsBox, DEFAULT_MKT.steps)
+    );
+  document
+    .getElementById('btnCfgComboDefaults')
+    ?.addEventListener('click', () =>
+      renderSteps(comboStepsBox, DEFAULT_MKT.steps)
+    );
+
+  // Save (per market)
+  document
+    .getElementById('btnCfgDznSave')
+    ?.addEventListener('click', () => saveMarketCfgFromUI('dozens'));
+  document
+    .getElementById('btnCfgRowSave')
+    ?.addEventListener('click', () => saveMarketCfgFromUI('rows'));
+  document
+    .getElementById('btnCfgComboSave')
+    ?.addEventListener('click', () => saveMarketCfgFromUI('combo'));
+
   // изменение "максимума" — перерисовать точки
   dozensStreakInp.addEventListener('input', updateDotsFromState);
   rowsStreakInp.addEventListener('input', updateDotsFromState);

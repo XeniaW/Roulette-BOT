@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "clean": "node -e \"import('fs').then(fs=>fs.promises.rm('dist',{recursive:true,force:true}))\"",
-    "build": "node build.js",
+    "prebuild": "node bump-version.js",
+    "build": "cross-env OBFUSCATE=1 webpack --mode production",
     "watch": "node build.js --watch"
   },
   "devDependencies": {
