@@ -1,12 +1,11 @@
 /* Content script (MV3)
-   Tracks roulette spins displayed under [data-name="previous-spins-stack"].
-   - Logs ONLY the current head number exactly once per spin (including repeats like 17→17)
-   - Shadow-DOM aware for reconnect button scanning
-   - Status is exposed via chrome.storage.local.trackerStatus
-   - Logs are stored in chrome.storage.local.spinLogs (capped)
-   - Robust against "Extension context invalidated" and frame navigations
+   1) Трекинг спинов (как было).
+   2) Чтение баланса напрямую из DOM (data-true-value -> [data-e2e="balance-value"]), без кликов.
+   3) Автопрошивка balance в новые записи betLogs.
 */
+
 (() => {
+  /* ====================== ОБЩЕЕ ====================== */
   const CONTAINER_ATTR = 'previous-spins-stack';
   const CELL_PREFIX = 'cell-';
   const CONTAINER_SEL = `[data-name="${CONTAINER_ATTR}"]`;
@@ -90,6 +89,185 @@
     return out;
   }
 
+  /* ====================== БАЛАНС ====================== */
+  // Кнопка нам больше не нужна, но селектор оставим (на будущее/совместимость)
+  const BALANCE_BTN_SEL =
+    'button.balance__refresh.balance-refresh, button[aria-label="Update balance"], button[data-e2e="balance-refresh"]';
+
+  // Значение баланса: поддерживаем новую и старую разметку
+  const BALANCE_VAL_SEL =
+    '[data-e2e="balance"] [data-e2e="balance-value"], .style_balanceWrapper__1dya9zx0 [data-e2e="balance-value"], span.account-select-toggle__value';
+
+  function findOneDeep(selector) {
+    const direct = document.querySelector(selector);
+    if (direct) return direct;
+    const all = queryAllDeep(document, selector);
+    return all.length ? all[0] : null;
+  }
+
+  function clickElement(el) {
+    try {
+      el.dispatchEvent(
+        new MouseEvent('pointerdown', { bubbles: true })
+      );
+      el.dispatchEvent(
+        new MouseEvent('mousedown', { bubbles: true })
+      );
+      el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+      el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    } catch {
+      try {
+        el.click();
+      } catch {}
+    }
+  }
+
+  function parseBalanceText(txt) {
+    if (!txt) return null;
+    // нормализуем: убираем пробелы/неразрывные, заменяем запятую на точку
+    const clean = txt.replace(/[^\d,.\-]/g, '').replace(',', '.');
+    const val = Number(clean);
+    return Number.isFinite(val) ? val : null;
+  }
+
+  function delay(ms) {
+    return new Promise((res) => setTimeout(res, ms));
+  }
+
+  // === МИНИ-ПРАВКА #1: читаем баланс напрямую из DOM
+  async function readBalanceValue() {
+    // 1) ищем контейнер с балансом
+    const wrap =
+      findOneDeep('[data-e2e="balance"]') ||
+      findOneDeep('.style_balanceWrapper__1dya9zx0');
+
+    // сначала пробуем data-true-value
+    if (wrap) {
+      const raw = wrap.getAttribute?.('data-true-value');
+      if (raw != null) {
+        const v = parseBalanceText(String(raw));
+        if (v != null) return v;
+      }
+    }
+
+    // затем fallback: текст из [data-e2e="balance-value"] (или старого селектора)
+    const span =
+      (wrap && wrap.querySelector?.('[data-e2e="balance-value"]')) ||
+      findOneDeep(BALANCE_VAL_SEL);
+
+    if (span) {
+      const txt = (span.textContent || '').trim();
+      const v2 = parseBalanceText(txt);
+      if (v2 != null) return v2;
+    }
+
+    return null;
+  }
+
+  // === МИНИ-ПРАВКА #2: больше не кликаем по кнопке — просто читаем текущее значение
+  async function refreshBalanceAndRead(
+    opts = { refresh: false, waitMs: 400 }
+  ) {
+    const waitMs = Math.max(0, Number(opts?.waitMs ?? 400));
+
+    // читаем прямо из DOM; если ещё не смонтировалось — подождём чуть-чуть
+    const started = Date.now();
+    let val = await readBalanceValue();
+    while (val == null && Date.now() - started < waitMs) {
+      await delay(100);
+      val = await readBalanceValue();
+    }
+
+    if (val != null)
+      await safeSet({
+        currentBalance: { value: val, t: Date.now() },
+      });
+    return val;
+  }
+
+  // Ответы на сообщения из попапа/бэкграунда (совместимость сохранена)
+  chrome.runtime.onMessage.addListener(
+    (msg, _sender, sendResponse) => {
+      if (!msg || typeof msg !== 'object') return;
+      if (
+        msg.type === 'READ_BALANCE' ||
+        msg.type === 'REFRESH_BALANCE'
+      ) {
+        refreshBalanceAndRead({
+          // refresh игнорируется внутри функции
+          refresh: msg.type === 'REFRESH_BALANCE',
+        })
+          .then((v) => sendResponse({ ok: true, balance: v }))
+          .catch((e) =>
+            sendResponse({ ok: false, error: String(e) })
+          );
+        return true; // async reply
+      }
+    }
+  );
+
+  // Автопрошивка баланса в новые записи betLogs
+  let _isPatchingBetLogs = false;
+  chrome.storage.onChanged.addListener(async (ch, area) => {
+    if (area !== 'local') return;
+    if (!ch.betLogs || _isPatchingBetLogs) return;
+
+    const oldArr = Array.isArray(ch.betLogs.oldValue)
+      ? ch.betLogs.oldValue
+      : [];
+    const newArr = Array.isArray(ch.betLogs.newValue)
+      ? ch.betLogs.newValue
+      : [];
+    if (newArr.length <= oldArr.length) return;
+
+    // проверяем, есть ли у добавленных элементов поле balance
+    const added = newArr.slice(oldArr.length);
+    const needPatch = added.some((e) => e && e.balance == null);
+
+    if (!needPatch) return;
+
+    // читаем актуальный баланс (без кликов)
+    const bal = await refreshBalanceAndRead({
+      refresh: false,
+      waitMs: 400,
+    });
+
+    // пришиваем баланс только к новым без balance
+    const patched = newArr.map((e, idx) => {
+      if (idx < oldArr.length) return e;
+      if (e && e.balance == null) return { ...e, balance: bal };
+      return e;
+    });
+
+    try {
+      _isPatchingBetLogs = true;
+      await safeSet({ betLogs: patched });
+    } finally {
+      _isPatchingBetLogs = false;
+    }
+  });
+
+  /* ====================== СПИНЫ (как было) ====================== */
+  function readCurrentListFrom(containerEl) {
+    const cells = containerEl.querySelectorAll(CELL_SEL);
+    const arr = [];
+    for (const el of cells) {
+      const n = extractNumberFromCell(el);
+      if (Number.isFinite(n)) arr.push(n);
+    }
+    return arr; // newest-first
+  }
+
+  function extractNumberFromCell(el) {
+    const dn = el.getAttribute?.('data-name');
+    if (dn && dn.startsWith(CELL_PREFIX)) {
+      const num = Number(dn.slice(CELL_PREFIX.length));
+      if (Number.isFinite(num)) return num;
+    }
+    const t = Number((el.textContent || '').trim());
+    return Number.isFinite(t) ? t : null;
+  }
+
   async function appendLogs(numbersArrayOldestFirst) {
     if (!numbersArrayOldestFirst?.length) return;
     const { spinLogs = [] } = await safeGet({ spinLogs: [] });
@@ -104,26 +282,6 @@
     if (logs.length > MAX_LOGS)
       logs.splice(0, logs.length - MAX_LOGS);
     await safeSet({ spinLogs: logs });
-  }
-
-  function extractNumberFromCell(el) {
-    const dn = el.getAttribute?.('data-name');
-    if (dn && dn.startsWith(CELL_PREFIX)) {
-      const num = Number(dn.slice(CELL_PREFIX.length));
-      if (Number.isFinite(num)) return num;
-    }
-    const t = Number((el.textContent || '').trim());
-    return Number.isFinite(t) ? t : null;
-  }
-
-  function readCurrentListFrom(containerEl) {
-    const cells = containerEl.querySelectorAll(CELL_SEL);
-    const arr = [];
-    for (const el of cells) {
-      const n = extractNumberFromCell(el);
-      if (Number.isFinite(n)) arr.push(n);
-    }
-    return arr; // newest-first
   }
 
   function handleMutations() {
@@ -234,23 +392,6 @@
     waitForContainerLoop();
   }
 
-  function clickElement(el) {
-    try {
-      el.dispatchEvent(
-        new MouseEvent('pointerdown', { bubbles: true })
-      );
-      el.dispatchEvent(
-        new MouseEvent('mousedown', { bubbles: true })
-      );
-      el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-      el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    } catch {
-      try {
-        el.click();
-      } catch {}
-    }
-  }
-
   function findReconnectCandidates(root = document) {
     const found = [];
     const spans = root.querySelectorAll('[data-e2e^="btn-label-"]');
@@ -331,6 +472,12 @@
 
   async function init() {
     startReconnectLoop();
+
+    // начальное снятие баланса в фоне (без клика)
+    try {
+      await refreshBalanceAndRead({ refresh: false, waitMs: 600 });
+    } catch {}
+
     if (
       document.readyState === 'complete' ||
       document.readyState === 'interactive'

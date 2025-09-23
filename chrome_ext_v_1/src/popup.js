@@ -1,4 +1,4 @@
-/* Popup main: глобальные фишки, шаги/стрики/autoContinue по рынкам, + streak-dots с корректной подсветкой первого кружка */
+/* Popup main: глобальные фишки, шаги/стрики/autoContinue по рынкам, + streak-dots с корректной подсветкой первого кружка, + баланс в bet-логах */
 
 const TIME_FMT = {
   year: 'numeric',
@@ -215,14 +215,25 @@ function clearLogs() {
   chrome.storage.local.set({ spinLogs: [] }, () => renderAll([]));
 }
 
-/* bet logs */
+/* ====== BET LOGS (с колонкой "balance") ====== */
 function renderBetRow(e) {
   const tr = document.createElement('tr');
+
   const tdT = document.createElement('td');
   tdT.textContent = fmtTime(e.t);
+
   const tdA = document.createElement('td');
   tdA.textContent =
     e.amount != null ? Number(e.amount).toFixed(2) : '';
+  tdA.className = 'num';
+
+  const tdB = document.createElement('td'); // NEW: balance
+  tdB.textContent =
+    e.balance != null && Number.isFinite(Number(e.balance))
+      ? Number(e.balance).toFixed(2)
+      : '';
+  tdB.className = 'num';
+
   const tdE = document.createElement('td');
   const phase = e.phase ? String(e.phase).toUpperCase() : '';
   const msg =
@@ -238,8 +249,8 @@ function renderBetRow(e) {
     (e.market ? `[${e.market}] ` : '') +
     (phase ? `[${phase}] ` : '') +
     msg;
-  tdA.className = 'num';
-  tr.append(tdT, tdA, tdE);
+
+  tr.append(tdT, tdA, tdB, tdE);
   return tr;
 }
 function renderBetAll(logs) {
@@ -268,13 +279,17 @@ function loadBetLogs(cb) {
 function exportBetCSV() {
   loadBetLogs((logs) => {
     const header =
-      'time_iso,time_local,market,amount,event,phase,type,step\n';
+      'time_iso,time_local,market,amount,balance,event,phase,type,step\n'; // NEW: balance
     const rows = logs
       .map((e) => {
         const tIso = new Date(e.t).toISOString();
         const tLocal = fmtTime(e.t).replace(/,/g, '');
         const amt =
           e.amount != null ? Number(e.amount).toFixed(2) : '';
+        const bal =
+          e.balance != null && Number.isFinite(Number(e.balance))
+            ? Number(e.balance).toFixed(2)
+            : '';
         const phase = e.phase || '';
         const type = e.type || '';
         const step = e.step != null ? e.step : '';
@@ -291,7 +306,7 @@ function exportBetCSV() {
         ).replace(/,/g, ' ');
         return `${tIso},${tLocal},${
           e.market || ''
-        },${amt},${eventText},${phase},${type},${step}`;
+        },${amt},${bal},${eventText},${phase},${type},${step}`;
       })
       .join('\n');
     const blob = new Blob([header, rows, '\n']);
@@ -439,15 +454,15 @@ function sanitizeMkt(raw) {
   steps = steps
     .map((st) => (Array.isArray(st) ? st : []))
     .map((st) =>
-      st
-        .map((it) => ({
-          chip: Math.max(1, Math.floor(Number(it?.chip ?? 1))),
-          times: Math.max(1, Math.floor(Number(it?.times ?? 1))),
-        }))
-        .filter(
-          (it) =>
-            Number.isFinite(it.chip) && Number.isFinite(it.times)
-        )
+      st.map((it) => ({
+        chip: Math.max(1, Math.floor(Number(it?.chip ?? 1))),
+        times: Math.max(1, Math.floor(Number(it?.times ?? 1))),
+      }))
+    )
+    .map((st) =>
+      st.filter(
+        (it) => Number.isFinite(it.chip) && Number.isFinite(it.times)
+      )
     )
     .filter((st) => st.length);
   if (!steps.length)
@@ -710,8 +725,6 @@ async function saveMarketCfgFromUI(market) {
 }
 
 /* ===== Dots: логика ===== */
-
-/* локальные индексаторы, чтобы подсветить 1-й кружок даже если фоновые стрики ещё не успели посчитаться */
 function dozenIndex(n) {
   if (n === 0) return -1;
   if (n <= 12) return 0;
@@ -748,10 +761,7 @@ function renderDots(hostEl, filledCount, max) {
 }
 
 function effectiveCount(kind) {
-  // если уже есть подсчитанный стрик — используем его
   let c = Math.max(0, Number(kind.count || 0));
-
-  // если 0, но последний спин не 0 — подсветим хотя бы 1 кружок
   if (c === 0 && lastNumber != null && lastNumber !== 0) {
     c = 1;
   }
@@ -880,18 +890,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // --- Add Step buttons ---
   function addBlankStep(box) {
-    // новая карточка шага с одним элементом по умолчанию
     makeStepCard(box, [{ chip: 1, times: 1 }]);
   }
 
   document
     .getElementById('btnAddDznStep')
     ?.addEventListener('click', () => addBlankStep(dznStepsBox));
-
   document
     .getElementById('btnAddRowStep')
     ?.addEventListener('click', () => addBlankStep(rowStepsBox));
-
   document
     .getElementById('btnAddComboStep')
     ?.addEventListener('click', () => addBlankStep(comboStepsBox));
