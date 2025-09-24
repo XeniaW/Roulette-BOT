@@ -176,6 +176,38 @@
         <span id="betStatusCombo" class="small"></span>
       </div>
 
+      <!-- Sixlines -->
+      <div class="row ai-center">
+        <label
+          ><input type="checkbox" id="autoBetToggleSix" />
+          Шестерки</label
+        >
+        <div class="col">
+          <div
+            id="sixStreakDots"
+            class="dots"
+            role="presentation"
+          ></div>
+          <label for="sixStreak" class="small label-block"
+            >Стрик</label
+          >
+          <input
+            id="sixStreak"
+            type="number"
+            min="2"
+            step="1"
+            value="2"
+          />
+          <label class="small"
+            ><input type="checkbox" id="sixAutoContinue" /> Ставки
+            подряд</label
+          >
+        </div>
+      </div>
+      <div class="row">
+        <span id="betStatusSix" class="small"></span>
+      </div>
+
       <div class="row row-end">
         <span class="small muted"
           >Save All сохранит общие фишки и steps/streak/режим
@@ -187,7 +219,7 @@
       </div>
     </section>
 
-    <!-- ==== GLOBAL CHIPS (один раз для всех) ==== -->
+    <!-- ==== GLOBAL CHIPS ==== -->
     <section class="card">
       <h3>Global Chips</h3>
       <div class="row">
@@ -256,6 +288,23 @@
         <button id="btnCfgComboSave" class="btn">Save</button>
       </div>
       <div id="cfgComboMsg" class="small"></div>
+    </section>
+
+    <!-- ==== STEPS: SIXLINES ==== -->
+    <section class="card">
+      <h3>Steps — Sixlines</h3>
+      <div class="card card-inner">
+        <h4>Steps</h4>
+        <div id="sixStepsBox"></div>
+        <div class="row">
+          <button id="btnAddSixStep" class="btn">+ Add step</button>
+        </div>
+      </div>
+      <div class="row row-end">
+        <button id="btnCfgSixDefaults" class="btn">Defaults</button>
+        <button id="btnCfgSixSave" class="btn">Save</button>
+      </div>
+      <div id="cfgSixMsg" class="small"></div>
     </section>
 
     <script src="popup.js"></script>

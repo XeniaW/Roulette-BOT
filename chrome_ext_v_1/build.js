@@ -26,6 +26,7 @@ const ENTRY_POINTS = [
   'src/auto/dozens.js',
   'src/auto/rows.js',
   'src/auto/combo.js',
+  'src/auto/sixlines.js',
 ];
 
 const BASE = {

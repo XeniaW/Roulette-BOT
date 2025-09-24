@@ -1,4 +1,5 @@
-/* Popup main: глобальные фишки, шаги/стрики/autoContinue по рынкам, + streak-dots с корректной подсветкой первого кружка, + баланс в bet-логах */
+// src/popup.js
+/* Popup main: глобальные фишки, шаги/стрики/auto-continue по рынкам, + streak-dots, + баланс в bet-логах */
 
 const TIME_FMT = {
   year: 'numeric',
@@ -53,18 +54,22 @@ const autoBetToggleRows = document.getElementById(
 const autoBetToggleCombo = document.getElementById(
   'autoBetToggleCombo'
 );
+const autoBetToggleSix = document.getElementById('autoBetToggleSix');
 
 const betStatusDozens = document.getElementById('betStatusDozens');
 const betStatusRows = document.getElementById('betStatusRows');
 const betStatusCombo = document.getElementById('betStatusCombo');
+const betStatusSix = document.getElementById('betStatusSix');
 
 const dozensStreakInp = document.getElementById('dozensStreak');
 const rowsStreakInp = document.getElementById('rowsStreak');
 const comboStreakInp = document.getElementById('comboStreak');
+const sixStreakInp = document.getElementById('sixStreak');
 
 const dozensAutoCk = document.getElementById('dozensAutoContinue');
 const rowsAutoCk = document.getElementById('rowsAutoContinue');
 const comboAutoCk = document.getElementById('comboAutoContinue');
+const sixAutoCk = document.getElementById('sixAutoContinue');
 
 const btnSaveAll = document.getElementById('btnSaveAll');
 
@@ -72,6 +77,7 @@ const btnSaveAll = document.getElementById('btnSaveAll');
 const dotsDozens = document.getElementById('dozensStreakDots');
 const dotsRows = document.getElementById('rowsStreakDots');
 const dotsCombo = document.getElementById('comboStreakDots');
+const dotsSix = document.getElementById('sixStreakDots');
 
 /* ===== утилиты ===== */
 function fmtTime(x) {
@@ -162,7 +168,7 @@ async function addPattern(input) {
   loadDomains();
 }
 
-/* логи */
+/* логи чисел */
 function renderRow(e) {
   const tr = document.createElement('tr');
   const tdT = document.createElement('td');
@@ -215,25 +221,21 @@ function clearLogs() {
   chrome.storage.local.set({ spinLogs: [] }, () => renderAll([]));
 }
 
-/* ====== BET LOGS (с колонкой "balance") ====== */
+/* ====== BET LOGS ====== */
 function renderBetRow(e) {
   const tr = document.createElement('tr');
-
   const tdT = document.createElement('td');
   tdT.textContent = fmtTime(e.t);
-
   const tdA = document.createElement('td');
   tdA.textContent =
     e.amount != null ? Number(e.amount).toFixed(2) : '';
   tdA.className = 'num';
-
-  const tdB = document.createElement('td'); // NEW: balance
+  const tdB = document.createElement('td');
   tdB.textContent =
     e.balance != null && Number.isFinite(Number(e.balance))
       ? Number(e.balance).toFixed(2)
       : '';
   tdB.className = 'num';
-
   const tdE = document.createElement('td');
   const phase = e.phase ? String(e.phase).toUpperCase() : '';
   const msg =
@@ -249,7 +251,6 @@ function renderBetRow(e) {
     (e.market ? `[${e.market}] ` : '') +
     (phase ? `[${phase}] ` : '') +
     msg;
-
   tr.append(tdT, tdA, tdB, tdE);
   return tr;
 }
@@ -279,7 +280,7 @@ function loadBetLogs(cb) {
 function exportBetCSV() {
   loadBetLogs((logs) => {
     const header =
-      'time_iso,time_local,market,amount,balance,event,phase,type,step\n'; // NEW: balance
+      'time_iso,time_local,market,amount,balance,event,phase,type,step\n';
     const rows = logs
       .map((e) => {
         const tIso = new Date(e.t).toISOString();
@@ -425,6 +426,7 @@ async function saveGlobalChipsFromUI() {
 const CFG_DZN_KEY = 'abDozensConfig';
 const CFG_ROW_KEY = 'abRowsConfig';
 const CFG_COMBO_KEY = 'abComboConfig';
+const CFG_SIX_KEY = 'abSixConfig';
 
 const DEFAULT_MKT = Object.freeze({
   triggerStreak: 2,
@@ -474,9 +476,11 @@ function sanitizeMkt(raw) {
 const dznStepsBox = document.getElementById('dznStepsBox');
 const rowStepsBox = document.getElementById('rowStepsBox');
 const comboStepsBox = document.getElementById('comboStepsBox');
+const sixStepsBox = document.getElementById('sixStepsBox');
 const cfgDznMsg = document.getElementById('cfgDznMsg');
 const cfgRowMsg = document.getElementById('cfgRowMsg');
 const cfgComboMsg = document.getElementById('cfgComboMsg');
+const cfgSixMsg = document.getElementById('cfgSixMsg');
 
 /* helpers UI (chips/steps) */
 function makeChipRow(value = '') {
@@ -571,49 +575,72 @@ async function loadMarketUI(market) {
       ? CFG_DZN_KEY
       : market === 'rows'
       ? CFG_ROW_KEY
-      : CFG_COMBO_KEY;
+      : market === 'combo'
+      ? CFG_COMBO_KEY
+      : CFG_SIX_KEY;
+
   const enKey =
     market === 'dozens'
       ? 'autoBettingDozensEnabled'
       : market === 'rows'
       ? 'autoBettingRowsEnabled'
-      : 'autoBettingComboEnabled';
+      : market === 'combo'
+      ? 'autoBettingComboEnabled'
+      : 'autoBettingSixEnabled';
+
   const statusKey =
     market === 'dozens'
       ? 'bettingStatusDozens'
       : market === 'rows'
       ? 'bettingStatusRows'
-      : 'bettingStatusCombo';
+      : market === 'combo'
+      ? 'bettingStatusCombo'
+      : 'bettingStatusSix';
+
   const streakInp =
     market === 'dozens'
       ? dozensStreakInp
       : market === 'rows'
       ? rowsStreakInp
-      : comboStreakInp;
+      : market === 'combo'
+      ? comboStreakInp
+      : sixStreakInp;
+
   const autoCk =
     market === 'dozens'
       ? dozensAutoCk
       : market === 'rows'
       ? rowsAutoCk
-      : comboAutoCk;
+      : market === 'combo'
+      ? comboAutoCk
+      : sixAutoCk;
+
   const toggle =
     market === 'dozens'
       ? autoBetToggleDozens
       : market === 'rows'
       ? autoBetToggleRows
-      : autoBetToggleCombo;
+      : market === 'combo'
+      ? autoBetToggleCombo
+      : autoBetToggleSix;
+
   const stepsBox =
     market === 'dozens'
       ? dznStepsBox
       : market === 'rows'
       ? rowStepsBox
-      : comboStepsBox;
+      : market === 'combo'
+      ? comboStepsBox
+      : sixStepsBox;
+
   const msgEl =
     market === 'dozens'
       ? cfgDznMsg
       : market === 'rows'
       ? cfgRowMsg
-      : cfgComboMsg;
+      : market === 'combo'
+      ? cfgComboMsg
+      : cfgSixMsg;
 
   const st = await sget({
     [enKey]: false,
@@ -625,7 +652,9 @@ async function loadMarketUI(market) {
     ? betStatusDozens
     : market === 'rows'
     ? betStatusRows
-    : betStatusCombo
+    : market === 'combo'
+    ? betStatusCombo
+    : betStatusSix
   ).textContent = `[${(stat.state || 'off').toUpperCase()}] ${
     stat.message || ''
   }`;
@@ -644,19 +673,28 @@ async function saveMarketCfgFromUI(market) {
       ? CFG_DZN_KEY
       : market === 'rows'
       ? CFG_ROW_KEY
-      : CFG_COMBO_KEY;
+      : market === 'combo'
+      ? CFG_COMBO_KEY
+      : CFG_SIX_KEY;
+
   const stepsBox =
     market === 'dozens'
       ? dznStepsBox
       : market === 'rows'
       ? rowStepsBox
-      : comboStepsBox;
+      : market === 'combo'
+      ? comboStepsBox
+      : sixStepsBox;
+
   const msgEl =
     market === 'dozens'
       ? cfgDznMsg
       : market === 'rows'
       ? cfgRowMsg
-      : cfgComboMsg;
+      : market === 'combo'
+      ? cfgComboMsg
+      : cfgSixMsg;
+
   const streak = Math.max(
     2,
     Math.floor(
@@ -665,7 +703,9 @@ async function saveMarketCfgFromUI(market) {
           ? dozensStreakInp.value
           : market === 'rows'
           ? rowsStreakInp.value
-          : comboStreakInp.value) || 2
+          : market === 'combo'
+          ? comboStreakInp.value
+          : sixStreakInp.value) || 2
       )
     )
   );
@@ -674,7 +714,9 @@ async function saveMarketCfgFromUI(market) {
       ? dozensAutoCk
       : market === 'rows'
       ? rowsAutoCk
-      : comboAutoCk;
+      : market === 'combo'
+      ? comboAutoCk
+      : sixAutoCk;
   const autoContinue = !!autoCk.checked;
 
   const { [GLOBAL_CHIPS_KEY]: chips = DEFAULT_CHIPS } = await sget({
@@ -724,7 +766,7 @@ async function saveMarketCfgFromUI(market) {
   msgEl.textContent = 'Saved.';
 }
 
-/* ===== Dots: логика ===== */
+/* ===== Dots ===== */
 function dozenIndex(n) {
   if (n === 0) return -1;
   if (n <= 12) return 0;
@@ -741,7 +783,7 @@ function rowIndex(n) {
   return -1;
 }
 
-/* актуальный последний спин — чтобы 1-й кружок был зелёным при не-нулевом числе */
+/* актуальный последний спин */
 let lastNumber = null;
 
 const DEFAULT_STREAK = {
@@ -759,19 +801,16 @@ function renderDots(hostEl, filledCount, max) {
     html += `<span class="dot${i < fill ? ' filled' : ''}"></span>`;
   hostEl.innerHTML = html;
 }
-
 function effectiveCount(kind) {
   let c = Math.max(0, Number(kind.count || 0));
-  if (c === 0 && lastNumber != null && lastNumber !== 0) {
-    c = 1;
-  }
+  if (c === 0 && lastNumber != null && lastNumber !== 0) c = 1;
   return c;
 }
-
 function updateDotsFromState() {
   const maxD = Math.max(1, Number(dozensStreakInp.value) || 2);
   const maxR = Math.max(1, Number(rowsStreakInp.value) || 2);
   const maxC = Math.max(1, Number(comboStreakInp.value) || 2);
+  const maxS = Math.max(1, Number(sixStreakInp.value) || 2);
 
   renderDots(
     dotsDozens,
@@ -788,6 +827,11 @@ function updateDotsFromState() {
     effectiveCount(currStreakState?.combo || { count: 0 }),
     maxC
   );
+  renderDots(
+    dotsSix,
+    effectiveCount({ count: lastNumber && lastNumber !== 0 ? 1 : 0 }),
+    maxS
+  );
 }
 
 /* ===== INIT ===== */
@@ -801,9 +845,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadMarketUI('dozens');
   await loadMarketUI('rows');
   await loadMarketUI('combo');
+  await loadMarketUI('six');
   await loadToggle();
 
-  // начальный streakState + последний номер
   const { streakState = DEFAULT_STREAK, spinLogs = [] } = await sget({
     streakState: DEFAULT_STREAK,
     spinLogs: [],
@@ -855,7 +899,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       await sset({ streakState: st });
     }
   });
-
   autoBetToggleRows.addEventListener('change', async () => {
     const enabled = !!autoBetToggleRows.checked;
     await sset({ autoBettingRowsEnabled: enabled });
@@ -871,7 +914,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       await sset({ streakState: st });
     }
   });
-
   autoBetToggleCombo.addEventListener('change', async () => {
     const enabled = !!autoBetToggleCombo.checked;
     await sset({ autoBettingComboEnabled: enabled });
@@ -887,12 +929,16 @@ document.addEventListener('DOMContentLoaded', async () => {
       await sset({ streakState: st });
     }
   });
+  autoBetToggleSix.addEventListener('change', async () => {
+    const enabled = !!autoBetToggleSix.checked;
+    await sset({ autoBettingSixEnabled: enabled });
+    // Для sixlines отдельного streakState не ведем.
+  });
 
-  // --- Add Step buttons ---
+  // Add Step buttons
   function addBlankStep(box) {
     makeStepCard(box, [{ chip: 1, times: 1 }]);
   }
-
   document
     .getElementById('btnAddDznStep')
     ?.addEventListener('click', () => addBlankStep(dznStepsBox));
@@ -902,6 +948,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   document
     .getElementById('btnAddComboStep')
     ?.addEventListener('click', () => addBlankStep(comboStepsBox));
+  document
+    .getElementById('btnAddSixStep')
+    ?.addEventListener('click', () => addBlankStep(sixStepsBox));
 
   // Defaults
   document
@@ -919,6 +968,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     ?.addEventListener('click', () =>
       renderSteps(comboStepsBox, DEFAULT_MKT.steps)
     );
+  document
+    .getElementById('btnCfgSixDefaults')
+    ?.addEventListener('click', () =>
+      renderSteps(sixStepsBox, DEFAULT_MKT.steps)
+    );
 
   // Save (per market)
   document
@@ -930,11 +984,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   document
     .getElementById('btnCfgComboSave')
     ?.addEventListener('click', () => saveMarketCfgFromUI('combo'));
+  document
+    .getElementById('btnCfgSixSave')
+    ?.addEventListener('click', () => saveMarketCfgFromUI('six'));
 
   // изменение "максимума" — перерисовать точки
   dozensStreakInp.addEventListener('input', updateDotsFromState);
   rowsStreakInp.addEventListener('input', updateDotsFromState);
   comboStreakInp.addEventListener('input', updateDotsFromState);
+  sixStreakInp.addEventListener('input', updateDotsFromState);
 
   // SAVE ALL
   btnSaveAll.addEventListener('click', async () => {
@@ -942,6 +1000,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     await saveMarketCfgFromUI('dozens');
     await saveMarketCfgFromUI('rows');
     await saveMarketCfgFromUI('combo');
+    await saveMarketCfgFromUI('six');
   });
 });
 
@@ -956,9 +1015,8 @@ chrome.storage.onChanged.addListener((ch, area) => {
     const { oldValue = [], newValue = [] } = ch.spinLogs;
     if (Array.isArray(newValue) && newValue.length) {
       const last = newValue[newValue.length - 1];
-      if (last && Number.isFinite(Number(last.n))) {
+      if (last && Number.isFinite(Number(last.n)))
         lastNumber = Number(last.n);
-      }
     }
     if (newValue.length > oldValue.length)
       appendNew(newValue.slice(oldValue.length));
@@ -1002,6 +1060,15 @@ chrome.storage.onChanged.addListener((ch, area) => {
       st.state || 'off'
     ).toUpperCase()}] ${st.message || ''}`;
   }
+  if (ch.bettingStatusSix) {
+    const st = ch.bettingStatusSix.newValue || {
+      state: 'off',
+      message: '',
+    };
+    betStatusSix.textContent = `[${(
+      st.state || 'off'
+    ).toUpperCase()}] ${st.message || ''}`;
+  }
 
   if (ch.abDozensConfig) {
     const cfg = sanitizeMkt(ch.abDozensConfig.newValue);
@@ -1022,6 +1089,13 @@ chrome.storage.onChanged.addListener((ch, area) => {
     comboStreakInp.value = cfg.triggerStreak;
     comboAutoCk.checked = !!cfg.autoContinue;
     renderSteps(comboStepsBox, cfg.steps);
+    updateDotsFromState();
+  }
+  if (ch.abSixConfig) {
+    const cfg = sanitizeMkt(ch.abSixConfig.newValue);
+    sixStreakInp.value = cfg.triggerStreak;
+    sixAutoCk.checked = !!cfg.autoContinue;
+    renderSteps(sixStepsBox, cfg.steps);
     updateDotsFromState();
   }
 
