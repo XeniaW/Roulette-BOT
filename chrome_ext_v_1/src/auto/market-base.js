@@ -2,15 +2,15 @@
 (() => {
   class MarketBase {
     constructor(opts) {
-      this.marketKey = opts.marketKey; // 'dozens' | 'rows'
+      this.marketKey = opts.marketKey; // 'dozens' | 'rows' | 'six'
       this.cfgKey = opts.cfgKey; // per-market cfg
       this.enabledKey = opts.enabledKey;
       this.statusKey = opts.statusKey;
       this.execKey = opts.execKey;
-      this.getIndex = opts.getIndex; // (n)=>0..2|-1
-      this.getOthers = opts.getOthers; // (i)=>[...]
+      this.getIndex = opts.getIndex; // (n)=> number index (>=0) | -1
+      this.getOthers = opts.getOthers; // (i or set)=>[...]
       this.getTargetNode = opts.getTargetNode; // (i)=>HTMLElement
-      this.defaultCfg = opts.defaultCfg; // { triggerStreak, steps, autoContinue }
+      this.defaultCfg = opts.defaultCfg; // { triggerStreak, steps, autoContinue, includeZero }
 
       this.mutex = new BET.Mutex();
       this._inited = false;
@@ -41,6 +41,13 @@
         false
       );
 
+      // NEW: includeZero флаг
+      const includeZero = !!(
+        src.includeZero ??
+        this.defaultCfg.includeZero ??
+        false
+      );
+
       let steps = Array.isArray(src.steps) ? src.steps : [];
       steps = steps
         .map((st) => (Array.isArray(st) ? st : []))
@@ -59,7 +66,7 @@
       if (!steps.length)
         steps = JSON.parse(JSON.stringify(this.defaultCfg.steps));
 
-      return { triggerStreak, steps, autoContinue };
+      return { triggerStreak, steps, autoContinue, includeZero };
     }
 
     async loadCfg() {

@@ -2,7 +2,8 @@
 (() => {
   const DEFAULT_CFG = Object.freeze({
     triggerStreak: 2,
-    autoContinue: false, // NEW
+    autoContinue: false,
+    includeZero: false, // 0 считается как текущий ряд, если включено (внутри уже идущей серии)
     steps: [
       [{ chip: 1, times: 1 }],
       [{ chip: 1, times: 3 }],
@@ -15,30 +16,84 @@
   });
 
   const $ = (sel) => document.querySelector(sel);
-  // индексация: 0→#index-702, 1→#index-701, 2→#index-700
+  // ПОРЯДОК НЕ МЕНЯЕМ:
+  // 700 -> ряд 1, 701 -> ряд 2, 702 -> ряд 3
   const rowButtons = [
-    $('#index-702'),
-    $('#index-701'),
-    $('#index-700'),
+    $('#index-700'), // row 1 (n % 3 == 1)
+    $('#index-701'), // row 2 (n % 3 == 2)
+    $('#index-702'), // row 3 (n % 3 == 0)
   ];
 
+  // индекс ряда по номеру
   function rowIndex(n) {
-    if (n === 0) return -1;
+    if (n === 0) return -1; // 0 не имеет собственного ряда
     const r = n % 3;
-    if (r === 1) return 0;
-    if (r === 2) return 1;
-    if (r === 0) return 2;
+    if (r === 1) return 0; // ряд 1  -> index-700
+    if (r === 2) return 1; // ряд 2  -> index-701
+    if (r === 0) return 2; // ряд 3  -> index-702
     return -1;
   }
+
   function otherTwo(skip) {
-    return [0, 1, 2].filter((i) => i !== skip);
+    // строго исключаем исходный ряд
+    return [0, 1, 2].filter((d) => d !== skip);
   }
+
   function getRowNode(idx) {
-    if (idx === 0)
-      return rowButtons[0] || document.querySelector('#index-702');
-    if (idx === 1)
-      return rowButtons[1] || document.querySelector('#index-701');
-    return rowButtons[2] || document.querySelector('#index-700');
+    const sel =
+      idx === 0
+        ? '#index-700'
+        : idx === 1
+        ? '#index-701'
+        : '#index-702';
+    const node = rowButtons[idx] || document.querySelector(sel);
+    if (!node) {
+      console.warn(
+        '[rows] Не найден узел ряда idx=',
+        idx,
+        'sel=',
+        sel
+      );
+    }
+    return node;
+  }
+
+  /**
+   * Ищем серию одного и того же ряда с конца лога.
+   * includeZero: 0 засчитывается ТОЛЬКО как продолжение уже найденного ряда.
+   * Если серия начинается с нулей — они не формируют ряд.
+   * Возвращает индекс ряда (0..2) или null.
+   */
+  async function checkTriggerSameRow(
+    spinLogs,
+    need,
+    includeZero,
+    getIndex
+  ) {
+    let cnt = 0;
+    let ref = null;
+    for (let i = spinLogs.length - 1; i >= 0 && cnt < need; i--) {
+      const n = spinLogs[i]?.n;
+
+      if (n === 0) {
+        if (includeZero && ref != null) {
+          // ноль как продолжение уже определённого ряда
+          cnt++;
+          continue;
+        } else {
+          break; // ноль прерывает серию до определения ref
+        }
+      }
+
+      const ri = getIndex(n);
+      if (ri === -1) break;
+
+      if (ref == null) ref = ri;
+      if (ri !== ref) break;
+
+      cnt++;
+    }
+    return cnt >= need && ref != null ? ref : null;
   }
 
   class RowsStrategy extends window.MarketBase {
@@ -56,6 +111,10 @@
       });
     }
 
+    label(idx) {
+      return idx === 0 ? 'ряд 1' : idx === 1 ? 'ряд 2' : 'ряд 3';
+    }
+
     async onSpin(n) {
       const exec = await this.getExec();
       if (!exec.enabled) return;
@@ -64,21 +123,27 @@
       const ix = this.getIndex(n);
 
       if (exec.phase === 'idle') {
-        const { triggerStreak, steps } = await this.loadCfg();
-        let last = [];
-        for (
-          let i = spinLogs.length - 1;
-          i >= 0 && last.length < triggerStreak;
-          i--
-        ) {
-          const ri = this.getIndex(spinLogs[i].n);
-          if (ri !== -1) last.push(ri);
-        }
-        const allSame =
-          last.length >= triggerStreak &&
-          last.every((z) => z === last[0]);
-        if (allSame) {
-          const t = this.getOthers(last[0]);
+        const { triggerStreak, steps, includeZero } =
+          await this.loadCfg();
+
+        const ref = await checkTriggerSameRow(
+          spinLogs,
+          triggerStreak,
+          includeZero,
+          this.getIndex
+        );
+
+        if (ref != null) {
+          // цели — строго две ПРОТИВОПОЛОЖНЫЕ (не включая ref)
+          const t = this.getOthers(ref);
+          if (t.length !== 2 || t.includes(ref)) {
+            console.error(
+              '[rows] Неверная цель после вычисления серии',
+              { ref, t }
+            );
+            return;
+          }
+
           const next = {
             ...exec,
             phase: 'armed',
@@ -90,8 +155,9 @@
             next,
             `ВХОД → ряды ${t
               .map((x) => this.label(x))
-              .join(',')} | шаг 1`
+              .join(', ')} | шаг 1 (триггер: ${this.label(ref)})`
           );
+
           const ok = await BET.tryPlace({
             step: 1,
             targets: t,
@@ -99,6 +165,7 @@
             getTargetNode: (i) => this.getTargetNode(i),
             mutex: this.mutex,
           });
+
           if (ok) {
             const chips = await BET.loadGlobalChips();
             const amount =
@@ -113,15 +180,19 @@
                 type: 'placed',
                 market: 'rows',
                 phase: 'armed',
-                message: 'Шаг 1 поставлен',
+                message: `Шаг 1 поставлен на ${t
+                  .map((x) => this.label(x))
+                  .join(', ')}`,
                 amount,
                 step: 1,
+                debug: { triggerRow: ref, targets: t },
               });
               if (betLogs.length > 2000)
                 betLogs.splice(0, betLogs.length - 2000);
               await this.sset({ betLogs });
             } catch {}
           }
+
           BET.setBetStatus(
             'bettingStatusRows',
             ok ? 'armed' : 'error',
@@ -132,6 +203,7 @@
       }
 
       if (exec.phase === 'armed') {
+        // победа — если выпал один из целевых рядов (0 всегда мимо)
         const win = ix !== -1 && exec.target.includes(ix);
         if (win) {
           const next = {
@@ -147,6 +219,7 @@
           );
           return;
         }
+
         const { steps, autoContinue } = await this.loadCfg();
         const lastStep = Math.max(1, steps.length);
         if (exec.step >= lastStep) {
@@ -167,6 +240,18 @@
         if (autoContinue) {
           const step = exec.step + 1;
           const t = exec.target.slice();
+          // страховка: целевые должны оставаться двумя другими рядами
+          if (
+            t.length !== 2 ||
+            (t.includes(0) && t.includes(1) && t.includes(2))
+          ) {
+            console.error(
+              '[rows] Нарушена целевая пара перед autoContinue',
+              { t }
+            );
+            return;
+          }
+
           const next = {
             ...exec,
             phase: 'armed',
@@ -178,8 +263,9 @@
             next,
             `ПРОИГРЫШ → сразу ставим шаг ${step} на ряды ${t
               .map((x) => this.label(x))
-              .join(',')}`
+              .join(', ')}`
           );
+
           const ok = await BET.tryPlace({
             step,
             targets: t,
@@ -187,6 +273,7 @@
             getTargetNode: (i) => this.getTargetNode(i),
             mutex: this.mutex,
           });
+
           const chips = await BET.loadGlobalChips();
           if (ok) {
             const amount =
@@ -204,7 +291,9 @@
                 type: 'placed',
                 market: 'rows',
                 phase: 'armed',
-                message: `Шаг ${step} поставлен (auto)`,
+                message: `Шаг ${step} поставлен (auto) на ${t
+                  .map((x) => this.label(x))
+                  .join(', ')}`,
                 amount,
                 step,
               });
@@ -213,6 +302,7 @@
               await this.sset({ betLogs });
             } catch {}
           }
+
           BET.setBetStatus(
             'bettingStatusRows',
             ok ? 'armed' : 'error',
@@ -238,9 +328,19 @@
 
       if (exec.phase === 'waiting') {
         if (ix !== -1 && exec.target?.includes(ix)) {
-          const step = exec.step,
-            t = exec.target;
+          const step = exec.step;
+          const t = exec.target;
           const { steps } = await this.loadCfg();
+
+          // страховка на всякий случай
+          if (t.length !== 2) {
+            console.error(
+              '[rows] Ожидание: неверное количество целей',
+              { t }
+            );
+            return;
+          }
+
           const next = {
             ...exec,
             phase: 'armed',
@@ -252,8 +352,9 @@
             next,
             `ГОТОВ шаг ${step} на ряды ${t
               .map((x) => this.label(x))
-              .join(',')}`
+              .join(', ')}`
           );
+
           const ok = await BET.tryPlace({
             step,
             targets: t,
@@ -261,6 +362,7 @@
             getTargetNode: (i) => this.getTargetNode(i),
             mutex: this.mutex,
           });
+
           if (ok) {
             const chips = await BET.loadGlobalChips();
             const amount =
@@ -287,6 +389,7 @@
               await this.sset({ betLogs });
             } catch {}
           }
+
           BET.setBetStatus(
             'bettingStatusRows',
             ok ? 'armed' : 'error',

@@ -1,5 +1,9 @@
 // src/popup.js
-/* Popup main: глобальные фишки, шаги/стрики/auto-continue по рынкам, + streak-dots, + баланс в bet-логах */
+/* Popup main: глобальные фишки, шаги/стрики/auto-continue по рынкам, + streak-dots, + баланс в bet-логах
+   ДОБАВЛЕНО: per-market "учитывать 0" (includeZero) — как флажок, аналогичный "Ставки подряд".
+   Если включён — 0 учитывается в стрике/индикаторах и будет сохранён в конфиг рынка (ab*Config.includeZero).
+   Если выключен — 0 НЕ учитывается (обрывает окно прогресса и не идёт в счётчик).
+*/
 
 const TIME_FMT = {
   year: 'numeric',
@@ -70,6 +74,17 @@ const dozensAutoCk = document.getElementById('dozensAutoContinue');
 const rowsAutoCk = document.getElementById('rowsAutoContinue');
 const comboAutoCk = document.getElementById('comboAutoContinue');
 const sixAutoCk = document.getElementById('sixAutoContinue');
+
+/* === НОВОЕ: флажки "учитывать 0" по рынкам ===
+   ОБЯЗАТЕЛЬНО добавьте в popup.html чекбоксы с этими id рядом с auto-continue:
+   - <input type="checkbox" id="dozensIncludeZero" /> Учитывать 0
+   - <input type="checkbox" id="rowsIncludeZero" /> Учитывать 0
+   - <input type="checkbox" id="sixIncludeZero" /> Учитывать 0
+   (для combo по ТЗ не требуется)
+*/
+const dozensZeroCk = document.getElementById('dozensIncludeZero');
+const rowsZeroCk = document.getElementById('rowsIncludeZero');
+const sixZeroCk = document.getElementById('sixIncludeZero');
 
 const btnSaveAll = document.getElementById('btnSaveAll');
 
@@ -297,11 +312,11 @@ function exportBetCSV() {
         const eventText = (
           e.message
             ? e.message
-            : type === 'placed'
-            ? step
-              ? `Шаг ${step} поставлен`
+            : e.type === 'placed'
+            ? e.step
+              ? `Шаг ${e.step} поставлен`
               : 'Ставка поставлена'
-            : type === 'config'
+            : e.type === 'config'
             ? 'Конфиг сохранён'
             : ''
         ).replace(/,/g, ' ');
@@ -381,6 +396,7 @@ async function loadGlobalChipsUI() {
           ? abDozensConfig.steps
           : [],
         autoContinue: !!abDozensConfig.autoContinue,
+        includeZero: !!abDozensConfig.includeZero,
       },
     });
   }
@@ -431,6 +447,7 @@ const CFG_SIX_KEY = 'abSixConfig';
 const DEFAULT_MKT = Object.freeze({
   triggerStreak: 2,
   autoContinue: false,
+  includeZero: true, // НОВОЕ: по умолчанию 0 учитывается
   steps: [
     [{ chip: 1, times: 1 }],
     [{ chip: 1, times: 3 }],
@@ -450,6 +467,7 @@ function sanitizeMkt(raw) {
   const autoContinue = !!(
     src.autoContinue ?? DEFAULT_MKT.autoContinue
   );
+  const includeZero = !!(src.includeZero ?? DEFAULT_MKT.includeZero);
   let steps = Array.isArray(src.steps)
     ? src.steps
     : DEFAULT_MKT.steps;
@@ -469,7 +487,7 @@ function sanitizeMkt(raw) {
     .filter((st) => st.length);
   if (!steps.length)
     steps = JSON.parse(JSON.stringify(DEFAULT_MKT.steps));
-  return { triggerStreak, steps, autoContinue };
+  return { triggerStreak, steps, autoContinue, includeZero };
 }
 
 /* steps UI refs */
@@ -615,6 +633,16 @@ async function loadMarketUI(market) {
       ? comboAutoCk
       : sixAutoCk;
 
+  // zero checkbox reference (combo не трогаем)
+  const zeroCk =
+    market === 'dozens'
+      ? dozensZeroCk
+      : market === 'rows'
+      ? rowsZeroCk
+      : market === 'combo'
+      ? null
+      : sixZeroCk;
+
   const toggle =
     market === 'dozens'
       ? autoBetToggleDozens
@@ -664,6 +692,7 @@ async function loadMarketUI(market) {
   );
   streakInp.value = String(cfg.triggerStreak);
   autoCk.checked = !!cfg.autoContinue;
+  if (zeroCk) zeroCk.checked = !!cfg.includeZero; // НОВОЕ
   renderSteps(stepsBox, cfg.steps);
   msgEl.textContent = 'Loaded';
 }
@@ -709,15 +738,24 @@ async function saveMarketCfgFromUI(market) {
       )
     )
   );
-  const autoCk =
+  const autoContinue =
     market === 'dozens'
-      ? dozensAutoCk
+      ? !!dozensAutoCk.checked
       : market === 'rows'
-      ? rowsAutoCk
+      ? !!rowsAutoCk.checked
       : market === 'combo'
-      ? comboAutoCk
-      : sixAutoCk;
-  const autoContinue = !!autoCk.checked;
+      ? !!comboAutoCk.checked
+      : !!sixAutoCk.checked;
+
+  // includeZero из соответствующего чекбокса (combo не имеет)
+  const includeZero =
+    market === 'dozens'
+      ? !!dozensZeroCk?.checked
+      : market === 'rows'
+      ? !!rowsZeroCk?.checked
+      : market === 'combo'
+      ? true /* по ТЗ не требуется, оставим true */
+      : !!sixZeroCk?.checked;
 
   const { [GLOBAL_CHIPS_KEY]: chips = DEFAULT_CHIPS } = await sget({
     [GLOBAL_CHIPS_KEY]: DEFAULT_CHIPS,
@@ -742,6 +780,7 @@ async function saveMarketCfgFromUI(market) {
     triggerStreak: streak,
     steps,
     autoContinue,
+    includeZero,
   });
   await sset({ [cfgKey]: clean });
 
@@ -755,6 +794,7 @@ async function saveMarketCfgFromUI(market) {
       stepsCount: clean.steps.length,
       triggerStreak: clean.triggerStreak,
       autoContinue: clean.autoContinue,
+      includeZero: clean.includeZero,
     });
     if (betLogs.length > 2000)
       betLogs.splice(0, betLogs.length - 2000);
@@ -766,7 +806,8 @@ async function saveMarketCfgFromUI(market) {
   msgEl.textContent = 'Saved.';
 }
 
-/* ===== Dots ===== */
+/* ===== Dots: индикаторы прогресса ===== */
+// dozen 0..2, 0 -> -1
 function dozenIndex(n) {
   if (n === 0) return -1;
   if (n <= 12) return 0;
@@ -774,6 +815,7 @@ function dozenIndex(n) {
   if (n <= 36) return 2;
   return -1;
 }
+// row 0..2, 0 -> -1
 function rowIndex(n) {
   if (n === 0) return -1;
   const r = n % 3;
@@ -782,8 +824,15 @@ function rowIndex(n) {
   if (r === 0) return 2;
   return -1;
 }
+// sixline 0..5, 0 -> -1
+function sixIndex(n) {
+  if (n === 0) return -1;
+  if (n < 1 || n > 36) return -1;
+  return Math.floor((n - 1) / 6);
+}
 
-/* актуальный последний спин */
+/* актуальные спины + последний спин */
+let latestSpins = [];
 let lastNumber = null;
 
 const DEFAULT_STREAK = {
@@ -801,37 +850,109 @@ function renderDots(hostEl, filledCount, max) {
     html += `<span class="dot${i < fill ? ' filled' : ''}"></span>`;
   hostEl.innerHTML = html;
 }
-function effectiveCount(kind) {
-  let c = Math.max(0, Number(kind.count || 0));
-  if (c === 0 && lastNumber != null && lastNumber !== 0) c = 1;
-  return c;
+
+/* === прогресс-метрики с опцией includeZero === */
+/** Для дюжин/рядов: считаем длину хвостового окна.
+ * Если includeZero=true — 0 допускается и идёт в счёт; иначе 0 обрывает окно.
+ * Вне нулей все числа должны принадлежать одной и той же группе (dozen/row).
+ */
+function calcOneGroupProgress(spins, need, toIndex, includeZero) {
+  let cnt = 0;
+  let cand = null;
+  let seenNonZero = false;
+
+  for (
+    let i = Array.isArray(spins) ? spins.length - 1 : -1;
+    i >= 0 && cnt < need;
+    i--
+  ) {
+    const n = Number(spins[i]?.n);
+    if (!Number.isFinite(n)) break;
+
+    if (n === 0) {
+      if (!includeZero) break; // 0 запрещён — рвём окно
+      cnt++; // 0 разрешён — считаем как часть окна
+      continue;
+    }
+    const ix = toIndex(n);
+    if (ix === -1) break;
+    if (cand == null) cand = ix;
+    else if (ix !== cand) break;
+
+    seenNonZero = true;
+    cnt++;
+  }
+
+  if (!seenNonZero) return { len: 0, cand: null };
+  return { len: cnt, cand };
 }
+
+/** Для шестерок: в окне допускаются ТОЛЬКО (0 если includeZero=true) и значения не более чем из двух шестерок. */
+function calcSixProgress(spins, need, includeZero) {
+  let cnt = 0;
+  const set = new Set();
+  for (
+    let i = Array.isArray(spins) ? spins.length - 1 : -1;
+    i >= 0 && cnt < need;
+    i--
+  ) {
+    const n = Number(spins[i]?.n);
+    if (!Number.isFinite(n)) break;
+
+    if (n === 0) {
+      if (!includeZero) break; // 0 запрещён — рвём окно
+      cnt++;
+      continue;
+    }
+    const si = sixIndex(n);
+    if (si === -1) break;
+    if (!set.has(si)) {
+      if (set.size === 2) break; // третья шестерка — окно ломается
+      set.add(si);
+    }
+    cnt++;
+  }
+  return { len: cnt, hasTwo: set.size === 2 };
+}
+
 function updateDotsFromState() {
   const maxD = Math.max(1, Number(dozensStreakInp.value) || 2);
   const maxR = Math.max(1, Number(rowsStreakInp.value) || 2);
   const maxC = Math.max(1, Number(comboStreakInp.value) || 2);
   const maxS = Math.max(1, Number(sixStreakInp.value) || 2);
 
-  renderDots(
-    dotsDozens,
-    effectiveCount(currStreakState?.dozens || { count: 0 }),
-    maxD
+  const incZeroD = !!dozensZeroCk?.checked;
+  const incZeroR = !!rowsZeroCk?.checked;
+  const incZeroS = !!sixZeroCk?.checked;
+
+  // ДЮЖИНЫ
+  const progD = calcOneGroupProgress(
+    latestSpins,
+    maxD,
+    dozenIndex,
+    incZeroD
   );
-  renderDots(
-    dotsRows,
-    effectiveCount(currStreakState?.rows || { count: 0 }),
-    maxR
+  renderDots(dotsDozens, Math.min(progD.len, maxD), maxD);
+
+  // РЯДЫ
+  const progR = calcOneGroupProgress(
+    latestSpins,
+    maxR,
+    rowIndex,
+    incZeroR
   );
+  renderDots(dotsRows, Math.min(progR.len, maxR), maxR);
+
+  // COMBO — оставляем как раньше (streakState.combo)
   renderDots(
     dotsCombo,
-    effectiveCount(currStreakState?.combo || { count: 0 }),
+    Math.max(0, Number(currStreakState?.combo?.count || 0)),
     maxC
   );
-  renderDots(
-    dotsSix,
-    effectiveCount({ count: lastNumber && lastNumber !== 0 ? 1 : 0 }),
-    maxS
-  );
+
+  // ШЕСТЕРКИ
+  const progS = calcSixProgress(latestSpins, maxS, incZeroS);
+  renderDots(dotsSix, Math.min(progS.len, maxS), maxS);
 }
 
 /* ===== INIT ===== */
@@ -840,7 +961,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   loadStatus();
   loadDomains();
-  loadLogs(renderAll);
+  loadLogs((logs) => {
+    latestSpins = Array.isArray(logs) ? logs : [];
+    renderAll(latestSpins);
+  });
   loadBetLogs(renderBetAll);
   await loadMarketUI('dozens');
   await loadMarketUI('rows');
@@ -853,8 +977,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     spinLogs: [],
   });
   currStreakState = streakState || DEFAULT_STREAK;
-  if (Array.isArray(spinLogs) && spinLogs.length) {
-    lastNumber = Number(spinLogs[spinLogs.length - 1].n);
+  latestSpins = Array.isArray(spinLogs) ? spinLogs : [];
+  if (latestSpins.length) {
+    lastNumber = Number(latestSpins[latestSpins.length - 1].n);
     if (!Number.isFinite(lastNumber)) lastNumber = null;
   }
   updateDotsFromState();
@@ -932,7 +1057,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   autoBetToggleSix.addEventListener('change', async () => {
     const enabled = !!autoBetToggleSix.checked;
     await sset({ autoBettingSixEnabled: enabled });
-    // Для sixlines отдельного streakState не ведем.
   });
 
   // Add Step buttons
@@ -988,11 +1112,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     .getElementById('btnCfgSixSave')
     ?.addEventListener('click', () => saveMarketCfgFromUI('six'));
 
-  // изменение "максимума" — перерисовать точки
+  // изменение настроек — перерисовать точки
   dozensStreakInp.addEventListener('input', updateDotsFromState);
   rowsStreakInp.addEventListener('input', updateDotsFromState);
   comboStreakInp.addEventListener('input', updateDotsFromState);
   sixStreakInp.addEventListener('input', updateDotsFromState);
+
+  // НОВОЕ: реакция на переключение "учитывать 0"
+  dozensZeroCk?.addEventListener('change', updateDotsFromState);
+  rowsZeroCk?.addEventListener('change', updateDotsFromState);
+  sixZeroCk?.addEventListener('change', updateDotsFromState);
 
   // SAVE ALL
   btnSaveAll.addEventListener('click', async () => {
@@ -1013,14 +1142,16 @@ chrome.storage.onChanged.addListener((ch, area) => {
 
   if (ch.spinLogs) {
     const { oldValue = [], newValue = [] } = ch.spinLogs;
-    if (Array.isArray(newValue) && newValue.length) {
-      const last = newValue[newValue.length - 1];
+    const arr = Array.isArray(newValue) ? newValue : [];
+    latestSpins = arr;
+    if (arr.length) {
+      const last = arr[arr.length - 1];
       if (last && Number.isFinite(Number(last.n)))
         lastNumber = Number(last.n);
     }
-    if (newValue.length > oldValue.length)
+    if (Array.isArray(newValue) && newValue.length > oldValue.length)
       appendNew(newValue.slice(oldValue.length));
-    else renderAll(Array.isArray(newValue) ? newValue : []);
+    else renderAll(arr);
     updateDotsFromState();
   }
 
@@ -1074,6 +1205,7 @@ chrome.storage.onChanged.addListener((ch, area) => {
     const cfg = sanitizeMkt(ch.abDozensConfig.newValue);
     dozensStreakInp.value = cfg.triggerStreak;
     dozensAutoCk.checked = !!cfg.autoContinue;
+    if (dozensZeroCk) dozensZeroCk.checked = !!cfg.includeZero;
     renderSteps(dznStepsBox, cfg.steps);
     updateDotsFromState();
   }
@@ -1081,6 +1213,7 @@ chrome.storage.onChanged.addListener((ch, area) => {
     const cfg = sanitizeMkt(ch.abRowsConfig.newValue);
     rowsStreakInp.value = cfg.triggerStreak;
     rowsAutoCk.checked = !!cfg.autoContinue;
+    if (rowsZeroCk) rowsZeroCk.checked = !!cfg.includeZero;
     renderSteps(rowStepsBox, cfg.steps);
     updateDotsFromState();
   }
@@ -1095,6 +1228,7 @@ chrome.storage.onChanged.addListener((ch, area) => {
     const cfg = sanitizeMkt(ch.abSixConfig.newValue);
     sixStreakInp.value = cfg.triggerStreak;
     sixAutoCk.checked = !!cfg.autoContinue;
+    if (sixZeroCk) sixZeroCk.checked = !!cfg.includeZero;
     renderSteps(sixStepsBox, cfg.steps);
     updateDotsFromState();
   }

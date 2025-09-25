@@ -2,7 +2,8 @@
 (() => {
   const DEFAULT_CFG = Object.freeze({
     triggerStreak: 2,
-    autoContinue: false, // NEW: сразу ставить следующий шаг после проигрыша
+    autoContinue: false,
+    includeZero: false, // NEW: считать 0 как текущую дюжину
     steps: [
       [{ chip: 1, times: 1 }],
       [{ chip: 1, times: 3 }],
@@ -22,7 +23,7 @@
   ];
 
   function dozenIndex(n) {
-    if (n === 0) return -1;
+    if (n === 0) return -1; // 0 даём обработать логикой includeZero
     if (n <= 12) return 0;
     if (n <= 24) return 1;
     if (n <= 36) return 2;
@@ -39,6 +40,32 @@
         ? '#index-801'
         : '#index-802';
     return dozenButtons[idx] || document.querySelector(sel);
+  }
+
+  // helper: проверка триггера с опцией includeZero
+  async function checkTriggerSameDozen(
+    spinLogs,
+    need,
+    includeZero,
+    getIndex
+  ) {
+    let cnt = 0;
+    let ref = null; // фиксируем целевую дюжину первой ненулевой записи
+    for (let i = spinLogs.length - 1; i >= 0 && cnt < need; i--) {
+      const n = spinLogs[i]?.n;
+      if (n === 0) {
+        if (includeZero) {
+          cnt++; // 0 учитывается
+          continue;
+        } else break;
+      }
+      const di = getIndex(n);
+      if (di === -1) break;
+      if (ref == null) ref = di;
+      if (di !== ref) break;
+      cnt++;
+    }
+    return cnt >= need && ref != null ? ref : null;
   }
 
   class DozensStrategy extends window.MarketBase {
@@ -64,21 +91,19 @@
       const ix = this.getIndex(n);
 
       if (exec.phase === 'idle') {
-        const { triggerStreak, steps } = await this.loadCfg();
-        let last = [];
-        for (
-          let i = spinLogs.length - 1;
-          i >= 0 && last.length < triggerStreak;
-          i--
-        ) {
-          const di = this.getIndex(spinLogs[i].n);
-          if (di !== -1) last.push(di);
-        }
-        const allSame =
-          last.length >= triggerStreak &&
-          last.every((z) => z === last[0]);
-        if (allSame) {
-          const t = this.getOthers(last[0]);
+        const { triggerStreak, steps, includeZero } =
+          await this.loadCfg();
+
+        // NEW: учитываем includeZero при проверке окна
+        const ref = await checkTriggerSameDozen(
+          spinLogs,
+          triggerStreak,
+          includeZero,
+          this.getIndex
+        );
+
+        if (ref != null) {
+          const t = this.getOthers(ref);
           const next = {
             ...exec,
             phase: 'armed',

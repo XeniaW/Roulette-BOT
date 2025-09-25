@@ -1,8 +1,9 @@
 // src/auto/sixlines.js
 (() => {
   const DEFAULT_CFG = Object.freeze({
-    triggerStreak: 2, // Сколько последних спинов анализируем
-    autoContinue: false, // Ставить следующий шаг сразу после проигрыша
+    triggerStreak: 8, // по ТЗ по умолчанию 8
+    autoContinue: false,
+    includeZero: false, // NEW: 0 входит в стрик двух шестерок, если включено
     steps: [
       [{ chip: 1, times: 1 }],
       [{ chip: 1, times: 3 }],
@@ -14,149 +15,151 @@
     ],
   });
 
-  const $ = (sel) => document.querySelector(sel);
+  // sixIndex: 1..36 -> 0..5, 0 -> -1
+  function sixIndex(n) {
+    if (n === 0) return -1; // 0 обрабатываем отдельно через includeZero
+    if (n < 1 || n > 36) return -1;
+    return Math.floor((n - 1) / 6);
+  }
 
-  // Кнопки шестерок. В некоторых лобби индексы на сетке идут 600..610,
-  // но реально шестерок 6. Пробуем 600 + i*2 (600,602,...,610), если нет — 600+i (600..605).
+  // выбрать оставшиеся 4 шестерки при известной паре
+  function otherFour(set2) {
+    const used = Array.from(set2);
+    return [0, 1, 2, 3, 4, 5].filter((x) => !used.includes(x));
+  }
+
+  // Узел кнопки шестерки. НЕКОТОРЫЕ столы используют шаг 2 в id (600,602,...),
+  // другие — подряд (600,601,...). Пробуем оба варианта.
   function getSixNode(idx) {
-    const id1 = 600 + idx * 2;
-    const id2 = 600 + idx;
+    const evenId = `#index-${600 + idx * 2}`;
+    const seqId = `#index-${600 + idx}`;
     return (
-      $(`#index-${id1}`) ||
-      $(`#index-${id2}`) ||
-      document.querySelector(`#index-${id1}`) ||
-      document.querySelector(`#index-${id2}`)
+      document.querySelector(evenId) || document.querySelector(seqId)
     );
   }
 
-  // Индекс шестерки: 0..5 (1–6, 7–12, ..., 31–36). 0 → -1 (ноль).
-  function sixIndex(n) {
-    if (n === 0) return -1;
-    if (n < 1 || n > 36) return -1;
-    return Math.floor((n - 1) / 6); // 0..5
+  // Проверка окна по ТЗ:
+  // С хвоста берём подряд числа, где допускаются только нули (если includeZero)
+  // и числа из НЕ БОЛЕЕ ЧЕМ ДВУХ шестерок. Как только встретили третью — стоп.
+  // Требуем, чтобы в окне было РОВНО две шестерки (set.size === 2) и длина окна >= need.
+  function checkTriggerTwoSixes(spinLogs, need, includeZero) {
+    let cnt = 0;
+    const set = new Set(); // собираем индексы 0..5
+    for (let i = spinLogs.length - 1; i >= 0 && cnt < need; i--) {
+      const n = Number(spinLogs[i]?.n);
+      if (!Number.isFinite(n)) break;
+      if (n === 0) {
+        if (includeZero) {
+          cnt++;
+          continue;
+        } else break;
+      }
+      const si = sixIndex(n);
+      if (si === -1) break;
+      if (!set.has(si)) {
+        if (set.size === 2) break; // третья шестерка ломает окно
+        set.add(si);
+      }
+      cnt++;
+    }
+    return cnt >= need && set.size === 2 ? set : null;
   }
 
-  // Вернуть индексы остальных шестерок, если заданы ровно 2 "исключения"
-  function othersOfTwo(skipSet) {
-    const out = [];
-    for (let i = 0; i < 6; i++) if (!skipSet.has(i)) out.push(i);
-    return out;
-  }
-
-  class SixlinesStrategy extends window.MarketBase {
+  class SixLinesStrategy extends window.MarketBase {
     constructor() {
       super({
-        marketKey: 'sixlines',
+        marketKey: 'six',
         cfgKey: 'abSixConfig',
         enabledKey: 'autoBettingSixEnabled',
         statusKey: 'bettingStatusSix',
         execKey: 'betExecSix',
         getIndex: sixIndex,
-        getOthers: null, // Своя логика входа (2 любых шестерки → ставим на оставшиеся 4)
+        getOthers: otherFour, // для six передаём Set из двух
         getTargetNode: getSixNode,
         defaultCfg: DEFAULT_CFG,
       });
     }
 
     label(idx) {
-      const a = idx * 6 + 1;
-      const b = a + 5;
-      return `${a}-${b}`;
+      // 1..6 по UI
+      return idx + 1;
     }
 
-    /**
-     * Правило входа:
-     * Берём последние triggerStreak НЕ нулевых спинов и смотрим индексы шестерок.
-     * Если в них ровно 2 уникальные шестерки, входим: target = остальные 4 шестерки.
-     */
     async onSpin(n) {
       const exec = await this.getExec();
       if (!exec.enabled) return;
 
-      const ix = this.getIndex(n);
       const { spinLogs = [] } = await this.sget({ spinLogs: [] });
+      const ix = this.getIndex(n);
 
-      // ====== IDLE → вооружение по правилу "2 любых шестерки" ======
       if (exec.phase === 'idle') {
-        const { triggerStreak, steps } = await this.loadCfg();
+        const { triggerStreak, steps, includeZero } =
+          await this.loadCfg();
 
-        const seq = [];
-        for (
-          let i = spinLogs.length - 1;
-          i >= 0 && seq.length < triggerStreak;
-          i--
-        ) {
-          const si = this.getIndex(spinLogs[i].n);
-          if (si !== -1) seq.push(si);
-        }
+        // проверяем окно: 2 любые шестерки (+ноль при включенном флаге)
+        const pairSet = checkTriggerTwoSixes(
+          spinLogs,
+          triggerStreak,
+          includeZero
+        );
 
-        if (seq.length >= triggerStreak) {
-          const set = new Set(seq);
-          if (set.size === 2) {
-            const target = othersOfTwo(set); // 4 шестерки
-            const next = {
-              ...exec,
-              phase: 'armed',
-              target,
-              step: 1,
-              armedAt: Date.now(),
-            };
-            await this.setExec(
-              next,
-              `ВХОД → шестерки ${target
-                .map((x) => this.label(x))
-                .join(', ')} | шаг 1`
-            );
+        if (pairSet) {
+          const targets = this.getOthers(pairSet); // 4 остальные
+          const next = {
+            ...exec,
+            phase: 'armed',
+            target: targets,
+            step: 1,
+            armedAt: Date.now(),
+          };
+          await this.setExec(
+            next,
+            `ВХОД → шестерки ${targets
+              .map((x) => this.label(x))
+              .join(',')} | шаг 1`
+          );
 
-            const ok = await BET.tryPlace({
-              step: 1,
-              targets: target,
-              steps,
-              getTargetNode: (i) => this.getTargetNode(i),
-              mutex: this.mutex,
-            });
-
-            if (ok) {
-              const chips = await BET.loadGlobalChips();
-              const amount =
-                BET.perTargetAmountForStep(
-                  1,
-                  steps,
-                  chips.chipValues
-                ) * target.length;
-              try {
-                const { betLogs = [] } = await this.sget({
-                  betLogs: [],
-                });
-                betLogs.push({
-                  t: Date.now(),
-                  type: 'placed',
-                  market: 'sixlines',
-                  phase: 'armed',
-                  message: 'Шаг 1 поставлен',
-                  amount,
-                  step: 1,
-                });
-                if (betLogs.length > 2000)
-                  betLogs.splice(0, betLogs.length - 2000);
-                await this.sset({ betLogs });
-              } catch {}
-            }
-
-            BET.setBetStatus(
-              'bettingStatusSix',
-              ok ? 'armed' : 'error',
-              ok ? 'Шаг 1 поставлен' : 'Не удалось поставить шаг 1'
-            );
+          const ok = await BET.tryPlace({
+            step: 1,
+            targets,
+            steps,
+            getTargetNode: (i) => this.getTargetNode(i),
+            mutex: this.mutex,
+          });
+          if (ok) {
+            const chips = await BET.loadGlobalChips();
+            const amount =
+              BET.perTargetAmountForStep(1, steps, chips.chipValues) *
+              targets.length;
+            try {
+              const { betLogs = [] } = await this.sget({
+                betLogs: [],
+              });
+              betLogs.push({
+                t: Date.now(),
+                type: 'placed',
+                market: 'six',
+                phase: 'armed',
+                message: 'Шаг 1 поставлен',
+                amount,
+                step: 1,
+              });
+              if (betLogs.length > 2000)
+                betLogs.splice(0, betLogs.length - 2000);
+              await this.sset({ betLogs });
+            } catch {}
           }
+          BET.setBetStatus(
+            'bettingStatusSix',
+            ok ? 'armed' : 'error',
+            ok ? 'Шаг 1 поставлен' : 'Не удалось поставить шаг 1'
+          );
         }
         return;
       }
 
-      // ====== ARMED ======
       if (exec.phase === 'armed') {
         const win = ix !== -1 && exec.target.includes(ix);
-
         if (win) {
           const next = {
             ...exec,
@@ -171,10 +174,8 @@
           );
           return;
         }
-
         const { steps, autoContinue } = await this.loadCfg();
         const lastStep = Math.max(1, steps.length);
-
         if (exec.step >= lastStep) {
           const reset = {
             ...exec,
@@ -204,9 +205,8 @@
             next,
             `ПРОИГРЫШ → сразу ставим шаг ${step} на шестерки ${t
               .map((x) => this.label(x))
-              .join(', ')}`
+              .join(',')}`
           );
-
           const ok = await BET.tryPlace({
             step,
             targets: t,
@@ -214,7 +214,6 @@
             getTargetNode: (i) => this.getTargetNode(i),
             mutex: this.mutex,
           });
-
           const chips = await BET.loadGlobalChips();
           if (ok) {
             const amount =
@@ -230,7 +229,7 @@
               betLogs.push({
                 t: Date.now(),
                 type: 'placed',
-                market: 'sixlines',
+                market: 'six',
                 phase: 'armed',
                 message: `Шаг ${step} поставлен (auto)`,
                 amount,
@@ -241,7 +240,6 @@
               await this.sset({ betLogs });
             } catch {}
           }
-
           BET.setBetStatus(
             'bettingStatusSix',
             ok ? 'armed' : 'error',
@@ -252,7 +250,7 @@
           return;
         }
 
-        // Ожидание, как в дюжинах/рядах
+        // режим ожидания
         const next = {
           ...exec,
           phase: 'waiting',
@@ -265,7 +263,6 @@
         return;
       }
 
-      // ====== WAITING → ставим, когда попал один из target ======
       if (exec.phase === 'waiting') {
         if (ix !== -1 && exec.target?.includes(ix)) {
           const step = exec.step;
@@ -282,9 +279,8 @@
             next,
             `ГОТОВ шаг ${step} на шестерки ${t
               .map((x) => this.label(x))
-              .join(', ')}`
+              .join(',')}`
           );
-
           const ok = await BET.tryPlace({
             step,
             targets: t,
@@ -292,7 +288,6 @@
             getTargetNode: (i) => this.getTargetNode(i),
             mutex: this.mutex,
           });
-
           if (ok) {
             const chips = await BET.loadGlobalChips();
             const amount =
@@ -308,7 +303,7 @@
               betLogs.push({
                 t: Date.now(),
                 type: 'placed',
-                market: 'sixlines',
+                market: 'six',
                 phase: 'armed',
                 message: `Шаг ${step} поставлен`,
                 amount,
@@ -319,7 +314,6 @@
               await this.sset({ betLogs });
             } catch {}
           }
-
           BET.setBetStatus(
             'bettingStatusSix',
             ok ? 'armed' : 'error',
@@ -335,7 +329,6 @@
       chrome.storage.onChanged.addListener(async (ch, area) => {
         if (area !== 'local') return;
         if (this.enabledKey in ch) this.loadEnabled();
-
         if (ch.spinLogs) {
           const { oldValue = [], newValue = [] } = ch.spinLogs;
           if (
@@ -350,16 +343,16 @@
     }
   }
 
-  window.__STRAT_SIXLINES__ = new SixlinesStrategy();
+  window.__STRAT_SIX__ = new SixLinesStrategy();
   if (
     document.readyState === 'complete' ||
     document.readyState === 'interactive'
   )
-    window.__STRAT_SIXLINES__.init();
+    window.__STRAT_SIX__.init();
   else
     window.addEventListener(
       'DOMContentLoaded',
-      () => window.__STRAT_SIXLINES__.init(),
+      () => window.__STRAT_SIX__.init(),
       { once: true }
     );
 })();
