@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Spins Logger",
-  "version": "4.2.0",
+  "version": "4.2.4",
   "description": "Logs spins; auto-betting for dozens, rows, combo (dozen+row), and sixlines.",
   "permissions": [
     "storage",

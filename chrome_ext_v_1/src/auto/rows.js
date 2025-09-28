@@ -3,7 +3,7 @@
   const DEFAULT_CFG = Object.freeze({
     triggerStreak: 2,
     autoContinue: false,
-    includeZero: false, // 0 считается как текущий ряд, если включено (внутри уже идущей серии)
+    includeZero: false, // 0 учитываем как продолжение уже определённого ряда
     steps: [
       [{ chip: 1, times: 1 }],
       [{ chip: 1, times: 3 }],
@@ -15,56 +15,42 @@
     ],
   });
 
-  const $ = (sel) => document.querySelector(sel);
-  // ПОРЯДОК НЕ МЕНЯЕМ:
-  // 700 -> ряд 1, 701 -> ряд 2, 702 -> ряд 3
-  const rowButtons = [
-    $('#index-700'), // row 1 (n % 3 == 1)
-    $('#index-701'), // row 2 (n % 3 == 2)
-    $('#index-702'), // row 3 (n % 3 == 0)
-  ];
+  // ЖЁСТКАЯ карта селекторов рядов:
+  // idx 0 -> ряд 1 (3..36), idx 1 -> ряд 2 (2..35), idx 2 -> ряд 3 (1..34)
+  const ROW_SEL = ['#index-700', '#index-701', '#index-702'];
 
-  // индекс ряда по номеру
+  // Верное сопоставление числа -> индекс ряда
+  // ряд 1 (top): n % 3 === 0 -> idx 0
+  // ряд 2 (mid): n % 3 === 2 -> idx 1
+  // ряд 3 (bot): n % 3 === 1 -> idx 2
   function rowIndex(n) {
-    if (n === 0) return -1; // 0 не имеет собственного ряда
+    if (n === 0) return -1;
     const r = n % 3;
-    if (r === 1) return 0; // ряд 1  -> index-700
-    if (r === 2) return 1; // ряд 2  -> index-701
-    if (r === 0) return 2; // ряд 3  -> index-702
+    if (r === 0) return 0;
+    if (r === 2) return 1;
+    if (r === 1) return 2;
     return -1;
   }
 
-  function otherTwo(skip) {
-    // строго исключаем исходный ряд
-    return [0, 1, 2].filter((d) => d !== skip);
+  function opponentsOf(triggerIdx) {
+    return [0, 1, 2].filter((i) => i !== triggerIdx);
   }
 
   function getRowNode(idx) {
-    const sel =
-      idx === 0
-        ? '#index-700'
-        : idx === 1
-        ? '#index-701'
-        : '#index-702';
-    const node = rowButtons[idx] || document.querySelector(sel);
-    if (!node) {
+    const sel = ROW_SEL[idx] || ROW_SEL[2];
+    const node = document.querySelector(sel);
+    if (!node)
       console.warn(
         '[rows] Не найден узел ряда idx=',
         idx,
         'sel=',
         sel
       );
-    }
     return node;
   }
 
-  /**
-   * Ищем серию одного и того же ряда с конца лога.
-   * includeZero: 0 засчитывается ТОЛЬКО как продолжение уже найденного ряда.
-   * Если серия начинается с нулей — они не формируют ряд.
-   * Возвращает индекс ряда (0..2) или null.
-   */
-  async function checkTriggerSameRow(
+  // Стрик одного ряда с конца. 0 засчитываем ТОЛЬКО как продолжение уже найденного ряда.
+  function checkTriggerSameRow(
     spinLogs,
     need,
     includeZero,
@@ -74,23 +60,17 @@
     let ref = null;
     for (let i = spinLogs.length - 1; i >= 0 && cnt < need; i--) {
       const n = spinLogs[i]?.n;
-
       if (n === 0) {
         if (includeZero && ref != null) {
-          // ноль как продолжение уже определённого ряда
           cnt++;
           continue;
-        } else {
-          break; // ноль прерывает серию до определения ref
         }
+        break;
       }
-
       const ri = getIndex(n);
       if (ri === -1) break;
-
       if (ref == null) ref = ri;
       if (ri !== ref) break;
-
       cnt++;
     }
     return cnt >= need && ref != null ? ref : null;
@@ -105,7 +85,7 @@
         statusKey: 'bettingStatusRows',
         execKey: 'betExecRows',
         getIndex: rowIndex,
-        getOthers: otherTwo,
+        getOthers: opponentsOf,
         getTargetNode: getRowNode,
         defaultCfg: DEFAULT_CFG,
       });
@@ -115,107 +95,149 @@
       return idx === 0 ? 'ряд 1' : idx === 1 ? 'ряд 2' : 'ряд 3';
     }
 
+    // Единая постановка шага с полной защитой от ставки в триггерный ряд
+    async placeStep(step, exec, steps) {
+      const trigger = exec.triggerRow;
+      if (!(trigger === 0 || trigger === 1 || trigger === 2)) {
+        console.error(
+          '[rows] Некорректный triggerRow при постановке',
+          exec
+        );
+        return false;
+      }
+
+      const targetsIdx = opponentsOf(trigger);
+      const triggerSel = ROW_SEL[trigger];
+      const targetsSel = targetsIdx.map((i) => ROW_SEL[i]);
+
+      // Параноидальная защита
+      if (targetsSel.includes(triggerSel)) {
+        console.error('[rows] Цели содержат триггер! Фиксируем...', {
+          trigger,
+          targetsIdxBefore: targetsIdx,
+        });
+        // Жёстко пересобираем
+        targetsIdx.splice(
+          0,
+          targetsIdx.length,
+          ...opponentsOf(trigger)
+        );
+      }
+
+      exec.target = targetsIdx.slice(); // синхронизируем exec
+
+      const ok = await BET.tryPlace({
+        step,
+        targets: targetsIdx, // индексы 0..2
+        steps,
+        getTargetNode: (i) => getRowNode(i),
+        mutex: this.mutex,
+      });
+
+      if (ok) {
+        const chips = await BET.loadGlobalChips();
+        const amount =
+          BET.perTargetAmountForStep(step, steps, chips.chipValues) *
+          targetsIdx.length;
+        try {
+          const { betLogs = [] } = await this.sget({ betLogs: [] });
+          betLogs.push({
+            t: Date.now(),
+            type: 'placed',
+            market: 'rows',
+            phase: 'armed',
+            message: `Шаг ${step} на ${targetsIdx
+              .map((x) => this.label(x))
+              .join(', ')}`,
+            amount,
+            step,
+            debug: {
+              triggerRow: trigger,
+              targets: targetsIdx,
+              targetSel: targetsIdx.map((i) => ROW_SEL[i]),
+            },
+          });
+          if (betLogs.length > 2000)
+            betLogs.splice(0, betLogs.length - 2000);
+          await this.sset({ betLogs });
+        } catch {}
+      }
+
+      BET.setBetStatus(
+        'bettingStatusRows',
+        ok ? 'armed' : 'error',
+        ok
+          ? `Шаг ${step} поставлен`
+          : `Не удалось поставить шаг ${step}`
+      );
+      return ok;
+    }
+
     async onSpin(n) {
       const exec = await this.getExec();
       if (!exec.enabled) return;
 
-      const { spinLogs = [] } = await this.sget({ spinLogs: [] });
+      // Берём логи и гарантируем, что текущий спин присутствует (фикс рассинхры)
+      const s = await this.sget({ spinLogs: [] });
+      const spinLogs = Array.isArray(s.spinLogs)
+        ? s.spinLogs.slice()
+        : [];
+      if (
+        spinLogs.length === 0 ||
+        spinLogs[spinLogs.length - 1]?.n !== n
+      ) {
+        spinLogs.push({ n });
+      }
+
       const ix = this.getIndex(n);
 
       if (exec.phase === 'idle') {
         const { triggerStreak, steps, includeZero } =
           await this.loadCfg();
 
-        const ref = await checkTriggerSameRow(
+        const ref = checkTriggerSameRow(
           spinLogs,
           triggerStreak,
           includeZero,
           this.getIndex
         );
-
         if (ref != null) {
-          // цели — строго две ПРОТИВОПОЛОЖНЫЕ (не включая ref)
-          const t = this.getOthers(ref);
-          if (t.length !== 2 || t.includes(ref)) {
-            console.error(
-              '[rows] Неверная цель после вычисления серии',
-              { ref, t }
-            );
-            return;
-          }
-
           const next = {
             ...exec,
             phase: 'armed',
-            target: t,
+            triggerRow: ref, // фиксируем ряд стрика
+            target: opponentsOf(ref),
             step: 1,
             armedAt: Date.now(),
           };
           await this.setExec(
             next,
-            `ВХОД → ряды ${t
+            `ВХОД → против ${this.label(ref)} | цели: ${next.target
               .map((x) => this.label(x))
-              .join(', ')} | шаг 1 (триггер: ${this.label(ref)})`
+              .join(', ')} | шаг 1`
           );
-
-          const ok = await BET.tryPlace({
-            step: 1,
-            targets: t,
-            steps,
-            getTargetNode: (i) => this.getTargetNode(i),
-            mutex: this.mutex,
-          });
-
-          if (ok) {
-            const chips = await BET.loadGlobalChips();
-            const amount =
-              BET.perTargetAmountForStep(1, steps, chips.chipValues) *
-              t.length;
-            try {
-              const { betLogs = [] } = await this.sget({
-                betLogs: [],
-              });
-              betLogs.push({
-                t: Date.now(),
-                type: 'placed',
-                market: 'rows',
-                phase: 'armed',
-                message: `Шаг 1 поставлен на ${t
-                  .map((x) => this.label(x))
-                  .join(', ')}`,
-                amount,
-                step: 1,
-                debug: { triggerRow: ref, targets: t },
-              });
-              if (betLogs.length > 2000)
-                betLogs.splice(0, betLogs.length - 2000);
-              await this.sset({ betLogs });
-            } catch {}
-          }
-
-          BET.setBetStatus(
-            'bettingStatusRows',
-            ok ? 'armed' : 'error',
-            ok ? 'Шаг 1 поставлен' : 'Не удалось поставить шаг 1'
-          );
+          await this.placeStep(1, next, steps);
         }
         return;
       }
 
       if (exec.phase === 'armed') {
-        // победа — если выпал один из целевых рядов (0 всегда мимо)
-        const win = ix !== -1 && exec.target.includes(ix);
+        // Победа — только если выпал один из противоположных рядов
+        const opp = opponentsOf(exec.triggerRow ?? -99);
+        const win = ix !== -1 && opp.includes(ix);
+
         if (win) {
           const next = {
             ...exec,
             phase: 'idle',
             target: null,
+            triggerRow: null,
             step: 1,
             armedAt: 0,
           };
           await this.setExec(
             next,
-            `ВЫИГРЫШ на ряду ${this.label(ix)} → сброс`
+            `ВЫИГРЫШ на ${this.label(ix)} → сброс`
           );
           return;
         }
@@ -227,6 +249,7 @@
             ...exec,
             phase: 'idle',
             target: null,
+            triggerRow: null,
             step: 1,
             armedAt: 0,
           };
@@ -239,81 +262,25 @@
 
         if (autoContinue) {
           const step = exec.step + 1;
-          const t = exec.target.slice();
-          // страховка: целевые должны оставаться двумя другими рядами
-          if (
-            t.length !== 2 ||
-            (t.includes(0) && t.includes(1) && t.includes(2))
-          ) {
-            console.error(
-              '[rows] Нарушена целевая пара перед autoContinue',
-              { t }
-            );
-            return;
-          }
-
           const next = {
             ...exec,
             phase: 'armed',
-            target: t,
             step,
             armedAt: Date.now(),
           };
+          next.target = opponentsOf(next.triggerRow);
           await this.setExec(
             next,
-            `ПРОИГРЫШ → сразу ставим шаг ${step} на ряды ${t
+            `ПРОИГРЫШ → сразу шаг ${step} против ${this.label(
+              next.triggerRow
+            )} (цели: ${next.target
               .map((x) => this.label(x))
-              .join(', ')}`
+              .join(', ')})`
           );
-
-          const ok = await BET.tryPlace({
-            step,
-            targets: t,
-            steps,
-            getTargetNode: (i) => this.getTargetNode(i),
-            mutex: this.mutex,
-          });
-
-          const chips = await BET.loadGlobalChips();
-          if (ok) {
-            const amount =
-              BET.perTargetAmountForStep(
-                step,
-                steps,
-                chips.chipValues
-              ) * t.length;
-            try {
-              const { betLogs = [] } = await this.sget({
-                betLogs: [],
-              });
-              betLogs.push({
-                t: Date.now(),
-                type: 'placed',
-                market: 'rows',
-                phase: 'armed',
-                message: `Шаг ${step} поставлен (auto) на ${t
-                  .map((x) => this.label(x))
-                  .join(', ')}`,
-                amount,
-                step,
-              });
-              if (betLogs.length > 2000)
-                betLogs.splice(0, betLogs.length - 2000);
-              await this.sset({ betLogs });
-            } catch {}
-          }
-
-          BET.setBetStatus(
-            'bettingStatusRows',
-            ok ? 'armed' : 'error',
-            ok
-              ? `Шаг ${step} поставлен`
-              : `Не удалось поставить шаг ${step}`
-          );
+          await this.placeStep(step, next, steps);
           return;
         }
 
-        // режим ожидания
         const next = {
           ...exec,
           phase: 'waiting',
@@ -327,76 +294,26 @@
       }
 
       if (exec.phase === 'waiting') {
-        if (ix !== -1 && exec.target?.includes(ix)) {
+        const opp = opponentsOf(exec.triggerRow ?? -99);
+        if (ix !== -1 && opp.includes(ix)) {
           const step = exec.step;
-          const t = exec.target;
           const { steps } = await this.loadCfg();
-
-          // страховка на всякий случай
-          if (t.length !== 2) {
-            console.error(
-              '[rows] Ожидание: неверное количество целей',
-              { t }
-            );
-            return;
-          }
-
           const next = {
             ...exec,
             phase: 'armed',
-            target: t,
             step,
             armedAt: Date.now(),
           };
+          next.target = opp.slice();
           await this.setExec(
             next,
-            `ГОТОВ шаг ${step} на ряды ${t
+            `ГОТОВ шаг ${step} против ${this.label(
+              exec.triggerRow
+            )} (цели: ${next.target
               .map((x) => this.label(x))
-              .join(', ')}`
+              .join(', ')})`
           );
-
-          const ok = await BET.tryPlace({
-            step,
-            targets: t,
-            steps,
-            getTargetNode: (i) => this.getTargetNode(i),
-            mutex: this.mutex,
-          });
-
-          if (ok) {
-            const chips = await BET.loadGlobalChips();
-            const amount =
-              BET.perTargetAmountForStep(
-                step,
-                steps,
-                chips.chipValues
-              ) * t.length;
-            try {
-              const { betLogs = [] } = await this.sget({
-                betLogs: [],
-              });
-              betLogs.push({
-                t: Date.now(),
-                type: 'placed',
-                market: 'rows',
-                phase: 'armed',
-                message: `Шаг ${step} поставлен`,
-                amount,
-                step,
-              });
-              if (betLogs.length > 2000)
-                betLogs.splice(0, betLogs.length - 2000);
-              await this.sset({ betLogs });
-            } catch {}
-          }
-
-          BET.setBetStatus(
-            'bettingStatusRows',
-            ok ? 'armed' : 'error',
-            ok
-              ? `Шаг ${step} поставлен`
-              : `Не удалось поставить шаг ${step}`
-          );
+          await this.placeStep(step, next, steps);
         }
       }
     }
