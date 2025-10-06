@@ -1,9 +1,7 @@
-// src/popup.js
-/* Popup main: глобальные фишки, шаги/стрики/auto-continue по рынкам, + streak-dots, + баланс в bet-логах
-   ДОБАВЛЕНО: per-market "учитывать 0" (includeZero) — как флажок, аналогичный "Ставки подряд".
-   Если включён — 0 учитывается в стрике/индикаторах и будет сохранён в конфиг рынка (ab*Config.includeZero).
-   Если выключен — 0 НЕ учитывается (обрывает окно прогресса и не идёт в счётчик).
-*/
+// popup.js
+/* Popup main — трекинг, домены, логи спинов/ставок, конфиги рынков.
+   ДОБАВЛЕНО: рынок threes (streets, 3 числа): тумблер, статусы, стрик-доты,
+   чекбоксы auto-continue / includeZero, steps, сохранение и live-обновления. */
 
 const TIME_FMT = {
   year: 'numeric',
@@ -15,6 +13,7 @@ const TIME_FMT = {
   hour12: false,
 };
 const LOCALE = navigator.language || 'en-US';
+
 async function sget(defs) {
   try {
     return await chrome.storage.local.get(defs || {});
@@ -48,7 +47,7 @@ const betCountEl = document.getElementById('betCount');
 const btnBetExport = document.getElementById('btnBetExport');
 const btnBetClear = document.getElementById('btnBetClear');
 
-/* ===== переключатели рынков / статусы / стрики / auto-continue ===== */
+/* ===== переключатели рынков / статусы / стрики / auto-continue / includeZero ===== */
 const autoBetToggleDozens = document.getElementById(
   'autoBetToggleDozens'
 );
@@ -59,32 +58,32 @@ const autoBetToggleCombo = document.getElementById(
   'autoBetToggleCombo'
 );
 const autoBetToggleSix = document.getElementById('autoBetToggleSix');
+const autoBetToggleThrees = document.getElementById(
+  'autoBetToggleThrees'
+);
 
 const betStatusDozens = document.getElementById('betStatusDozens');
 const betStatusRows = document.getElementById('betStatusRows');
 const betStatusCombo = document.getElementById('betStatusCombo');
 const betStatusSix = document.getElementById('betStatusSix');
+const betStatusThrees = document.getElementById('betStatusThrees');
 
 const dozensStreakInp = document.getElementById('dozensStreak');
 const rowsStreakInp = document.getElementById('rowsStreak');
 const comboStreakInp = document.getElementById('comboStreak');
 const sixStreakInp = document.getElementById('sixStreak');
+const threesStreakInp = document.getElementById('threesStreak');
 
 const dozensAutoCk = document.getElementById('dozensAutoContinue');
 const rowsAutoCk = document.getElementById('rowsAutoContinue');
 const comboAutoCk = document.getElementById('comboAutoContinue');
 const sixAutoCk = document.getElementById('sixAutoContinue');
+const threesAutoCk = document.getElementById('threesAutoContinue');
 
-/* === НОВОЕ: флажки "учитывать 0" по рынкам ===
-   ОБЯЗАТЕЛЬНО добавьте в popup.html чекбоксы с этими id рядом с auto-continue:
-   - <input type="checkbox" id="dozensIncludeZero" /> Учитывать 0
-   - <input type="checkbox" id="rowsIncludeZero" /> Учитывать 0
-   - <input type="checkbox" id="sixIncludeZero" /> Учитывать 0
-   (для combo по ТЗ не требуется)
-*/
 const dozensZeroCk = document.getElementById('dozensIncludeZero');
 const rowsZeroCk = document.getElementById('rowsIncludeZero');
 const sixZeroCk = document.getElementById('sixIncludeZero');
+const threesZeroCk = document.getElementById('threesIncludeZero');
 
 const btnSaveAll = document.getElementById('btnSaveAll');
 
@@ -93,6 +92,7 @@ const dotsDozens = document.getElementById('dozensStreakDots');
 const dotsRows = document.getElementById('rowsStreakDots');
 const dotsCombo = document.getElementById('comboStreakDots');
 const dotsSix = document.getElementById('sixStreakDots');
+const dotsThrees = document.getElementById('threesStreakDots');
 
 /* ===== утилиты ===== */
 function fmtTime(x) {
@@ -337,16 +337,6 @@ function clearBetLogs() {
   chrome.storage.local.set({ betLogs: [] }, () => renderBetAll([]));
 }
 
-async function loadToggle() {
-  const { trackingEnabled = false } = await sget({
-    trackingEnabled: false,
-  });
-  tgl.checked = !!trackingEnabled;
-}
-function setToggle(val) {
-  chrome.storage.local.set({ trackingEnabled: !!val });
-}
-
 /* ===== глобальные фишки ===== */
 const GLOBAL_CHIPS_KEY = 'abGlobalChips';
 const DEFAULT_CHIPS = {
@@ -441,13 +431,14 @@ async function saveGlobalChipsFromUI() {
 /* ===== конфиг рынков ===== */
 const CFG_DZN_KEY = 'abDozensConfig';
 const CFG_ROW_KEY = 'abRowsConfig';
-const CFG_COMBO_KEY = 'abComboConfig';
+theCFG_COMBO_KEY = 'abComboConfig'; // <-- keep exact name
 const CFG_SIX_KEY = 'abSixConfig';
+const CFG_THREES_KEY = 'abThreesConfig';
 
 const DEFAULT_MKT = Object.freeze({
   triggerStreak: 2,
   autoContinue: false,
-  includeZero: true, // НОВОЕ: по умолчанию 0 учитывается
+  includeZero: true, // по умолчанию 0 учитывается в стрике
   steps: [
     [{ chip: 1, times: 1 }],
     [{ chip: 1, times: 3 }],
@@ -458,6 +449,7 @@ const DEFAULT_MKT = Object.freeze({
     ],
   ],
 });
+
 function sanitizeMkt(raw) {
   const src = raw || {};
   const triggerStreak = Math.max(
@@ -495,10 +487,13 @@ const dznStepsBox = document.getElementById('dznStepsBox');
 const rowStepsBox = document.getElementById('rowStepsBox');
 const comboStepsBox = document.getElementById('comboStepsBox');
 const sixStepsBox = document.getElementById('sixStepsBox');
+const threesStepsBox = document.getElementById('threesStepsBox');
+
 const cfgDznMsg = document.getElementById('cfgDznMsg');
 const cfgRowMsg = document.getElementById('cfgRowMsg');
 const cfgComboMsg = document.getElementById('cfgComboMsg');
 const cfgSixMsg = document.getElementById('cfgSixMsg');
+const cfgThreesMsg = document.getElementById('cfgThreesMsg');
 
 /* helpers UI (chips/steps) */
 function makeChipRow(value = '') {
@@ -588,87 +583,75 @@ function getStepsFromUI(box) {
 
 /* загрузка/сохранение рынков */
 async function loadMarketUI(market) {
-  const cfgKey =
-    market === 'dozens'
-      ? CFG_DZN_KEY
-      : market === 'rows'
-      ? CFG_ROW_KEY
-      : market === 'combo'
-      ? CFG_COMBO_KEY
-      : CFG_SIX_KEY;
+  let cfgKey,
+    enKey,
+    statusKey,
+    streakInp,
+    autoCk,
+    zeroCk,
+    toggle,
+    stepsBox,
+    msgEl,
+    statusElDest;
 
-  const enKey =
-    market === 'dozens'
-      ? 'autoBettingDozensEnabled'
-      : market === 'rows'
-      ? 'autoBettingRowsEnabled'
-      : market === 'combo'
-      ? 'autoBettingComboEnabled'
-      : 'autoBettingSixEnabled';
-
-  const statusKey =
-    market === 'dozens'
-      ? 'bettingStatusDozens'
-      : market === 'rows'
-      ? 'bettingStatusRows'
-      : market === 'combo'
-      ? 'bettingStatusCombo'
-      : 'bettingStatusSix';
-
-  const streakInp =
-    market === 'dozens'
-      ? dozensStreakInp
-      : market === 'rows'
-      ? rowsStreakInp
-      : market === 'combo'
-      ? comboStreakInp
-      : sixStreakInp;
-
-  const autoCk =
-    market === 'dozens'
-      ? dozensAutoCk
-      : market === 'rows'
-      ? rowsAutoCk
-      : market === 'combo'
-      ? comboAutoCk
-      : sixAutoCk;
-
-  // zero checkbox reference (combo не трогаем)
-  const zeroCk =
-    market === 'dozens'
-      ? dozensZeroCk
-      : market === 'rows'
-      ? rowsZeroCk
-      : market === 'combo'
-      ? null
-      : sixZeroCk;
-
-  const toggle =
-    market === 'dozens'
-      ? autoBetToggleDozens
-      : market === 'rows'
-      ? autoBetToggleRows
-      : market === 'combo'
-      ? autoBetToggleCombo
-      : autoBetToggleSix;
-
-  const stepsBox =
-    market === 'dozens'
-      ? dznStepsBox
-      : market === 'rows'
-      ? rowStepsBox
-      : market === 'combo'
-      ? comboStepsBox
-      : sixStepsBox;
-
-  const msgEl =
-    market === 'dozens'
-      ? cfgDznMsg
-      : market === 'rows'
-      ? cfgRowMsg
-      : market === 'combo'
-      ? cfgComboMsg
-      : cfgSixMsg;
+  if (market === 'dozens') {
+    cfgKey = CFG_DZN_KEY;
+    enKey = 'autoBettingDozensEnabled';
+    statusKey = 'bettingStatusDozens';
+    streakInp = dozensStreakInp;
+    autoCk = dozensAutoCk;
+    zeroCk = dozensZeroCk;
+    toggle = autoBetToggleDozens;
+    stepsBox = dznStepsBox;
+    msgEl = cfgDznMsg;
+    statusElDest = betStatusDozens;
+  } else if (market === 'rows') {
+    cfgKey = CFG_ROW_KEY;
+    enKey = 'autoBettingRowsEnabled';
+    statusKey = 'bettingStatusRows';
+    streakInp = rowsStreakInp;
+    autoCk = rowsAutoCk;
+    zeroCk = rowsZeroCk;
+    toggle = autoBetToggleRows;
+    stepsBox = rowStepsBox;
+    msgEl = cfgRowMsg;
+    statusElDest = betStatusRows;
+  } else if (market === 'combo') {
+    cfgKey = theCFG_COMBO_KEY;
+    enKey = 'autoBettingComboEnabled';
+    statusKey = 'bettingStatusCombo';
+    streakInp = comboStreakInp;
+    autoCk = comboAutoCk;
+    zeroCk = null;
+    toggle = autoBetToggleCombo;
+    stepsBox = comboStepsBox;
+    msgEl = cfgComboMsg;
+    statusElDest = betStatusCombo;
+  } else if (market === 'six') {
+    cfgKey = CFG_SIX_KEY;
+    enKey = 'autoBettingSixEnabled';
+    statusKey = 'bettingStatusSix';
+    streakInp = sixStreakInp;
+    autoCk = sixAutoCk;
+    zeroCk = sixZeroCk;
+    toggle = autoBetToggleSix;
+    stepsBox = sixStepsBox;
+    msgEl = cfgSixMsg;
+    statusElDest = betStatusSix;
+  } else if (market === 'threes') {
+    cfgKey = CFG_THREES_KEY;
+    enKey = 'autoBettingThreesEnabled';
+    statusKey = 'bettingStatusThrees';
+    streakInp = threesStreakInp;
+    autoCk = threesAutoCk;
+    zeroCk = threesZeroCk;
+    toggle = autoBetToggleThrees;
+    stepsBox = threesStepsBox;
+    msgEl = cfgThreesMsg;
+    statusElDest = betStatusThrees;
+  } else {
+    return;
+  }
 
   const st = await sget({
     [enKey]: false,
@@ -676,86 +659,68 @@ async function loadMarketUI(market) {
   });
   toggle.checked = !!st[enKey];
   const stat = st[statusKey] || { state: 'off', message: '' };
-  (market === 'dozens'
-    ? betStatusDozens
-    : market === 'rows'
-    ? betStatusRows
-    : market === 'combo'
-    ? betStatusCombo
-    : betStatusSix
-  ).textContent = `[${(stat.state || 'off').toUpperCase()}] ${
-    stat.message || ''
-  }`;
+  statusElDest.textContent = `[${(
+    stat.state || 'off'
+  ).toUpperCase()}] ${stat.message || ''}`;
 
   const cfg = sanitizeMkt(
     (await sget({ [cfgKey]: DEFAULT_MKT }))[cfgKey]
   );
   streakInp.value = String(cfg.triggerStreak);
   autoCk.checked = !!cfg.autoContinue;
-  if (zeroCk) zeroCk.checked = !!cfg.includeZero; // НОВОЕ
+  if (zeroCk) zeroCk.checked = !!cfg.includeZero;
   renderSteps(stepsBox, cfg.steps);
   msgEl.textContent = 'Loaded';
 }
+
 async function saveMarketCfgFromUI(market) {
-  const cfgKey =
-    market === 'dozens'
-      ? CFG_DZN_KEY
-      : market === 'rows'
-      ? CFG_ROW_KEY
-      : market === 'combo'
-      ? CFG_COMBO_KEY
-      : CFG_SIX_KEY;
+  let cfgKey, stepsBox, msgEl, streakInpEl, autoCkEl, zeroCkEl;
 
-  const stepsBox =
-    market === 'dozens'
-      ? dznStepsBox
-      : market === 'rows'
-      ? rowStepsBox
-      : market === 'combo'
-      ? comboStepsBox
-      : sixStepsBox;
-
-  const msgEl =
-    market === 'dozens'
-      ? cfgDznMsg
-      : market === 'rows'
-      ? cfgRowMsg
-      : market === 'combo'
-      ? cfgComboMsg
-      : cfgSixMsg;
+  if (market === 'dozens') {
+    cfgKey = CFG_DZN_KEY;
+    stepsBox = dznStepsBox;
+    msgEl = cfgDznMsg;
+    streakInpEl = dozensStreakInp;
+    autoCkEl = dozensAutoCk;
+    zeroCkEl = dozensZeroCk;
+  } else if (market === 'rows') {
+    cfgKey = CFG_ROW_KEY;
+    stepsBox = rowStepsBox;
+    msgEl = cfgRowMsg;
+    streakInpEl = rowsStreakInp;
+    autoCkEl = rowsAutoCk;
+    zeroCkEl = rowsZeroCk;
+  } else if (market === 'combo') {
+    cfgKey = theCFG_COMBO_KEY;
+    stepsBox = comboStepsBox;
+    msgEl = cfgComboMsg;
+    streakInpEl = comboStreakInp;
+    autoCkEl = comboAutoCk;
+    zeroCkEl = null;
+  } else if (market === 'six') {
+    cfgKey = CFG_SIX_KEY;
+    stepsBox = sixStepsBox;
+    msgEl = cfgSixMsg;
+    streakInpEl = sixStreakInp;
+    autoCkEl = sixAutoCk;
+    zeroCkEl = sixZeroCk;
+  } else if (market === 'threes') {
+    cfgKey = CFG_THREES_KEY;
+    stepsBox = threesStepsBox;
+    msgEl = cfgThreesMsg;
+    streakInpEl = threesStreakInp;
+    autoCkEl = threesAutoCk;
+    zeroCkEl = threesZeroCk;
+  } else {
+    return;
+  }
 
   const streak = Math.max(
     2,
-    Math.floor(
-      Number(
-        (market === 'dozens'
-          ? dozensStreakInp.value
-          : market === 'rows'
-          ? rowsStreakInp.value
-          : market === 'combo'
-          ? comboStreakInp.value
-          : sixStreakInp.value) || 2
-      )
-    )
+    Math.floor(Number(streakInpEl.value || 2))
   );
-  const autoContinue =
-    market === 'dozens'
-      ? !!dozensAutoCk.checked
-      : market === 'rows'
-      ? !!rowsAutoCk.checked
-      : market === 'combo'
-      ? !!comboAutoCk.checked
-      : !!sixAutoCk.checked;
-
-  // includeZero из соответствующего чекбокса (combo не имеет)
-  const includeZero =
-    market === 'dozens'
-      ? !!dozensZeroCk?.checked
-      : market === 'rows'
-      ? !!rowsZeroCk?.checked
-      : market === 'combo'
-      ? true /* по ТЗ не требуется, оставим true */
-      : !!sixZeroCk?.checked;
+  const autoContinue = !!autoCkEl.checked;
+  const includeZero = zeroCkEl == null ? true : !!zeroCkEl.checked;
 
   const { [GLOBAL_CHIPS_KEY]: chips = DEFAULT_CHIPS } = await sget({
     [GLOBAL_CHIPS_KEY]: DEFAULT_CHIPS,
@@ -806,7 +771,16 @@ async function saveMarketCfgFromUI(market) {
   msgEl.textContent = 'Saved.';
 }
 
-/* ===== Dots: индикаторы прогресса ===== */
+/* ===== Dots / прогресс стриков ===== */
+function renderDots(hostEl, filledCount, max) {
+  const fill = Math.max(0, Math.floor(Number(filledCount || 0)));
+  const total = Math.max(1, Math.floor(Number(max || 1)));
+  let html = '';
+  for (let i = 0; i < total; i++)
+    html += `<span class="dot${i < fill ? ' filled' : ''}"></span>`;
+  hostEl.innerHTML = html;
+}
+
 // dozen 0..2, 0 -> -1
 function dozenIndex(n) {
   if (n === 0) return -1;
@@ -831,36 +805,10 @@ function sixIndex(n) {
   return Math.floor((n - 1) / 6);
 }
 
-/* актуальные спины + последний спин */
-let latestSpins = [];
-let lastNumber = null;
-
-const DEFAULT_STREAK = {
-  dozens: { count: 0, idx: null },
-  rows: { count: 0, idx: null },
-  combo: { count: 0, d: null, r: null },
-};
-let currStreakState = DEFAULT_STREAK;
-
-function renderDots(hostEl, filledCount, max) {
-  const fill = Math.max(0, Math.floor(Number(filledCount || 0)));
-  const total = Math.max(1, Math.floor(Number(max || 1)));
-  let html = '';
-  for (let i = 0; i < total; i++)
-    html += `<span class="dot${i < fill ? ' filled' : ''}"></span>`;
-  hostEl.innerHTML = html;
-}
-
-/* === прогресс-метрики с опцией includeZero === */
-/** Для дюжин/рядов: считаем длину хвостового окна.
- * Если includeZero=true — 0 допускается и идёт в счёт; иначе 0 обрывает окно.
- * Вне нулей все числа должны принадлежать одной и той же группе (dozen/row).
- */
 function calcOneGroupProgress(spins, need, toIndex, includeZero) {
   let cnt = 0;
   let cand = null;
   let seenNonZero = false;
-
   for (
     let i = Array.isArray(spins) ? spins.length - 1 : -1;
     i >= 0 && cnt < need;
@@ -870,8 +818,8 @@ function calcOneGroupProgress(spins, need, toIndex, includeZero) {
     if (!Number.isFinite(n)) break;
 
     if (n === 0) {
-      if (!includeZero) break; // 0 запрещён — рвём окно
-      cnt++; // 0 разрешён — считаем как часть окна
+      if (!includeZero) break;
+      cnt++;
       continue;
     }
     const ix = toIndex(n);
@@ -882,12 +830,9 @@ function calcOneGroupProgress(spins, need, toIndex, includeZero) {
     seenNonZero = true;
     cnt++;
   }
-
   if (!seenNonZero) return { len: 0, cand: null };
   return { len: cnt, cand };
 }
-
-/** Для шестерок: в окне допускаются ТОЛЬКО (0 если includeZero=true) и значения не более чем из двух шестерок. */
 function calcSixProgress(spins, need, includeZero) {
   let cnt = 0;
   const set = new Set();
@@ -900,14 +845,14 @@ function calcSixProgress(spins, need, includeZero) {
     if (!Number.isFinite(n)) break;
 
     if (n === 0) {
-      if (!includeZero) break; // 0 запрещён — рвём окно
+      if (!includeZero) break;
       cnt++;
       continue;
     }
     const si = sixIndex(n);
     if (si === -1) break;
     if (!set.has(si)) {
-      if (set.size === 2) break; // третья шестерка — окно ломается
+      if (set.size === 2) break;
       set.add(si);
     }
     cnt++;
@@ -915,15 +860,27 @@ function calcSixProgress(spins, need, includeZero) {
   return { len: cnt, hasTwo: set.size === 2 };
 }
 
+let latestSpins = [];
+let lastNumber = null;
+
+const DEFAULT_STREAK = {
+  dozens: { count: 0, idx: null },
+  rows: { count: 0, idx: null },
+  combo: { count: 0, d: null, r: null },
+};
+let currStreakState = DEFAULT_STREAK;
+
 function updateDotsFromState() {
   const maxD = Math.max(1, Number(dozensStreakInp.value) || 2);
   const maxR = Math.max(1, Number(rowsStreakInp.value) || 2);
   const maxC = Math.max(1, Number(comboStreakInp.value) || 2);
   const maxS = Math.max(1, Number(sixStreakInp.value) || 2);
+  const maxT = Math.max(1, Number(threesStreakInp.value) || 2);
 
   const incZeroD = !!dozensZeroCk?.checked;
   const incZeroR = !!rowsZeroCk?.checked;
   const incZeroS = !!sixZeroCk?.checked;
+  const incZeroT = !!threesZeroCk?.checked;
 
   // ДЮЖИНЫ
   const progD = calcOneGroupProgress(
@@ -943,7 +900,7 @@ function updateDotsFromState() {
   );
   renderDots(dotsRows, Math.min(progR.len, maxR), maxR);
 
-  // COMBO — оставляем как раньше (streakState.combo)
+  // COMBO — как было
   renderDots(
     dotsCombo,
     Math.max(0, Number(currStreakState?.combo?.count || 0)),
@@ -953,6 +910,15 @@ function updateDotsFromState() {
   // ШЕСТЕРКИ
   const progS = calcSixProgress(latestSpins, maxS, incZeroS);
   renderDots(dotsSix, Math.min(progS.len, maxS), maxS);
+
+  // ТРЁШКИ: стрик считается по ДЮЖИНЕ (внутри 4 стрита)
+  const progT = calcOneGroupProgress(
+    latestSpins,
+    maxT,
+    dozenIndex,
+    incZeroT
+  );
+  renderDots(dotsThrees, Math.min(progT.len, maxT), maxT);
 }
 
 /* ===== INIT ===== */
@@ -966,10 +932,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderAll(latestSpins);
   });
   loadBetLogs(renderBetAll);
+
   await loadMarketUI('dozens');
   await loadMarketUI('rows');
   await loadMarketUI('combo');
   await loadMarketUI('six');
+  await loadMarketUI('threes');
+
   await loadToggle();
 
   const { streakState = DEFAULT_STREAK, spinLogs = [] } = await sget({
@@ -1058,6 +1027,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     const enabled = !!autoBetToggleSix.checked;
     await sset({ autoBettingSixEnabled: enabled });
   });
+  autoBetToggleThrees.addEventListener('change', async () => {
+    const enabled = !!autoBetToggleThrees.checked;
+    await sset({ autoBettingThreesEnabled: enabled });
+  });
 
   // Add Step buttons
   function addBlankStep(box) {
@@ -1075,6 +1048,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   document
     .getElementById('btnAddSixStep')
     ?.addEventListener('click', () => addBlankStep(sixStepsBox));
+  document
+    .getElementById('btnAddThreesStep')
+    ?.addEventListener('click', () => addBlankStep(threesStepsBox));
 
   // Defaults
   document
@@ -1097,8 +1073,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     ?.addEventListener('click', () =>
       renderSteps(sixStepsBox, DEFAULT_MKT.steps)
     );
+  document
+    .getElementById('btnCfgThreesDefaults')
+    ?.addEventListener('click', () =>
+      renderSteps(threesStepsBox, DEFAULT_MKT.steps)
+    );
 
-  // Save (per market)
+  // Save per market
   document
     .getElementById('btnCfgDznSave')
     ?.addEventListener('click', () => saveMarketCfgFromUI('dozens'));
@@ -1111,17 +1092,21 @@ document.addEventListener('DOMContentLoaded', async () => {
   document
     .getElementById('btnCfgSixSave')
     ?.addEventListener('click', () => saveMarketCfgFromUI('six'));
+  document
+    .getElementById('btnCfgThreesSave')
+    ?.addEventListener('click', () => saveMarketCfgFromUI('threes'));
 
   // изменение настроек — перерисовать точки
   dozensStreakInp.addEventListener('input', updateDotsFromState);
   rowsStreakInp.addEventListener('input', updateDotsFromState);
   comboStreakInp.addEventListener('input', updateDotsFromState);
   sixStreakInp.addEventListener('input', updateDotsFromState);
+  threesStreakInp.addEventListener('input', updateDotsFromState);
 
-  // НОВОЕ: реакция на переключение "учитывать 0"
   dozensZeroCk?.addEventListener('change', updateDotsFromState);
   rowsZeroCk?.addEventListener('change', updateDotsFromState);
   sixZeroCk?.addEventListener('change', updateDotsFromState);
+  threesZeroCk?.addEventListener('change', updateDotsFromState);
 
   // SAVE ALL
   btnSaveAll.addEventListener('click', async () => {
@@ -1130,6 +1115,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     await saveMarketCfgFromUI('rows');
     await saveMarketCfgFromUI('combo');
     await saveMarketCfgFromUI('six');
+    await saveMarketCfgFromUI('threes');
   });
 });
 
@@ -1200,6 +1186,15 @@ chrome.storage.onChanged.addListener((ch, area) => {
       st.state || 'off'
     ).toUpperCase()}] ${st.message || ''}`;
   }
+  if (ch.bettingStatusThrees) {
+    const st = ch.bettingStatusThrees.newValue || {
+      state: 'off',
+      message: '',
+    };
+    betStatusThrees.textContent = `[${(
+      st.state || 'off'
+    ).toUpperCase()}] ${st.message || ''}`;
+  }
 
   if (ch.abDozensConfig) {
     const cfg = sanitizeMkt(ch.abDozensConfig.newValue);
@@ -1232,9 +1227,28 @@ chrome.storage.onChanged.addListener((ch, area) => {
     renderSteps(sixStepsBox, cfg.steps);
     updateDotsFromState();
   }
+  if (ch.abThreesConfig) {
+    const cfg = sanitizeMkt(ch.abThreesConfig.newValue);
+    threesStreakInp.value = cfg.triggerStreak;
+    threesAutoCk.checked = !!cfg.autoContinue;
+    if (threesZeroCk) threesZeroCk.checked = !!cfg.includeZero;
+    renderSteps(threesStepsBox, cfg.steps);
+    updateDotsFromState();
+  }
 
   if (ch.streakState) {
     currStreakState = ch.streakState.newValue || DEFAULT_STREAK;
     updateDotsFromState();
   }
 });
+
+/* toggle track */
+async function loadToggle() {
+  const { trackingEnabled = false } = await sget({
+    trackingEnabled: false,
+  });
+  tgl.checked = !!trackingEnabled;
+}
+function setToggle(val) {
+  chrome.storage.local.set({ trackingEnabled: !!val });
+}

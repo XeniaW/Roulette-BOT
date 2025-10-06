@@ -1,3 +1,4 @@
+<!-- popup.html -->
 <!DOCTYPE html>
 <html>
   <head>
@@ -106,14 +107,12 @@
             ><input type="checkbox" id="dozensAutoContinue" /> Ставки
             подряд</label
           >
-          <!-- НОВОЕ: учитывать ноль -->
           <label class="small"
             ><input type="checkbox" id="dozensIncludeZero" />
             Учитывать 0</label
           >
         </div>
       </div>
-
       <div class="row">
         <span id="betStatusDozens" class="small"></span>
       </div>
@@ -144,14 +143,12 @@
             ><input type="checkbox" id="rowsAutoContinue" /> Ставки
             подряд</label
           >
-          <!-- НОВОЕ: учитывать ноль -->
           <label class="small"
             ><input type="checkbox" id="rowsIncludeZero" /> Учитывать
             0</label
           >
         </div>
       </div>
-
       <div class="row">
         <span id="betStatusRows" class="small"></span>
       </div>
@@ -189,7 +186,6 @@
       </div>
 
       <!-- Sixlines -->
-
       <div class="row ai-center">
         <label
           ><input type="checkbox" id="autoBetToggleSix" />
@@ -215,16 +211,50 @@
             ><input type="checkbox" id="sixAutoContinue" /> Ставки
             подряд</label
           >
-          <!-- НОВОЕ: учитывать ноль -->
           <label class="small"
             ><input type="checkbox" id="sixIncludeZero" /> Учитывать
             0</label
           >
         </div>
       </div>
-
       <div class="row">
         <span id="betStatusSix" class="small"></span>
+      </div>
+
+      <!-- Threes (streets) -->
+      <div class="row ai-center">
+        <label
+          ><input type="checkbox" id="autoBetToggleThrees" /> Трёшки
+          (streets)</label
+        >
+        <div class="col">
+          <div
+            id="threesStreakDots"
+            class="dots"
+            role="presentation"
+          ></div>
+          <label for="threesStreak" class="small label-block"
+            >Стрик (по дюжине)</label
+          >
+          <input
+            id="threesStreak"
+            type="number"
+            min="2"
+            step="1"
+            value="2"
+          />
+          <label class="small"
+            ><input type="checkbox" id="threesAutoContinue" /> Ставки
+            подряд</label
+          >
+          <label class="small"
+            ><input type="checkbox" id="threesIncludeZero" />
+            Учитывать 0</label
+          >
+        </div>
+      </div>
+      <div class="row">
+        <span id="betStatusThrees" class="small"></span>
       </div>
 
       <div class="row row-end">
@@ -324,6 +354,27 @@
         <button id="btnCfgSixSave" class="btn">Save</button>
       </div>
       <div id="cfgSixMsg" class="small"></div>
+    </section>
+
+    <!-- ==== STEPS: THREES ==== -->
+    <section class="card">
+      <h3>Steps — Threes (streets)</h3>
+      <div class="card card-inner">
+        <h4>Steps</h4>
+        <div id="threesStepsBox"></div>
+        <div class="row">
+          <button id="btnAddThreesStep" class="btn">
+            + Add step
+          </button>
+        </div>
+      </div>
+      <div class="row row-end">
+        <button id="btnCfgThreesDefaults" class="btn">
+          Defaults
+        </button>
+        <button id="btnCfgThreesSave" class="btn">Save</button>
+      </div>
+      <div id="cfgThreesMsg" class="small"></div>
     </section>
 
     <script src="popup.js"></script>
