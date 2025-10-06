@@ -21,9 +21,6 @@ export const autoBetToggleDozens = document.getElementById(
 export const autoBetToggleRows = document.getElementById(
   'autoBetToggleRows'
 );
-export const autoBetToggleCombo = document.getElementById(
-  'autoBetToggleCombo'
-);
 export const autoBetToggleSix = document.getElementById(
   'autoBetToggleSix'
 );
@@ -34,8 +31,6 @@ export const autoBetToggleThrees = document.getElementById(
 export const betStatusDozens =
   document.getElementById('betStatusDozens');
 export const betStatusRows = document.getElementById('betStatusRows');
-export const betStatusCombo =
-  document.getElementById('betStatusCombo');
 export const betStatusSix = document.getElementById('betStatusSix');
 export const betStatusThrees =
   document.getElementById('betStatusThrees');
@@ -43,7 +38,6 @@ export const betStatusThrees =
 export const dozensStreakInp =
   document.getElementById('dozensStreak');
 export const rowsStreakInp = document.getElementById('rowsStreak');
-export const comboStreakInp = document.getElementById('comboStreak');
 export const sixStreakInp = document.getElementById('sixStreak');
 export const threesStreakInp =
   document.getElementById('threesStreak');
@@ -52,9 +46,6 @@ export const dozensAutoCk = document.getElementById(
   'dozensAutoContinue'
 );
 export const rowsAutoCk = document.getElementById('rowsAutoContinue');
-export const comboAutoCk = document.getElementById(
-  'comboAutoContinue'
-);
 export const sixAutoCk = document.getElementById('sixAutoContinue');
 export const threesAutoCk = document.getElementById(
   'threesAutoContinue'
@@ -73,21 +64,18 @@ export const btnSaveAll = document.getElementById('btnSaveAll');
 
 export const dotsDozens = document.getElementById('dozensStreakDots');
 export const dotsRows = document.getElementById('rowsStreakDots');
-export const dotsCombo = document.getElementById('comboStreakDots');
 export const dotsSix = document.getElementById('sixStreakDots');
 export const dotsThrees = document.getElementById('threesStreakDots');
 
 /* steps boxes & msgs */
 export const dznStepsBox = document.getElementById('dznStepsBox');
 export const rowStepsBox = document.getElementById('rowStepsBox');
-export const comboStepsBox = document.getElementById('comboStepsBox');
 export const sixStepsBox = document.getElementById('sixStepsBox');
 export const threesStepsBox =
   document.getElementById('threesStepsBox');
 
 export const cfgDznMsg = document.getElementById('cfgDznMsg');
 export const cfgRowMsg = document.getElementById('cfgRowMsg');
-export const cfgComboMsg = document.getElementById('cfgComboMsg');
 export const cfgSixMsg = document.getElementById('cfgSixMsg');
 export const cfgThreesMsg = document.getElementById('cfgThreesMsg');
 

@@ -7,22 +7,18 @@ import { sanitizeMkt } from './markets.js';
 import {
   betStatusDozens,
   betStatusRows,
-  betStatusCombo,
   betStatusSix,
   betStatusThrees,
   dznStepsBox,
   rowStepsBox,
-  comboStepsBox,
   sixStepsBox,
   threesStepsBox,
   dozensStreakInp,
   rowsStreakInp,
-  comboStreakInp,
   sixStreakInp,
   threesStreakInp,
   dozensAutoCk,
   rowsAutoCk,
-  comboAutoCk,
   sixAutoCk,
   threesAutoCk,
   dozensZeroCk,
@@ -74,8 +70,6 @@ chrome.storage.onChanged.addListener((ch, area) => {
     updStatus(betStatusDozens, ch.bettingStatusDozens.newValue);
   if (ch.bettingStatusRows)
     updStatus(betStatusRows, ch.bettingStatusRows.newValue);
-  if (ch.bettingStatusCombo)
-    updStatus(betStatusCombo, ch.bettingStatusCombo.newValue);
   if (ch.bettingStatusSix)
     updStatus(betStatusSix, ch.bettingStatusSix.newValue);
   if (ch.bettingStatusThrees)
@@ -95,13 +89,6 @@ chrome.storage.onChanged.addListener((ch, area) => {
     rowsAutoCk.checked = !!cfg.autoContinue;
     if (rowsZeroCk) rowsZeroCk.checked = !!cfg.includeZero;
     renderSteps(rowStepsBox, cfg.steps);
-    updateDotsFromState();
-  }
-  if (ch.abComboConfig) {
-    const cfg = sanitizeMkt(ch.abComboConfig.newValue);
-    comboStreakInp.value = cfg.triggerStreak;
-    comboAutoCk.checked = !!cfg.autoContinue;
-    renderSteps(comboStepsBox, cfg.steps);
     updateDotsFromState();
   }
   if (ch.abSixConfig) {

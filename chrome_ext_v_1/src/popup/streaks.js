@@ -1,14 +1,12 @@
 // src/popup/streaks.js
-import { renderDots, sget } from './utils.js';
+import { renderDots } from './utils.js';
 import {
   dotsDozens,
   dotsRows,
-  dotsCombo,
   dotsSix,
   dotsThrees,
   dozensStreakInp,
   rowsStreakInp,
-  comboStreakInp,
   sixStreakInp,
   threesStreakInp,
   dozensZeroCk,
@@ -21,7 +19,6 @@ let latestSpins = [];
 let currStreakState = {
   dozens: { count: 0, idx: null },
   rows: { count: 0, idx: null },
-  combo: { count: 0, d: null, r: null },
 };
 
 export function setLatestSpins(arr) {
@@ -112,7 +109,6 @@ function calcSixProgress(spins, need, includeZero) {
 export function updateDotsFromState() {
   const maxD = Math.max(1, Number(dozensStreakInp.value) || 2);
   const maxR = Math.max(1, Number(rowsStreakInp.value) || 2);
-  const maxC = Math.max(1, Number(comboStreakInp.value) || 2);
   const maxS = Math.max(1, Number(sixStreakInp.value) || 2);
   const maxT = Math.max(1, Number(threesStreakInp.value) || 2);
 
@@ -136,12 +132,6 @@ export function updateDotsFromState() {
     incZeroR
   );
   renderDots(dotsRows, Math.min(progR.len, maxR), maxR);
-
-  renderDots(
-    dotsCombo,
-    Math.max(0, Number(currStreakState?.combo?.count || 0)),
-    maxC
-  );
 
   const progS = calcSixProgress(latestSpins, maxS, incZeroS);
   renderDots(dotsSix, Math.min(progS.len, maxS), maxS);

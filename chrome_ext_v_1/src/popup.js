@@ -11,11 +11,12 @@ import {
 } from './popup/streaks.js';
 import { loadToggle } from './popup/toggle.js';
 import { loadGlobalChipsUI } from './popup/chips.js';
-import { wireInitHandlers } from './popup/init.js';
+import { wireInitHandlers } from './popup/init.js'; // <-- ВАЖНО: добавил
 import './popup/live.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
   await loadGlobalChipsUI();
+
   loadStatus();
   loadDomains();
   loadLogs((logs) => {
@@ -26,7 +27,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   await loadMarketUI('dozens');
   await loadMarketUI('rows');
-  await loadMarketUI('combo');
   await loadMarketUI('six');
   await loadMarketUI('threes');
 
@@ -36,7 +36,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   const DEFAULT_STREAK = {
     dozens: { count: 0, idx: null },
     rows: { count: 0, idx: null },
-    combo: { count: 0, d: null, r: null },
   };
   const { streakState = DEFAULT_STREAK, spinLogs = [] } = await sget({
     streakState: DEFAULT_STREAK,
@@ -46,5 +45,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   setLatestSpins(Array.isArray(spinLogs) ? spinLogs : []);
   updateDotsFromState();
 
+  // <-- ВАЖНО: навешиваем все обработчики (включая Tracking toggle)
   wireInitHandlers();
 });

@@ -3,12 +3,10 @@ import { sget, sset } from './utils.js';
 import {
   dozensStreakInp,
   rowsStreakInp,
-  comboStreakInp,
   sixStreakInp,
   threesStreakInp,
   dozensAutoCk,
   rowsAutoCk,
-  comboAutoCk,
   sixAutoCk,
   threesAutoCk,
   dozensZeroCk,
@@ -17,22 +15,18 @@ import {
   threesZeroCk,
   autoBetToggleDozens,
   autoBetToggleRows,
-  autoBetToggleCombo,
   autoBetToggleSix,
   autoBetToggleThrees,
   dznStepsBox,
   rowStepsBox,
-  comboStepsBox,
   sixStepsBox,
   threesStepsBox,
   cfgDznMsg,
   cfgRowMsg,
-  cfgComboMsg,
   cfgSixMsg,
   cfgThreesMsg,
   betStatusDozens,
   betStatusRows,
-  betStatusCombo,
   betStatusSix,
   betStatusThrees,
 } from './dom.js';
@@ -41,7 +35,6 @@ import { DEFAULT_CHIPS, GLOBAL_CHIPS_KEY } from './chips.js';
 
 export const CFG_DZN_KEY = 'abDozensConfig';
 export const CFG_ROW_KEY = 'abRowsConfig';
-export const theCFG_COMBO_KEY = 'abComboConfig'; // имя должно совпадать
 export const CFG_SIX_KEY = 'abSixConfig';
 export const CFG_THREES_KEY = 'abThreesConfig';
 
@@ -126,17 +119,6 @@ export async function loadMarketUI(market) {
     stepsBox = rowStepsBox;
     msgEl = cfgRowMsg;
     statusElDest = betStatusRows;
-  } else if (market === 'combo') {
-    cfgKey = theCFG_COMBO_KEY;
-    enKey = 'autoBettingComboEnabled';
-    statusKey = 'bettingStatusCombo';
-    streakInp = comboStreakInp;
-    autoCk = comboAutoCk;
-    zeroCk = null;
-    toggle = autoBetToggleCombo;
-    stepsBox = comboStepsBox;
-    msgEl = cfgComboMsg;
-    statusElDest = betStatusCombo;
   } else if (market === 'six') {
     cfgKey = CFG_SIX_KEY;
     enKey = 'autoBettingSixEnabled';
@@ -198,13 +180,6 @@ export async function saveMarketCfgFromUI(market) {
     streakInpEl = rowsStreakInp;
     autoCkEl = rowsAutoCk;
     zeroCkEl = rowsZeroCk;
-  } else if (market === 'combo') {
-    cfgKey = theCFG_COMBO_KEY;
-    stepsBox = comboStepsBox;
-    msgEl = cfgComboMsg;
-    streakInpEl = comboStreakInp;
-    autoCkEl = comboAutoCk;
-    zeroCkEl = null;
   } else if (market === 'six') {
     cfgKey = CFG_SIX_KEY;
     stepsBox = sixStepsBox;
@@ -282,8 +257,8 @@ export function wireMarketTogglesReset() {
   const DEFAULT_STREAK = {
     dozens: { count: 0, idx: null },
     rows: { count: 0, idx: null },
-    combo: { count: 0, d: null, r: null },
   };
+
   autoBetToggleDozens.addEventListener('change', async () => {
     const enabled = !!autoBetToggleDozens.checked;
     await sset({ autoBettingDozensEnabled: enabled });
@@ -299,6 +274,7 @@ export function wireMarketTogglesReset() {
       await sset({ streakState: st });
     }
   });
+
   autoBetToggleRows.addEventListener('change', async () => {
     const enabled = !!autoBetToggleRows.checked;
     await sset({ autoBettingRowsEnabled: enabled });
@@ -314,25 +290,12 @@ export function wireMarketTogglesReset() {
       await sset({ streakState: st });
     }
   });
-  autoBetToggleCombo.addEventListener('change', async () => {
-    const enabled = !!autoBetToggleCombo.checked;
-    await sset({ autoBettingComboEnabled: enabled });
-    if (!enabled) {
-      const { streakState = DEFAULT_STREAK } = await sget({
-        streakState: DEFAULT_STREAK,
-      });
-      const st = {
-        ...DEFAULT_STREAK,
-        ...streakState,
-        combo: { count: 0, d: null, r: null },
-      };
-      await sset({ streakState: st });
-    }
-  });
+
   autoBetToggleSix.addEventListener('change', async () => {
     const enabled = !!autoBetToggleSix.checked;
     await sset({ autoBettingSixEnabled: enabled });
   });
+
   autoBetToggleThrees.addEventListener('change', async () => {
     const enabled = !!autoBetToggleThrees.checked;
     await sset({ autoBettingThreesEnabled: enabled });

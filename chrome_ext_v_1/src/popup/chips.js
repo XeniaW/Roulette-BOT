@@ -13,6 +13,14 @@ export const DEFAULT_CHIPS = {
   chipValues: [0.2, 1, 5, 20],
 };
 
+function debounce(fn, ms = 200) {
+  let t = null;
+  return (...args) => {
+    clearTimeout(t);
+    t = setTimeout(() => fn(...args), ms);
+  };
+}
+
 export function sanitizeChips(raw) {
   const src = raw || {};
   const tpl =
@@ -32,20 +40,23 @@ export function sanitizeChips(raw) {
 export function makeChipRow(value = '') {
   const div = document.createElement('div');
   div.className = 'row chip-row';
-  div.innerHTML = `<span class="small">Value</span><input type="number" step="0.0001" class="chip-val" value="${
-    value !== '' ? value : ''
-  }"><button class="btn btn-danger btn-del-chip">x</button>`;
-  div
-    .querySelector('.btn-del-chip')
-    .addEventListener('click', () => div.remove());
+  div.innerHTML = `
+    <span class="small">Value</span>
+    <input type="number" step="0.0001" class="chip-val" value="${
+      value !== '' ? value : ''
+    }">
+    <button class="btn btn-danger btn-del-chip">x</button>
+  `;
   return div;
 }
+
 export function renderChips(box, vals) {
   box.innerHTML = '';
   (vals && vals.length ? vals : ['']).forEach((v) =>
     box.appendChild(makeChipRow(v))
   );
 }
+
 export function getChipsFromUI(box) {
   const vals = [];
   box.querySelectorAll('.chip-val').forEach((inp) => {
@@ -82,6 +93,9 @@ export async function loadGlobalChipsUI() {
   cfgChipTpl.value = clean.chipSelectorTemplate;
   renderChips(chipsBox, clean.chipValues);
   cfgChipsMsg.textContent = 'Loaded global chips';
+
+  // AUTOSAVE wiring
+  wireChipsAutosave();
 }
 
 export async function saveGlobalChipsFromUI() {
@@ -116,6 +130,32 @@ export async function saveGlobalChipsFromUI() {
   cfgChipsMsg.textContent = 'Saved global chips';
 }
 
-btnAddChip?.addEventListener('click', () =>
-  chipsBox.appendChild(makeChipRow())
+/* ===== AUTOSAVE (template + values) ===== */
+const debouncedSaveChips = debounce(
+  () => saveGlobalChipsFromUI(),
+  200
 );
+
+function wireChipsAutosave() {
+  // template field
+  cfgChipTpl?.addEventListener('input', () => debouncedSaveChips());
+
+  // delegate for value inputs and delete buttons
+  chipsBox?.addEventListener('input', (e) => {
+    if (e.target && e.target.classList.contains('chip-val'))
+      debouncedSaveChips();
+  });
+  chipsBox?.addEventListener('click', (e) => {
+    const btn = e.target?.closest('.btn-del-chip');
+    if (!btn) return;
+    const row = btn.closest('.chip-row');
+    row?.remove();
+    debouncedSaveChips();
+  });
+
+  // add chip button
+  btnAddChip?.addEventListener('click', () => {
+    chipsBox.appendChild(makeChipRow());
+    debouncedSaveChips();
+  });
+}
