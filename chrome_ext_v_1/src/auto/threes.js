@@ -1,7 +1,7 @@
 // src/auto/threes.js
 (() => {
   const DEFAULT_CFG = Object.freeze({
-    triggerStreak: 2, // длина стрика по дюжине для входа
+    triggerStreak: 4, // длина стрика по дюжине для входа
     autoContinue: false, // true — сразу ставим следующий шаг; false — ждём сигнала
     includeZero: false, // 0 считается продолжением текущей дюжины
     steps: [
