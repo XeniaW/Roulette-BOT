@@ -21,14 +21,24 @@ let currStreakState = {
   rows: { count: 0, idx: null },
 };
 
+// с каких индексов считать прогресс (сбрасываем по тумблерам/сигналам)
+const resetIdx = { dozens: 0, rows: 0, six: 0, threes: 0 };
+
 export function setLatestSpins(arr) {
   latestSpins = Array.isArray(arr) ? arr : [];
 }
 export function setCurrStreakState(st) {
   currStreakState = st || currStreakState;
 }
+export function resetStreakDots(market) {
+  const i = Array.isArray(latestSpins) ? latestSpins.length : 0;
+  if (market === 'dozens') resetIdx.dozens = i;
+  else if (market === 'rows') resetIdx.rows = i;
+  else if (market === 'six') resetIdx.six = i;
+  else if (market === 'threes') resetIdx.threes = i;
+}
 
-// dozen 0..2, 0 -> -1
+// индексы
 function dozenIndex(n) {
   if (n === 0) return -1;
   if (n <= 12) return 0;
@@ -36,7 +46,6 @@ function dozenIndex(n) {
   if (n <= 36) return 2;
   return -1;
 }
-// row 0..2, 0 -> -1
 function rowIndex(n) {
   if (n === 0) return -1;
   const r = n % 3;
@@ -45,25 +54,25 @@ function rowIndex(n) {
   if (r === 0) return 2;
   return -1;
 }
-// sixline 0..5, 0 -> -1
 function sixIndex(n) {
   if (n === 0) return -1;
   if (n < 1 || n > 36) return -1;
   return Math.floor((n - 1) / 6);
 }
+function streetIndex(n) {
+  if (n === 0) return -1;
+  if (n < 1 || n > 36) return -1;
+  return Math.ceil(n / 3) - 1;
+}
 
+// общий прогресс «одна группа»
 function calcOneGroupProgress(spins, need, toIndex, includeZero) {
   let cnt = 0,
     cand = null,
     seenNonZero = false;
-  for (
-    let i = Array.isArray(spins) ? spins.length - 1 : -1;
-    i >= 0 && cnt < need;
-    i--
-  ) {
+  for (let i = spins.length - 1; i >= 0 && cnt < need; i--) {
     const n = Number(spins[i]?.n);
     if (!Number.isFinite(n)) break;
-
     if (n === 0) {
       if (!includeZero) break;
       cnt++;
@@ -79,17 +88,14 @@ function calcOneGroupProgress(spins, need, toIndex, includeZero) {
   if (!seenNonZero) return { len: 0, cand: null };
   return { len: cnt, cand };
 }
+
+// шестёрки: максимум 2 разных
 function calcSixProgress(spins, need, includeZero) {
   let cnt = 0;
   const set = new Set();
-  for (
-    let i = Array.isArray(spins) ? spins.length - 1 : -1;
-    i >= 0 && cnt < need;
-    i--
-  ) {
+  for (let i = spins.length - 1; i >= 0 && cnt < need; i--) {
     const n = Number(spins[i]?.n);
     if (!Number.isFinite(n)) break;
-
     if (n === 0) {
       if (!includeZero) break;
       cnt++;
@@ -106,19 +112,51 @@ function calcSixProgress(spins, need, includeZero) {
   return { len: cnt, hasTwo: set.size === 2 };
 }
 
+// ТРЁШКИ: гибридная логика под твои примеры
+// - K<=4  → прогресс = число уникальных стритов в окне с хвоста (до 4)
+// - K>4   → прогресс = длина окна (пока уникальных ≤4)
+// 0: includeZero=true → учитываем в длину, не прибавляет стрит; false → рвёт окно
+function calcThreesProgress(spins, K, includeZero) {
+  let len = 0;
+  const streets = new Set();
+  for (let i = spins.length - 1; i >= 0 && len < K; i--) {
+    const n = Number(spins[i]?.n);
+    if (!Number.isFinite(n)) break;
+    if (n === 0) {
+      if (!includeZero) break;
+      len++;
+      continue;
+    }
+    const si = streetIndex(n);
+    if (si === -1) break;
+    if (!streets.has(si)) {
+      if (streets.size === 4) break;
+      streets.add(si);
+    }
+    len++;
+  }
+  return K <= 4 ? Math.min(streets.size, K) : Math.min(len, K);
+}
+
+// рендер
 export function updateDotsFromState() {
   const maxD = Math.max(1, Number(dozensStreakInp.value) || 2);
   const maxR = Math.max(1, Number(rowsStreakInp.value) || 2);
   const maxS = Math.max(1, Number(sixStreakInp.value) || 2);
-  const maxT = Math.max(1, Number(threesStreakInp.value) || 2);
+  const K = Math.max(1, Number(threesStreakInp.value) || 4);
 
   const incZeroD = !!dozensZeroCk?.checked;
   const incZeroR = !!rowsZeroCk?.checked;
   const incZeroS = !!sixZeroCk?.checked;
   const incZeroT = !!threesZeroCk?.checked;
 
+  const spinsD = latestSpins.slice(Math.max(0, resetIdx.dozens));
+  const spinsR = latestSpins.slice(Math.max(0, resetIdx.rows));
+  const spinsS = latestSpins.slice(Math.max(0, resetIdx.six));
+  const spinsT = latestSpins.slice(Math.max(0, resetIdx.threes));
+
   const progD = calcOneGroupProgress(
-    latestSpins,
+    spinsD,
     maxD,
     dozenIndex,
     incZeroD
@@ -126,21 +164,25 @@ export function updateDotsFromState() {
   renderDots(dotsDozens, Math.min(progD.len, maxD), maxD);
 
   const progR = calcOneGroupProgress(
-    latestSpins,
+    spinsR,
     maxR,
     rowIndex,
     incZeroR
   );
   renderDots(dotsRows, Math.min(progR.len, maxR), maxR);
 
-  const progS = calcSixProgress(latestSpins, maxS, incZeroS);
+  const progS = calcSixProgress(spinsS, maxS, incZeroS);
   renderDots(dotsSix, Math.min(progS.len, maxS), maxS);
 
-  const progT = calcOneGroupProgress(
-    latestSpins,
-    maxT,
-    dozenIndex,
-    incZeroT
-  );
-  renderDots(dotsThrees, Math.min(progT.len, maxT), maxT);
+  const threesLen = calcThreesProgress(spinsT, K, incZeroT);
+  renderDots(dotsThrees, threesLen, K);
+}
+
+// ловим системные сигналы от стратегий (вход/выигрыш трёшек)
+export function handleStorageChangeForStreaks(ch, area) {
+  if (area !== 'local') return;
+  if (ch.threesDotsReset) {
+    resetStreakDots('threes');
+    updateDotsFromState();
+  }
 }

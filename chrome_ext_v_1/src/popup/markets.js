@@ -32,6 +32,7 @@ import {
 } from './dom.js';
 import { renderSteps, getStepsFromUI } from './steps-ui.js';
 import { DEFAULT_CHIPS, GLOBAL_CHIPS_KEY } from './chips.js';
+import { resetStreakDots, updateDotsFromState } from './streaks.js';
 
 export const CFG_DZN_KEY = 'abDozensConfig';
 export const CFG_ROW_KEY = 'abRowsConfig';
@@ -252,7 +253,7 @@ export async function saveMarketCfgFromUI(market) {
   msgEl.textContent = 'Saved.';
 }
 
-/* toggles reset */
+/* toggles reset — СБРОС ТОЛЬКО при ОТКЛЮЧЕНИИ (unchecked) чекбокса рынка */
 export function wireMarketTogglesReset() {
   const DEFAULT_STREAK = {
     dozens: { count: 0, idx: null },
@@ -260,9 +261,11 @@ export function wireMarketTogglesReset() {
   };
 
   autoBetToggleDozens.addEventListener('change', async () => {
-    const enabled = !!autoBetToggleDozens.checked;
-    await sset({ autoBettingDozensEnabled: enabled });
-    if (!enabled) {
+    const checked = !!autoBetToggleDozens.checked;
+    await sset({ autoBettingDozensEnabled: checked });
+    if (!checked) {
+      resetStreakDots('dozens'); // визуальный сброс
+      // логический стрик дюжин — тоже обнуляем ТОЛЬКО при выключении
       const { streakState = DEFAULT_STREAK } = await sget({
         streakState: DEFAULT_STREAK,
       });
@@ -272,13 +275,15 @@ export function wireMarketTogglesReset() {
         dozens: { count: 0, idx: null },
       };
       await sset({ streakState: st });
+      updateDotsFromState();
     }
   });
 
   autoBetToggleRows.addEventListener('change', async () => {
-    const enabled = !!autoBetToggleRows.checked;
-    await sset({ autoBettingRowsEnabled: enabled });
-    if (!enabled) {
+    const checked = !!autoBetToggleRows.checked;
+    await sset({ autoBettingRowsEnabled: checked });
+    if (!checked) {
+      resetStreakDots('rows');
       const { streakState = DEFAULT_STREAK } = await sget({
         streakState: DEFAULT_STREAK,
       });
@@ -288,16 +293,25 @@ export function wireMarketTogglesReset() {
         rows: { count: 0, idx: null },
       };
       await sset({ streakState: st });
+      updateDotsFromState();
     }
   });
 
   autoBetToggleSix.addEventListener('change', async () => {
-    const enabled = !!autoBetToggleSix.checked;
-    await sset({ autoBettingSixEnabled: enabled });
+    const checked = !!autoBetToggleSix.checked;
+    await sset({ autoBettingSixEnabled: checked });
+    if (!checked) {
+      resetStreakDots('six'); // только визуальный сброс при выключении
+      updateDotsFromState();
+    }
   });
 
   autoBetToggleThrees.addEventListener('change', async () => {
-    const enabled = !!autoBetToggleThrees.checked;
-    await sset({ autoBettingThreesEnabled: enabled });
+    const checked = !!autoBetToggleThrees.checked;
+    await sset({ autoBettingThreesEnabled: checked });
+    if (!checked) {
+      resetStreakDots('threes'); // только визуальный сброс при выключении
+      updateDotsFromState();
+    }
   });
 }

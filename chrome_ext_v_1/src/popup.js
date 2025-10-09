@@ -4,34 +4,44 @@ import { loadDomains } from './popup/domains.js';
 import { loadLogs, renderAll } from './popup/spin-logs.js';
 import { loadBetLogs, renderBetAll } from './popup/bet-logs.js';
 import { loadMarketUI } from './popup/markets.js';
-import {
-  updateDotsFromState,
-  setLatestSpins,
-  setCurrStreakState,
-} from './popup/streaks.js';
 import { loadToggle } from './popup/toggle.js';
 import { loadGlobalChipsUI } from './popup/chips.js';
-import { wireInitHandlers } from './popup/init.js'; // <-- ВАЖНО: добавил
+import { wireInitHandlers } from './popup/init.js';
 import './popup/live.js';
+
+// streaks
+import {
+  setLatestSpins,
+  setCurrStreakState,
+  updateDotsFromState,
+  handleStorageChangeForStreaks,
+} from './popup/streaks.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
   await loadGlobalChipsUI();
 
+  // статус/домены/логи
   loadStatus();
   loadDomains();
+
   loadLogs((logs) => {
-    setLatestSpins(logs);
+    setLatestSpins(Array.isArray(logs) ? logs : []);
     renderAll(logs);
+    updateDotsFromState(); // чтобы лампочки сразу соответствовали списку
   });
+
   loadBetLogs(renderBetAll);
 
+  // рынки
   await loadMarketUI('dozens');
   await loadMarketUI('rows');
   await loadMarketUI('six');
   await loadMarketUI('threes');
 
+  // главный тумблер
   await loadToggle();
 
+  // первичная подгрузка streakState + спины из стораджа
   const { sget } = await import('./popup/utils.js');
   const DEFAULT_STREAK = {
     dozens: { count: 0, idx: null },
@@ -45,6 +55,31 @@ document.addEventListener('DOMContentLoaded', async () => {
   setLatestSpins(Array.isArray(spinLogs) ? spinLogs : []);
   updateDotsFromState();
 
-  // <-- ВАЖНО: навешиваем все обработчики (включая Tracking toggle)
+  // кнопки/хэндлеры
   wireInitHandlers();
+
+  // ==== Живые обновления для лампочек (постепенно) ====
+  chrome.storage.onChanged.addListener((ch, area) => {
+    if (area !== 'local') return;
+
+    // новые спины → аккуратно обновить и перерисовать прогресс
+    if (ch.spinLogs) {
+      const next = Array.isArray(ch.spinLogs.newValue)
+        ? ch.spinLogs.newValue
+        : [];
+      setLatestSpins(next);
+      updateDotsFromState();
+    }
+
+    // сброс лампочек трёшек от стратегии (вход/выигрыш)
+    // handleStorageChangeForStreaks сам сделает локальный reset+перерисовку
+    handleStorageChangeForStreaks(ch, area);
+
+    // streakState мог измениться (например, при выключении рынков) — просто перерисуем
+    if (ch.streakState) {
+      // setCurrStreakState не обязателен для точек, но пусть будет консистентность
+      setCurrStreakState(ch.streakState.newValue || DEFAULT_STREAK);
+      updateDotsFromState();
+    }
+  });
 });
