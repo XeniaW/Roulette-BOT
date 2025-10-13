@@ -1,10 +1,10 @@
 // src/auto/threes.js
 (() => {
   const DEFAULT_CFG = Object.freeze({
-    // triggerStreak (K): требуемая длина окна из хвоста, в котором встречается ≤4 уникальных стрита
+    // triggerStreak (K): длина хвоста после якоря, где встречается ≤4 уникальных стрита
     triggerStreak: 4,
     autoContinue: false, // после проигрыша сразу ставим следующий шаг
-    includeZero: false, // если true — 0 НЕ рвёт окно и засчитывается в длину
+    includeZero: false, // true — 0 НЕ рвёт окно и идёт в длину
     steps: [
       [{ chip: 1, times: 1 }],
       [{ chip: 1, times: 3 }],
@@ -26,7 +26,7 @@
   function getStreetNode(idx) {
     const seq = document.querySelector(`#index-${500 + idx}`); // 500..511
     if (seq) return seq;
-    const even = document.querySelector(`#index-${500 + idx * 2}`); // 500,502,..,522
+    const even = document.querySelector(`#index-${500 + idx * 2}`); // 500,502,..,522 (некоторые столы)
     if (even) return even;
     const dataE2E = document.querySelector(
       `[data-e2e="street-${idx}"]`
@@ -186,17 +186,9 @@
       const exec = await this.getExec();
       if (!exec.enabled) return;
 
-      const s = await this.sget({ spinLogs: [] });
-      const spinLogs = Array.isArray(s.spinLogs)
-        ? s.spinLogs.slice()
-        : [];
-      if (
-        !spinLogs.length ||
-        spinLogs[spinLogs.length - 1]?.n !== n
-      ) {
-        spinLogs.push({ n });
-      }
-      const L = spinLogs.length;
+      // ВАЖНО: НЕ меняем спин-логи локально. Берём только то, что в storage.
+      const { spinLogs = [] } = await this.sget({ spinLogs: [] });
+      const L = Array.isArray(spinLogs) ? spinLogs.length : 0;
       const si = this.getIndex(n); // -1 для 0
 
       // ====== ВХОД ======
@@ -206,7 +198,7 @@
           steps,
           includeZero,
         } = await this.loadCfg();
-        const wantK = Math.max(1, K | 0);
+        const wantK = Math.max(2, K | 0); // sanitizeCfg у базового класса тоже ≥2, синхронизируемся
 
         // считаем окно ТОЛЬКО по спинам ПОСЛЕ якоря
         const anchor = Math.max(0, exec.anchorFrom | 0);
@@ -217,11 +209,18 @@
           !!includeZero
         );
 
-        // вход, когда хвост после якоря достиг K и в нём ≤4 уникальных
+        // вход, когда хвост после якоря достиг K и в нём ≤4 уникальных (и ≥1)
         if (len >= wantK && streets.size >= 1 && streets.size <= 4) {
           if (!(await this.tryEntryWithLimit())) return;
 
-          const targets = targetsFromCoveredStreets(streets); // size≤4 → целей 12-size, при 4 → 8
+          const targets = targetsFromCoveredStreets(streets); // size≤4 → 12-size целей
+          if (targets.length !== 12 - streets.size) {
+            console.warn('[threes] Несоответствие числа целей.', {
+              covered: Array.from(streets),
+              targets,
+            });
+          }
+
           // фиксируем якорь на текущую длину логов — чтобы следующий стрик считался ТОЛЬКО после новых спинов
           let next = { ...exec, anchorFrom: L };
 
@@ -245,6 +244,9 @@
 
           await signalResetDotsThrees(); // сброс лампочек в попапе
           await this.placeStep(1, next, steps);
+        } else {
+          // для прозрачности статуса можно оставить "waiting", но не шумим в логи
+          // BET.setBetStatus('bettingStatusThrees', 'waiting', `Окно len=${len}, streets=${streets.size}`);
         }
         return;
       }
