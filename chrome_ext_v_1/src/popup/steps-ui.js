@@ -18,20 +18,32 @@ export function makeStepItemRow(chipIndex1 = 1, times = 1) {
   `;
   const chipInp = row.querySelector('.step-chip-i');
   const timesInp = row.querySelector('.step-times');
+
+  // эмитим на контейнер карточек (stepsBox) через всплытие
+  const bubbleTarget = () => row.parentElement?.parentElement; // .step-card
+
   chipInp.addEventListener('input', () =>
-    emitChanged(row.parentElement)
+    emitChanged(bubbleTarget())
   );
   timesInp.addEventListener('input', () =>
-    emitChanged(row.parentElement)
+    emitChanged(bubbleTarget())
   );
+
   row.querySelector('.btn-del-item').addEventListener('click', () => {
     row.remove();
-    emitChanged(row.parentElement);
+    emitChanged(bubbleTarget());
   });
+
   return row;
 }
 
-export function makeStepCard(container, items) {
+/**
+ * Создание карточки шага.
+ * opts.emitOnCreate: эмитить steps:changed после добавления карточки (по умолчанию false)
+ */
+export function makeStepCard(container, items, opts = {}) {
+  const { emitOnCreate = false } = opts;
+
   const card = document.createElement('div');
   card.className = 'step-card';
   card.innerHTML = `
@@ -44,10 +56,11 @@ export function makeStepCard(container, items) {
     </div>
     <div class="step-items"></div>
   `;
+
   const box = card.querySelector('.step-items');
-  (items && items.length ? items : [{ chip: 1, times: 1 }]).forEach(
-    (it) =>
-      box.appendChild(makeStepItemRow(it.chip ?? 1, it.times ?? 1))
+  const src = items && items.length ? items : [{ chip: 1, times: 1 }];
+  src.forEach((it) =>
+    box.appendChild(makeStepItemRow(it.chip ?? 1, it.times ?? 1))
   );
 
   card
@@ -56,6 +69,7 @@ export function makeStepCard(container, items) {
       box.appendChild(makeStepItemRow());
       emitChanged(container);
     });
+
   card
     .querySelector('.btn-del-step')
     .addEventListener('click', () => {
@@ -64,16 +78,28 @@ export function makeStepCard(container, items) {
     });
 
   container.appendChild(card);
-  emitChanged(container);
+  if (emitOnCreate) emitChanged(container);
+  return card;
 }
 
-export function renderSteps(box, steps) {
+/**
+ * Программный рендер. По умолчанию — ТИХИЙ (silent=true), чтобы не сносить состояние.
+ */
+export function renderSteps(box, steps, { silent = true } = {}) {
   box.innerHTML = '';
-  (Array.isArray(steps) && steps.length
-    ? steps
-    : [[{ chip: 1, times: 1 }]]
-  ).forEach((st) => makeStepCard(box, st));
-  emitChanged(box);
+  const src =
+    Array.isArray(steps) && steps.length
+      ? steps
+      : [[{ chip: 1, times: 1 }]];
+  src.forEach((st) => makeStepCard(box, st, { emitOnCreate: false }));
+  if (!silent) emitChanged(box);
+}
+
+/**
+ * Хелпер для кнопки «+ Add step»: добавляет НОВУЮ карточку и эмитит одно событие.
+ */
+export function addStep(box, items = [{ chip: 1, times: 1 }]) {
+  makeStepCard(box, items, { emitOnCreate: true });
 }
 
 export function getStepsFromUI(box) {

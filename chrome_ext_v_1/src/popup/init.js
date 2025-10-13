@@ -31,7 +31,7 @@ import {
   DEFAULT_MKT,
   wireMarketTogglesReset,
 } from './markets.js';
-import { renderSteps } from './steps-ui.js';
+import { renderSteps, addStep } from './steps-ui.js'; // ← добавили addStep
 import { saveGlobalChipsFromUI } from './chips.js';
 
 function debounce(fn, ms = 200) {
@@ -84,8 +84,10 @@ function wireAutoSaveForMarket(
   }
 }
 
+// ❌ БЫЛО: renderSteps(...) — стирало все шаги
+// ✅ СТАЛО: addStep(...) — просто добавляет новый шаг
 function addBlankStep(box) {
-  renderSteps(box, [[{ chip: 1, times: 1 }]]);
+  addStep(box); // добавляет карточку Step [ {chip:1, times:1} ] и шлёт один steps:changed
 }
 
 export function wireInitHandlers() {

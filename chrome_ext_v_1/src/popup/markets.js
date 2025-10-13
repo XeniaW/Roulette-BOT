@@ -30,7 +30,7 @@ import {
   betStatusSix,
   betStatusThrees,
 } from './dom.js';
-import { renderSteps, getStepsFromUI } from './steps-ui.js';
+import { renderSteps, getStepsFromUI, addStep } from './steps-ui.js';
 import { DEFAULT_CHIPS, GLOBAL_CHIPS_KEY } from './chips.js';
 import { resetStreakDots, updateDotsFromState } from './streaks.js';
 
@@ -84,6 +84,20 @@ export function sanitizeMkt(raw) {
   if (!steps.length)
     steps = JSON.parse(JSON.stringify(DEFAULT_MKT.steps));
   return { triggerStreak, steps, autoContinue, includeZero };
+}
+
+function findAddStepBtn(stepsBox, market) {
+  // пробуем несколько вариантов, чтобы не трогать dom.js
+  return (
+    stepsBox?.parentElement?.querySelector('.btn-add-step') ||
+    stepsBox
+      ?.closest('.market-card')
+      ?.querySelector('.btn-add-step') ||
+    document.querySelector(
+      `[data-market="${market}"] .btn-add-step`
+    ) ||
+    document.querySelector(`#market-${market} .btn-add-step`)
+  );
 }
 
 export async function loadMarketUI(market) {
@@ -160,8 +174,22 @@ export async function loadMarketUI(market) {
   streakInp.value = String(cfg.triggerStreak);
   autoCk.checked = !!cfg.autoContinue;
   if (zeroCk) zeroCk.checked = !!cfg.includeZero;
-  renderSteps(stepsBox, cfg.steps);
+
+  // КЛЮЧЕВОЕ: рендерим ТИХО, без эмита steps:changed
+  renderSteps(stepsBox, cfg.steps, { silent: true });
   msgEl.textContent = 'Loaded';
+
+  // найти кнопку добавления шага рядом с текущим stepsBox
+  const btnAddStep =
+    stepsBox?.parentElement?.querySelector('.btn-add-step') ||
+    stepsBox?.closest('.market-card')?.querySelector('.btn-add-step');
+
+  if (btnAddStep) {
+    btnAddStep.addEventListener('click', () => {
+      addStep(stepsBox); // добавит новую карточку и один раз эмитнёт steps:changed
+      // ВАЖНО: НЕ вызывать renderSteps() здесь!
+    });
+  }
 }
 
 export async function saveMarketCfgFromUI(market) {
@@ -264,8 +292,7 @@ export function wireMarketTogglesReset() {
     const checked = !!autoBetToggleDozens.checked;
     await sset({ autoBettingDozensEnabled: checked });
     if (!checked) {
-      resetStreakDots('dozens'); // визуальный сброс
-      // логический стрик дюжин — тоже обнуляем ТОЛЬКО при выключении
+      resetStreakDots('dozens');
       const { streakState = DEFAULT_STREAK } = await sget({
         streakState: DEFAULT_STREAK,
       });
@@ -301,7 +328,7 @@ export function wireMarketTogglesReset() {
     const checked = !!autoBetToggleSix.checked;
     await sset({ autoBettingSixEnabled: checked });
     if (!checked) {
-      resetStreakDots('six'); // только визуальный сброс при выключении
+      resetStreakDots('six');
       updateDotsFromState();
     }
   });
@@ -310,7 +337,7 @@ export function wireMarketTogglesReset() {
     const checked = !!autoBetToggleThrees.checked;
     await sset({ autoBettingThreesEnabled: checked });
     if (!checked) {
-      resetStreakDots('threes'); // только визуальный сброс при выключении
+      resetStreakDots('threes');
       updateDotsFromState();
     }
   });
