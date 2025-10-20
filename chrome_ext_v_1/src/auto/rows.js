@@ -1,4 +1,5 @@
 // src/auto/rows.js
+import { entryGateFor } from '../shared/entry-limit.js';
 (() => {
   const DEFAULT_CFG = Object.freeze({
     triggerStreak: 2,
@@ -202,10 +203,19 @@
           this.getIndex
         );
         if (ref != null) {
+          // 🔒 ГЕЙТ ВХОДА ПО ЛИМИТУ
+          const gateOk = await entryGateFor(
+            'rows',
+            'autoBettingRowsEnabled',
+            'bettingStatusRows',
+            { execKey: 'betExecRows' }
+          );
+          if (!gateOk) return;
+
           const next = {
             ...exec,
             phase: 'armed',
-            triggerRow: ref, // фиксируем ряд стрика
+            triggerRow: ref,
             target: opponentsOf(ref),
             step: 1,
             armedAt: Date.now(),
@@ -218,6 +228,7 @@
           );
           await this.placeStep(1, next, steps);
         }
+
         return;
       }
 

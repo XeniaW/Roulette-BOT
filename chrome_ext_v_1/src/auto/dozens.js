@@ -1,4 +1,6 @@
 // src/auto/dozens.js
+import { entryGateFor } from '../shared/entry-limit.js';
+
 (() => {
   const DEFAULT_CFG = Object.freeze({
     triggerStreak: 2,
@@ -103,6 +105,15 @@
         );
 
         if (ref != null) {
+          // === ВСТАВЛЕН ГЕЙТ ВХОДА ПО ЛИМИТУ ===
+          const gateOk = await entryGateFor(
+            'dozens',
+            'autoBettingDozensEnabled',
+            'bettingStatusDozens',
+            { execKey: 'betExecDozens' } // ← ДОБАВЛЕНО
+          );
+          if (!gateOk) return;
+
           const t = this.getOthers(ref);
           const next = {
             ...exec,

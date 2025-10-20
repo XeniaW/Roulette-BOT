@@ -81,6 +81,40 @@
     <section class="card">
       <h3>Auto-betting</h3>
 
+      <!-- ==== ENTRY LIMIT (по рынкам): глобальный лимит входов ==== -->
+      <section class="card">
+        <h3>Лимит ВХОДОВ на рынок</h3>
+        <div class="row ai-center">
+          <label class="small label-w" for="maxEntries"></label>
+            *0 = безлимит</label
+          >
+          <input
+            id="maxEntries"
+            type="number"
+            min="0"
+            step="1"
+            value="0"
+            style="max-width: 120px"
+          />
+          <button id="btnSaveMaxEntries" class="btn btn-primary">
+            Save
+          </button>
+        </div>
+
+        <div class="row">
+          <button id="btnResetEntryCounters" class="btn">
+            Сбросить счётчики входов
+          </button>
+        </div>
+
+        <div class="small muted" id="entryLimitMsg"></div>
+
+        <div class="card card-inner">
+          <h4>Текущее кол-во входов (по рынкам)</h4>
+          <ul id="entryCountersList" class="mono small"></ul>
+        </div>
+      </section>
+
       <!-- Dozens -->
       <div class="row ai-center">
         <label

@@ -31,8 +31,14 @@ import {
   DEFAULT_MKT,
   wireMarketTogglesReset,
 } from './markets.js';
-import { renderSteps, addStep } from './steps-ui.js'; // ← добавили addStep
+import { renderSteps, addStep } from './steps-ui.js';
 import { saveGlobalChipsFromUI } from './chips.js';
+import {
+  setGlobalMaxEntries,
+  getGlobalMaxEntries,
+  resetAllCounters,
+  getAllCounters,
+} from '../shared/entry-limit.js';
 
 function debounce(fn, ms = 200) {
   let t = null;
@@ -72,10 +78,9 @@ function wireAutoSaveForMarket(
   if (stepsBox) {
     // любое изменение в steps (добавление/удаление/правки) — событие из steps-ui
     stepsBox.addEventListener('steps:changed', () => debouncedSave());
-    // на всякий случай ловим прямые input-ы (если кто-то вручную вставит поля)
+    // на всякий случай ловим прямые input-ы
     stepsBox.addEventListener('input', () => debouncedSave());
     stepsBox.addEventListener('click', (e) => {
-      // кнопки add/remove уже триггерят steps:changed, но продублируем
       const btn = e.target?.closest(
         '.btn-del-item,.btn-del-step,.btn-add-item'
       );
@@ -84,10 +89,9 @@ function wireAutoSaveForMarket(
   }
 }
 
-// ❌ БЫЛО: renderSteps(...) — стирало все шаги
-// ✅ СТАЛО: addStep(...) — просто добавляет новый шаг
+// Добавление пустого шага (не стирает существующие)
 function addBlankStep(box) {
-  addStep(box); // добавляет карточку Step [ {chip:1, times:1} ] и шлёт один steps:changed
+  addStep(box);
 }
 
 export function wireInitHandlers() {
@@ -127,7 +131,7 @@ export function wireInitHandlers() {
       renderSteps(threesStepsBox, DEFAULT_MKT.steps)
     );
 
-  // Save buttons (оставляем, но есть автосейв)
+  // Save buttons
   document
     .getElementById('btnCfgDznSave')
     ?.addEventListener('click', () => saveMarketCfgFromUI('dozens'));
@@ -180,7 +184,7 @@ export function wireInitHandlers() {
   sixZeroCk?.addEventListener('change', updateDotsFromState);
   threesZeroCk?.addEventListener('change', updateDotsFromState);
 
-  // SAVE ALL (массовая кнопка)
+  // SAVE ALL
   btnSaveAll.addEventListener('click', async () => {
     await saveGlobalChipsFromUI();
     await saveMarketCfgFromUI('dozens');
@@ -214,6 +218,122 @@ export function wireInitHandlers() {
     zeroCk: document.getElementById('threesIncludeZero'),
     stepsBox: threesStepsBox,
   });
+
+  // ==== ENTRY LIMIT UI ====
+  const maxEntriesInp = document.getElementById('maxEntries');
+  const btnSaveMaxEntries = document.getElementById(
+    'btnSaveMaxEntries'
+  );
+  const btnResetEntryCounters = document.getElementById(
+    'btnResetEntryCounters'
+  );
+  const entryLimitMsg = document.getElementById('entryLimitMsg');
+  const entryCountersList = document.getElementById(
+    'entryCountersList'
+  );
+
+  async function renderCounters() {
+    if (!entryCountersList) return;
+    const counters = (await getAllCounters()) || {};
+    const markets = Object.keys(counters).sort();
+    if (markets.length === 0) {
+      entryCountersList.innerHTML = '<li>—</li>';
+      return;
+    }
+    entryCountersList.innerHTML = markets
+      .map((m) => `<li>${m}: ${Number(counters[m] || 0)}</li>`)
+      .join('');
+  }
+
+  async function refreshEntryLimitUI() {
+    try {
+      const max = await getGlobalMaxEntries();
+      if (maxEntriesInp) maxEntriesInp.value = String(max);
+    } catch {}
+    await renderCounters();
+  }
+
+  btnSaveMaxEntries?.addEventListener('click', async () => {
+    const v = Number(maxEntriesInp?.value ?? 0) | 0;
+    const max = Math.max(0, v);
+    await setGlobalMaxEntries(max);
+
+    // НЕМЕДЛЕННОЕ ПРИМЕНЕНИЕ: если счётчик рынка >= max — выключаем рынок сейчас же
+    if (max > 0) {
+      const counters = (await getAllCounters()) || {};
+      // ключи соответствия market -> enabledKey/execKey/statusKey
+      const MAP = {
+        dozens: {
+          en: 'autoBettingDozensEnabled',
+          ex: 'betExecDozens',
+          st: 'bettingStatusDozens',
+        },
+        rows: {
+          en: 'autoBettingRowsEnabled',
+          ex: 'betExecRows',
+          st: 'bettingStatusRows',
+        },
+        six: {
+          en: 'autoBettingSixEnabled',
+          ex: 'betExecSix',
+          st: 'bettingStatusSix',
+        },
+        threes: {
+          en: 'autoBettingThreesEnabled',
+          ex: 'betExecThrees',
+          st: 'bettingStatusThrees',
+        },
+      };
+      const toDisable = Object.keys(counters).filter(
+        (m) => (counters[m] | 0) >= max
+      );
+      for (const m of toDisable) {
+        const meta = MAP[m];
+        if (!meta) continue;
+        try {
+          await chrome.storage.local.set({
+            [meta.en]: false,
+            [meta.ex]: {
+              enabled: false,
+              phase: 'idle',
+              target: null,
+              step: 1,
+              armedAt: 0,
+            },
+          });
+        } catch {}
+        // В попапе BET может быть недоступен — просто снимем галку через onChanged.
+        // Статус в контенте выставится при следующей инициализации.
+      }
+    }
+
+    if (entryLimitMsg) {
+      entryLimitMsg.textContent = `Лимит сохранён: ${max}.`;
+      setTimeout(() => (entryLimitMsg.textContent = ''), 2000);
+    }
+  });
+
+  btnResetEntryCounters?.addEventListener('click', async () => {
+    await resetAllCounters();
+    await renderCounters();
+    if (entryLimitMsg) {
+      entryLimitMsg.textContent = 'Счётчики входов сброшены.';
+      setTimeout(() => (entryLimitMsg.textContent = ''), 2000);
+    }
+  });
+
+  // лайв-обновления от storage
+  chrome.storage.onChanged.addListener((ch, area) => {
+    if (area !== 'local') return;
+    if (ch.entryCounters) renderCounters();
+    if (ch.abMaxEntriesPerMarket) {
+      const v = Number(ch.abMaxEntriesPerMarket.newValue || 0) | 0;
+      if (maxEntriesInp) maxEntriesInp.value = String(v);
+    }
+  });
+
+  // первичная подгрузка для Entry limit
+  refreshEntryLimitUI();
 
   // Авто-бет тумблеры — сохраняются в wireMarketTogglesReset()
   wireMarketTogglesReset();

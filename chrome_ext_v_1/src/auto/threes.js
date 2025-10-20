@@ -1,4 +1,6 @@
 // src/auto/threes.js
+import { entryGateFor } from '../shared/entry-limit.js';
+
 (() => {
   const DEFAULT_CFG = Object.freeze({
     // Триггер: в хвосте подряд ровно need записей, в которых встречается НЕ БОЛЕЕ 4 уникальных "троек" (стритов).
@@ -121,7 +123,16 @@
           !!includeZero
         );
         if (covered) {
-          const targets = targetsFromCovered(covered); // 12 - covered.size
+          // 🔒 ГЕЙТ ВХОДА ПО ЛИМИТУ
+          const gateOk = await entryGateFor(
+            'threes',
+            'autoBettingThreesEnabled',
+            'bettingStatusThrees',
+            { execKey: 'betExecThrees' }
+          );
+          if (!gateOk) return;
+
+          const targets = targetsFromCovered(covered);
           const next = {
             ...exec,
             phase: 'armed',

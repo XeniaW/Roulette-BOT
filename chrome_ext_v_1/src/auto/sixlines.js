@@ -1,4 +1,6 @@
 // src/auto/sixlines.js
+import { entryGateFor } from '../shared/entry-limit.js';
+
 (() => {
   const DEFAULT_CFG = Object.freeze({
     triggerStreak: 8, // по ТЗ по умолчанию 8
@@ -104,6 +106,15 @@
         );
 
         if (pairSet) {
+          // 🔒 ГЕЙТ ВХОДА ПО ЛИМИТУ
+          const gateOk = await entryGateFor(
+            'six',
+            'autoBettingSixEnabled',
+            'bettingStatusSix',
+            { execKey: 'betExecSix' }
+          );
+          if (!gateOk) return;
+
           const targets = this.getOthers(pairSet); // 4 остальные
           const next = {
             ...exec,
