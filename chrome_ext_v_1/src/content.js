@@ -1,7 +1,10 @@
 /* Content script (MV3)
-   1) Трекинг спинов (как было).
-   2) Чтение баланса напрямую из DOM (data-true-value -> [data-e2e="balance-value"]), без кликов.
-   3) Автопрошивка balance в новые записи betLogs.
+   Tracks roulette spins displayed under [data-name="previous-spins-stack"].
+   - Logs ONLY the current head number exactly once per spin (including repeats like 17→17)
+   - Shadow-DOM aware for reconnect button scanning
+   - Status is exposed via chrome.storage.local.trackerStatus
+   - Logs are stored in chrome.storage.local.spinLogs (capped)
+   - Robust against "Extension context invalidated" and frame navigations
 */
 
 (() => {
@@ -270,8 +273,10 @@
 
   async function appendLogs(numbersArrayOldestFirst) {
     if (!numbersArrayOldestFirst?.length) return;
+
     const { spinLogs = [] } = await safeGet({ spinLogs: [] });
     const logs = Array.isArray(spinLogs) ? spinLogs : [];
+
     for (const n of numbersArrayOldestFirst) {
       logs.push({
         n,
@@ -284,40 +289,90 @@
     await safeSet({ spinLogs: logs });
   }
 
+  // ---------- container & reconciliation ----------
+  function extractNumberFromCell(el) {
+    // Prefer data-name="cell-XX"
+    const dn = el.getAttribute?.('data-name');
+    if (dn && dn.startsWith(CELL_PREFIX)) {
+      const num = Number(dn.slice(CELL_PREFIX.length));
+      if (Number.isFinite(num)) return num;
+    }
+    // Fallback to text content
+    const t = Number((el.textContent || '').trim());
+    return Number.isFinite(t) ? t : null;
+  }
+
+  function readCurrentListFrom(containerEl) {
+    const cells = containerEl.querySelectorAll(CELL_SEL);
+    const arr = [];
+    for (const el of cells) {
+      const n = extractNumberFromCell(el);
+      if (Number.isFinite(n)) arr.push(n);
+    }
+    // The UI typically shows newest first (leftmost / first element)
+    return arr; // newest-first array
+  }
+
+  // NOTE: kept for reference, but no longer used to avoid spam/backfill edge cases.
+  function diffNewItems(_lastSnap, _currSnap) {
+    return [];
+  }
+
+  // The ONLY place where we decide to log a number.
+  // Rule: log the head once per actual spin (including same-number repeats).
   function handleMutations() {
     if (!containerNode) return;
-    const curr = readCurrentListFrom(containerNode);
+
+    const curr = readCurrentListFrom(containerNode); // newest-first
     if (!curr.length) {
       lastSnapshot = curr;
       return;
     }
+
     const head = curr[0];
     const prev = lastSnapshot;
 
     let shouldLog = false;
-    if (!prev.length) shouldLog = false;
-    else if (head !== prev[0]) shouldLog = true;
-    else {
+
+    if (!prev.length) {
+      // First attach: don't backfill/log
+      shouldLog = false;
+    } else if (head !== prev[0]) {
+      // Head changed => new spin
+      shouldLog = true;
+    } else {
+      // Head stayed the same. New spin only if a duplicate head was inserted at the front.
+      // Example:
+      //   prev: [17,  3, ...]
+      //   curr: [17, 17, ...]  => log
       const prevSecond = prev[1];
       const currSecond = curr[1];
-      if (currSecond === head && prevSecond !== head)
+      if (currSecond === head && prevSecond !== head) {
         shouldLog = true;
+      }
     }
 
-    if (shouldLog) appendLogs([head]);
+    if (shouldLog) {
+      appendLogs([head]); // oldest-first array with a single item
+    }
+
+    // Update snapshot last so repeated mutation/reconcile calls won't re-log
     lastSnapshot = curr;
   }
 
   function startObserving(containerEl) {
     stopObserving();
     containerNode = containerEl;
-    lastSnapshot = readCurrentListFrom(containerNode);
+    lastSnapshot = readCurrentListFrom(containerNode); // initialize snapshot (no log)
+
     observer = new MutationObserver((muts) => {
-      for (const m of muts)
+      // Any childList change can indicate re-render or push; reconcile on each batch
+      for (const m of muts) {
         if (m.type === 'childList') {
           handleMutations();
           break;
         }
+      }
     });
     observer.observe(containerNode, {
       childList: true,
