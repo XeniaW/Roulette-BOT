@@ -20,7 +20,6 @@ import { entryGateFor } from '../shared/entry-limit.js';
   // idx 0 -> ряд 1 (3..36), idx 1 -> ряд 2 (2..35), idx 2 -> ряд 3 (1..34)
   const ROW_SEL = ['#index-700', '#index-701', '#index-702'];
 
-  // Верное сопоставление числа -> индекс ряда
   // ряд 1 (top): n % 3 === 0 -> idx 0
   // ряд 2 (mid): n % 3 === 2 -> idx 1
   // ряд 3 (bot): n % 3 === 1 -> idx 2
@@ -96,7 +95,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
       return idx === 0 ? 'ряд 1' : idx === 1 ? 'ряд 2' : 'ряд 3';
     }
 
-    // Единая постановка шага с полной защитой от ставки в триггерный ряд
+    // Единая постановка шага; цели — всегда 2 ряда-противника triggerRow
     async placeStep(step, exec, steps) {
       const trigger = exec.triggerRow;
       if (!(trigger === 0 || trigger === 1 || trigger === 2)) {
@@ -117,7 +116,6 @@ import { entryGateFor } from '../shared/entry-limit.js';
           trigger,
           targetsIdxBefore: targetsIdx,
         });
-        // Жёстко пересобираем
         targetsIdx.splice(
           0,
           targetsIdx.length,
@@ -178,7 +176,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
       const exec = await this.getExec();
       if (!exec.enabled) return;
 
-      // Берём логи и гарантируем, что текущий спин присутствует (фикс рассинхры)
+      // Берём логи и гарантируем текущий спин (фикс рассинхры)
       const s = await this.sget({ spinLogs: [] });
       const spinLogs = Array.isArray(s.spinLogs)
         ? s.spinLogs.slice()
@@ -192,6 +190,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
 
       const ix = this.getIndex(n);
 
+      // --- IDLE: вход по стрику
       if (exec.phase === 'idle') {
         const { triggerStreak, steps, includeZero } =
           await this.loadCfg();
@@ -203,7 +202,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
           this.getIndex
         );
         if (ref != null) {
-          // 🔒 ГЕЙТ ВХОДА ПО ЛИМИТУ
+          // 🔒 ГЕЙТ ВХОДА
           const gateOk = await entryGateFor(
             'rows',
             'autoBettingRowsEnabled',
@@ -219,6 +218,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
             target: opponentsOf(ref),
             step: 1,
             armedAt: Date.now(),
+            cooldownSkipped: undefined,
           };
           await this.setExec(
             next,
@@ -226,14 +226,13 @@ import { entryGateFor } from '../shared/entry-limit.js';
               .map((x) => this.label(x))
               .join(', ')} | шаг 1`
           );
-          await this.placeStep(1, next, steps);
+          await this.placeStep(1, next, (await this.loadCfg()).steps);
         }
-
         return;
       }
 
+      // --- ARMED: проверка исхода текущего шага
       if (exec.phase === 'armed') {
-        // Победа — только если выпал один из противоположных рядов
         const opp = opponentsOf(exec.triggerRow ?? -99);
         const win = ix !== -1 && opp.includes(ix);
 
@@ -245,6 +244,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
             triggerRow: null,
             step: 1,
             armedAt: 0,
+            cooldownSkipped: undefined,
           };
           await this.setExec(
             next,
@@ -263,6 +263,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
             triggerRow: null,
             step: 1,
             armedAt: 0,
+            cooldownSkipped: undefined,
           };
           await this.setExec(
             reset,
@@ -278,6 +279,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
             phase: 'armed',
             step,
             armedAt: Date.now(),
+            cooldownSkipped: undefined,
           };
           next.target = opponentsOf(next.triggerRow);
           await this.setExec(
@@ -292,18 +294,95 @@ import { entryGateFor } from '../shared/entry-limit.js';
           return;
         }
 
+        // === НОВОЕ ПОВЕДЕНИЕ: "через один" ===
         const next = {
           ...exec,
-          phase: 'waiting',
-          step: exec.step + 1,
+          phase: 'cooldown', // пропускаем 1 спин
+          step: exec.step + 1, // следующий шаг
+          armedAt: 0,
+          cooldownSkipped: false, // ещё не отметили пропуск
         };
+        // цель не меняем: против triggerRow
+        next.target = opponentsOf(exec.triggerRow);
         await this.setExec(
           next,
-          `ПРОИГРЫШ → ожидание, следующий шаг ${next.step}`
+          `ПРОИГРЫШ → пропускаем 1 спин; следующий шаг ${next.step} через один`
         );
         return;
       }
 
+      // --- COOLDOWN: пропустить ровно один спин и СРАЗУ ставить (в этом же вызове)
+      if (exec.phase === 'cooldown') {
+        const { steps } = await this.loadCfg();
+        const lastStep = Math.max(1, steps.length);
+        if (exec.step > lastStep) {
+          const reset = {
+            ...exec,
+            phase: 'idle',
+            target: null,
+            triggerRow: null,
+            step: 1,
+            armedAt: 0,
+            cooldownSkipped: undefined,
+          };
+          await this.setExec(
+            reset,
+            `Сброс: превышен лимит шагов (${lastStep}) в cooldown`
+          );
+          return;
+        }
+
+        if (!exec.cooldownSkipped) {
+          const step = exec.step;
+          const mid = { ...exec, cooldownSkipped: true };
+          await this.setExec(
+            mid,
+            `Cooldown: пропустили 1 спин; ставим шаг ${step} (через один)`
+          );
+
+          const next = {
+            ...mid,
+            phase: 'armed',
+            armedAt: Date.now(),
+            cooldownSkipped: undefined,
+          };
+          next.target = opponentsOf(next.triggerRow);
+
+          await this.setExec(
+            next,
+            `ГОТОВ (через один) шаг ${step} против ${this.label(
+              next.triggerRow
+            )} (цели: ${next.target
+              .map((x) => this.label(x))
+              .join(', ')})`
+          );
+
+          await this.placeStep(step, next, steps);
+          return;
+        }
+
+        // если внезапно пришли во второй раз с уже отмеченным пропуском — просто восстановим armed и поставим
+        const step = exec.step;
+        const rec = {
+          ...exec,
+          phase: 'armed',
+          armedAt: Date.now(),
+          cooldownSkipped: undefined,
+        };
+        rec.target = opponentsOf(rec.triggerRow);
+        await this.setExec(
+          rec,
+          `ГОТОВ (восстановление) шаг ${step} против ${this.label(
+            rec.triggerRow
+          )} (цели: ${rec.target
+            .map((x) => this.label(x))
+            .join(', ')})`
+        );
+        await this.placeStep(step, rec, steps);
+        return;
+      }
+
+      // --- WAITING (оставлено для обратной совместимости; новой логикой не используется)
       if (exec.phase === 'waiting') {
         const opp = opponentsOf(exec.triggerRow ?? -99);
         if (ix !== -1 && opp.includes(ix)) {
@@ -314,6 +393,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
             phase: 'armed',
             step,
             armedAt: Date.now(),
+            cooldownSkipped: undefined,
           };
           next.target = opp.slice();
           await this.setExec(

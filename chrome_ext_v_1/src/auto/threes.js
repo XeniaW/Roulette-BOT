@@ -139,6 +139,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
             target: targets,
             step: 1,
             armedAt: Date.now(),
+            cooldownSkipped: undefined,
           };
           await this.setExec(
             next,
@@ -197,6 +198,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
             target: null,
             step: 1,
             armedAt: 0,
+            cooldownSkipped: undefined,
           };
           await this.setExec(
             next,
@@ -216,6 +218,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
             target: null,
             step: 1,
             armedAt: 0,
+            cooldownSkipped: undefined,
           };
           await this.setExec(
             reset,
@@ -234,6 +237,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
             target: t,
             step,
             armedAt: Date.now(),
+            cooldownSkipped: undefined,
           };
           await this.setExec(
             next,
@@ -284,20 +288,145 @@ import { entryGateFor } from '../shared/entry-limit.js';
           return;
         }
 
-        // режим ожидания
+        // === НОВОЕ ПОВЕДЕНИЕ: autoContinue=false → "через один" ===
         const next = {
           ...exec,
-          phase: 'waiting',
-          step: exec.step + 1,
+          phase: 'cooldown', // пропускаем 1 спин
+          step: exec.step + 1, // следующий шаг
+          armedAt: 0,
+          cooldownSkipped: false, // ещё не отметили пропуск
         };
         await this.setExec(
           next,
-          `ПРОИГРЫШ → ожидание, следующий шаг ${next.step}`
+          `ПРОИГРЫШ → пропускаем 1 спин; следующий шаг ${next.step} через один`
         );
         return;
       }
 
-      // ====== WAITING: ждём ближайшую цель и ставим текущий step ======
+      // ====== COOLDOWN: пропустить ровно один спин и СРАЗУ ставить (в этом же вызове)
+      if (exec.phase === 'cooldown') {
+        const { steps } = await this.loadCfg();
+        const lastStep = Math.max(1, steps.length);
+        if (exec.step > lastStep) {
+          const reset = {
+            ...exec,
+            phase: 'idle',
+            target: null,
+            step: 1,
+            armedAt: 0,
+            cooldownSkipped: undefined,
+          };
+          await this.setExec(
+            reset,
+            `Сброс: превышен лимит шагов (${lastStep}) в cooldown`
+          );
+          await signalResetDots('threes');
+          return;
+        }
+
+        if (!exec.cooldownSkipped) {
+          const step = exec.step;
+          const t = (exec.target || []).slice();
+          const mid = { ...exec, cooldownSkipped: true };
+          await this.setExec(
+            mid,
+            `Cooldown: пропустили 1 спин; ставим шаг ${step} (через один)`
+          );
+
+          const next = {
+            ...mid,
+            phase: 'armed',
+            target: t,
+            step,
+            armedAt: Date.now(),
+            cooldownSkipped: undefined,
+          };
+          await this.setExec(
+            next,
+            `ГОТОВ (через один) шаг ${step} на ${t
+              .map(labelStreet)
+              .join(', ')}`
+          );
+
+          const ok = await BET.tryPlace({
+            step,
+            targets: t,
+            steps,
+            getTargetNode: (i) => this.getTargetNode(i),
+            mutex: this.mutex,
+          });
+
+          if (ok) {
+            const chips = await BET.loadGlobalChips();
+            const amount =
+              BET.perTargetAmountForStep(
+                step,
+                steps,
+                chips.chipValues
+              ) * t.length;
+            try {
+              const { betLogs = [] } = await this.sget({
+                betLogs: [],
+              });
+              betLogs.push({
+                t: Date.now(),
+                type: 'placed',
+                market: 'threes',
+                phase: 'armed',
+                message: `Шаг ${step} поставлен (через один)`,
+                amount,
+                step,
+              });
+              if (betLogs.length > 2000)
+                betLogs.splice(0, betLogs.length - 2000);
+              await this.sset({ betLogs });
+            } catch {}
+          }
+          BET.setBetStatus(
+            'bettingStatusThrees',
+            ok ? 'armed' : 'error',
+            ok
+              ? `Шаг ${step} поставлен`
+              : `Не удалось поставить шаг ${step}`
+          );
+          return;
+        }
+
+        // Если сюда попали повторно уже после отметки пропуска — восстановим armed и поставим
+        const step = exec.step;
+        const t = (exec.target || []).slice();
+        const rec = {
+          ...exec,
+          phase: 'armed',
+          target: t,
+          step,
+          armedAt: Date.now(),
+          cooldownSkipped: undefined,
+        };
+        await this.setExec(
+          rec,
+          `ГОТОВ (восстановление) шаг ${step} на ${t
+            .map(labelStreet)
+            .join(', ')}`
+        );
+        const ok = await BET.tryPlace({
+          step,
+          targets: t,
+          steps,
+          getTargetNode: (i) => this.getTargetNode(i),
+          mutex: this.mutex,
+        });
+        BET.setBetStatus(
+          'bettingStatusThrees',
+          ok ? 'armed' : 'error',
+          ok
+            ? `Шаг ${step} поставлен`
+            : `Не удалось поставить шаг ${step}`
+        );
+        return;
+      }
+
+      // ====== WAITING: оставлено для обратной совместимости; новой логикой не используется
       if (exec.phase === 'waiting') {
         if (ix !== -1 && exec.target?.includes(ix)) {
           const step = exec.step;
@@ -309,6 +438,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
             target: t,
             step,
             armedAt: Date.now(),
+            cooldownSkipped: undefined,
           };
           await this.setExec(
             next,
