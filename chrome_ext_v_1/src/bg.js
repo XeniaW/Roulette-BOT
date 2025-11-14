@@ -71,8 +71,14 @@ const DEFAULT_STREAK = {
   dozens: { count: 0, idx: null },
   rows: { count: 0, idx: null },
   combo: { count: 0, d: null, r: null },
+
+  // NEW:
+  lowhigh: { count: 0, idx: null }, // 0: Low(1–18), 1: High(19–36)
+  evenodd: { count: 0, idx: null }, // 0: even, 1: odd
+  colors: { count: 0, idx: null }, // 0: red,  1: black
 };
 
+// ---- indexes ----
 function dozenIndex(n) {
   if (n === 0) return -1;
   if (n <= 12) return 0;
@@ -89,14 +95,44 @@ function rowIndex(n) {
   return -1;
 }
 
+// 1–18 / 19–36
+function lowHighIndex(n) {
+  if (n === 0) return -1;
+  if (n >= 1 && n <= 18) return 0; // Low
+  if (n >= 19 && n <= 36) return 1; // High
+  return -1;
+}
+
+// even / odd
+function evenOddIndex(n) {
+  if (n === 0) return -1;
+  return n % 2 === 0 ? 0 : 1; // 0-even, 1-odd
+}
+
+// colors (European single zero). 0=red, 1=black
+const RED_SET = new Set([
+  1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36,
+]);
+function colorIndex(n) {
+  if (n === 0) return -1;
+  if (RED_SET.has(n)) return 0; // red
+  return 1; // black
+}
+
+// ---- storage helpers ----
 async function getStreakState() {
   const { streakState = DEFAULT_STREAK } =
     await chrome.storage.local.get({ streakState: DEFAULT_STREAK });
-  // normalize
-  const st = streakState || DEFAULT_STREAK;
-  if (!st.dozens) st.dozens = { count: 0, idx: null };
-  if (!st.rows) st.rows = { count: 0, idx: null };
-  if (!st.combo) st.combo = { count: 0, d: null, r: null };
+  // normalize (добавим недостающие ключи)
+  const st = { ...DEFAULT_STREAK, ...(streakState || {}) };
+
+  if (!('dozens' in st)) st.dozens = { count: 0, idx: null };
+  if (!('rows' in st)) st.rows = { count: 0, idx: null };
+  if (!('combo' in st)) st.combo = { count: 0, d: null, r: null };
+  if (!('lowhigh' in st)) st.lowhigh = { count: 0, idx: null };
+  if (!('evenodd' in st)) st.evenodd = { count: 0, idx: null };
+  if (!('colors' in st)) st.colors = { count: 0, idx: null };
+
   return st;
 }
 async function setStreakState(st) {
@@ -110,60 +146,90 @@ async function recomputeStreaksFromAllLogs() {
     spinLogs: [],
   });
   const logs = Array.isArray(spinLogs) ? spinLogs : [];
+
   const st = {
     dozens: { count: 0, idx: null },
     rows: { count: 0, idx: null },
     combo: { count: 0, d: null, r: null },
+    lowhigh: { count: 0, idx: null },
+    evenodd: { count: 0, idx: null },
+    colors: { count: 0, idx: null },
   };
 
-  // from tail: count same dozen/row/combo
   if (logs.length) {
-    // dozens
-    let i = logs.length - 1;
-    let lastDi = dozenIndex(logs[i].n);
-    if (lastDi !== -1) {
+    // helper: generic last-run counter for binary indexes (-1 breaks)
+    const countTail = (fnIdx) => {
+      let i = logs.length - 1;
+      const first = fnIdx(logs[i]?.n);
+      if (first === -1) return { count: 0, idx: null };
       let c = 1;
       i--;
       while (i >= 0) {
-        const di = dozenIndex(logs[i].n);
-        if (di === lastDi) c++;
+        const ii = fnIdx(logs[i]?.n);
+        if (ii === first) c++;
         else break;
         i--;
       }
-      st.dozens = { count: c, idx: lastDi };
+      return { count: c, idx: first };
+    };
+
+    // dozens
+    {
+      let i = logs.length - 1;
+      const lastDi = dozenIndex(logs[i]?.n);
+      if (lastDi !== -1) {
+        let c = 1;
+        i--;
+        while (i >= 0) {
+          const di = dozenIndex(logs[i]?.n);
+          if (di === lastDi) c++;
+          else break;
+          i--;
+        }
+        st.dozens = { count: c, idx: lastDi };
+      }
     }
 
     // rows
-    i = logs.length - 1;
-    let lastRi = rowIndex(logs[i].n);
-    if (lastRi !== -1) {
-      let c = 1;
-      i--;
-      while (i >= 0) {
-        const ri = rowIndex(logs[i].n);
-        if (ri === lastRi) c++;
-        else break;
+    {
+      let i = logs.length - 1;
+      const lastRi = rowIndex(logs[i]?.n);
+      if (lastRi !== -1) {
+        let c = 1;
         i--;
+        while (i >= 0) {
+          const ri = rowIndex(logs[i]?.n);
+          if (ri === lastRi) c++;
+          else break;
+          i--;
+        }
+        st.rows = { count: c, idx: lastRi };
       }
-      st.rows = { count: c, idx: lastRi };
     }
 
-    // combo
-    i = logs.length - 1;
-    let lastD = dozenIndex(logs[i].n),
-      lastR = rowIndex(logs[i].n);
-    if (lastD !== -1 && lastR !== -1) {
-      let c = 1;
-      i--;
-      while (i >= 0) {
-        const d = dozenIndex(logs[i].n),
-          r = rowIndex(logs[i].n);
-        if (d === lastD && r === lastR) c++;
-        else break;
+    // combo dozen+row
+    {
+      let i = logs.length - 1;
+      let lastD = dozenIndex(logs[i]?.n),
+        lastR = rowIndex(logs[i]?.n);
+      if (lastD !== -1 && lastR !== -1) {
+        let c = 1;
         i--;
+        while (i >= 0) {
+          const d = dozenIndex(logs[i]?.n),
+            r = rowIndex(logs[i]?.n);
+          if (d === lastD && r === lastR) c++;
+          else break;
+          i--;
+        }
+        st.combo = { count: c, d: lastD, r: lastR };
       }
-      st.combo = { count: c, d: lastD, r: lastR };
     }
+
+    // NEW: low/high, even/odd, colors
+    st.lowhigh = countTail(lowHighIndex);
+    st.evenodd = countTail(evenOddIndex);
+    st.colors = countTail(colorIndex);
   }
 
   await setStreakState(st);
@@ -172,6 +238,9 @@ async function recomputeStreaksFromAllLogs() {
 function advanceStreakStateWithNumber(st, n) {
   const di = dozenIndex(n);
   const ri = rowIndex(n);
+  const li = lowHighIndex(n);
+  const ei = evenOddIndex(n);
+  const ci = colorIndex(n);
 
   // dozens
   if (di === -1) {
@@ -199,15 +268,45 @@ function advanceStreakStateWithNumber(st, n) {
   } else {
     st.combo = { count: 1, d: di, r: ri };
   }
+
+  // NEW: low/high
+  if (li === -1) {
+    st.lowhigh = { count: 0, idx: null };
+  } else if (st.lowhigh.idx === li) {
+    st.lowhigh.count = (st.lowhigh.count | 0) + 1;
+  } else {
+    st.lowhigh = { count: 1, idx: li };
+  }
+
+  // NEW: even/odd
+  if (ei === -1) {
+    st.evenodd = { count: 0, idx: null };
+  } else if (st.evenodd.idx === ei) {
+    st.evenodd.count = (st.evenodd.count | 0) + 1;
+  } else {
+    st.evenodd = { count: 1, idx: ei };
+  }
+
+  // NEW: colors
+  if (ci === -1) {
+    st.colors = { count: 0, idx: null };
+  } else if (st.colors.idx === ci) {
+    st.colors.count = (st.colors.count | 0) + 1;
+  } else {
+    st.colors = { count: 1, idx: ci };
+  }
 }
 
-/* === NEW: helper to reset a single streak kind === */
+/* === helper to reset a single streak kind === */
 async function resetStreak(kind) {
   const st = await getStreakState();
   if (kind === 'dozens') st.dozens = { count: 0, idx: null };
   else if (kind === 'rows') st.rows = { count: 0, idx: null };
   else if (kind === 'combo')
     st.combo = { count: 0, d: null, r: null };
+  else if (kind === 'lowhigh') st.lowhigh = { count: 0, idx: null };
+  else if (kind === 'evenodd') st.evenodd = { count: 0, idx: null };
+  else if (kind === 'colors') st.colors = { count: 0, idx: null };
   await setStreakState(st);
 }
 
@@ -235,7 +334,7 @@ chrome.storage.onChanged.addListener(async (ch, area) => {
     }
   }
 
-  /* === NEW: autoBet toggles -> reset only when turned OFF === */
+  /* === autoBet toggles -> reset only when turned OFF === */
   if ('autoBettingDozensEnabled' in ch) {
     const to = !!ch.autoBettingDozensEnabled.newValue;
     const from = !!ch.autoBettingDozensEnabled.oldValue;
@@ -250,5 +349,24 @@ chrome.storage.onChanged.addListener(async (ch, area) => {
     const to = !!ch.autoBettingComboEnabled.newValue;
     const from = !!ch.autoBettingComboEnabled.oldValue;
     if (from && !to) await resetStreak('combo');
+  }
+
+  // NEW: low/high
+  if ('autoBettingLowHighEnabled' in ch) {
+    const to = !!ch.autoBettingLowHighEnabled.newValue;
+    const from = !!ch.autoBettingLowHighEnabled.oldValue;
+    if (from && !to) await resetStreak('lowhigh');
+  }
+  // NEW: even/odd
+  if ('autoBettingEvenOddEnabled' in ch) {
+    const to = !!ch.autoBettingEvenOddEnabled.newValue;
+    const from = !!ch.autoBettingEvenOddEnabled.oldValue;
+    if (from && !to) await resetStreak('evenodd');
+  }
+  // NEW: colors
+  if ('autoBettingColorsEnabled' in ch) {
+    const to = !!ch.autoBettingColorsEnabled.newValue;
+    const from = !!ch.autoBettingColorsEnabled.oldValue;
+    if (from && !to) await resetStreak('colors');
   }
 });

@@ -28,6 +28,9 @@ const ENTRY_POINTS = [
   'src/auto/combo.js',
   'src/auto/sixlines.js',
   'src/auto/threes.js',
+  'src/auto/colors.js',
+  'src/auto/evenodd.js',
+  'src/auto/lowhigh.js',
 ];
 
 const BASE = {

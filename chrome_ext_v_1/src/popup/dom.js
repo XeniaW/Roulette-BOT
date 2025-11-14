@@ -27,6 +27,16 @@ export const autoBetToggleSix = document.getElementById(
 export const autoBetToggleThrees = document.getElementById(
   'autoBetToggleThrees'
 );
+// NEW:
+export const autoBetToggleLowHigh = document.getElementById(
+  'autoBetToggleLowHigh'
+);
+export const autoBetToggleEvenOdd = document.getElementById(
+  'autoBetToggleEvenOdd'
+);
+export const autoBetToggleColors = document.getElementById(
+  'autoBetToggleColors'
+);
 
 export const betStatusDozens =
   document.getElementById('betStatusDozens');
@@ -34,6 +44,15 @@ export const betStatusRows = document.getElementById('betStatusRows');
 export const betStatusSix = document.getElementById('betStatusSix');
 export const betStatusThrees =
   document.getElementById('betStatusThrees');
+// NEW:
+export const betStatusLowHigh = document.getElementById(
+  'betStatusLowHigh'
+);
+export const betStatusEvenOdd = document.getElementById(
+  'betStatusEvenOdd'
+);
+export const betStatusColors =
+  document.getElementById('betStatusColors');
 
 export const dozensStreakInp =
   document.getElementById('dozensStreak');
@@ -41,6 +60,13 @@ export const rowsStreakInp = document.getElementById('rowsStreak');
 export const sixStreakInp = document.getElementById('sixStreak');
 export const threesStreakInp =
   document.getElementById('threesStreak');
+// NEW:
+export const lowhighStreakInp =
+  document.getElementById('lowhighStreak');
+export const evenoddStreakInp =
+  document.getElementById('evenoddStreak');
+export const colorsStreakInp =
+  document.getElementById('colorsStreak');
 
 export const dozensAutoCk = document.getElementById(
   'dozensAutoContinue'
@@ -49,6 +75,16 @@ export const rowsAutoCk = document.getElementById('rowsAutoContinue');
 export const sixAutoCk = document.getElementById('sixAutoContinue');
 export const threesAutoCk = document.getElementById(
   'threesAutoContinue'
+);
+// NEW:
+export const lowhighAutoCk = document.getElementById(
+  'lowhighAutoContinue'
+);
+export const evenoddAutoCk = document.getElementById(
+  'evenoddAutoContinue'
+);
+export const colorsAutoCk = document.getElementById(
+  'colorsAutoContinue'
 );
 
 export const dozensZeroCk = document.getElementById(
@@ -59,6 +95,16 @@ export const sixZeroCk = document.getElementById('sixIncludeZero');
 export const threesZeroCk = document.getElementById(
   'threesIncludeZero'
 );
+// NEW:
+export const lowhighZeroCk = document.getElementById(
+  'lowhighIncludeZero'
+);
+export const evenoddZeroCk = document.getElementById(
+  'evenoddIncludeZero'
+);
+export const colorsZeroCk = document.getElementById(
+  'colorsIncludeZero'
+);
 
 export const btnSaveAll = document.getElementById('btnSaveAll');
 
@@ -66,6 +112,14 @@ export const dotsDozens = document.getElementById('dozensStreakDots');
 export const dotsRows = document.getElementById('rowsStreakDots');
 export const dotsSix = document.getElementById('sixStreakDots');
 export const dotsThrees = document.getElementById('threesStreakDots');
+// NEW:
+export const dotsLowHigh = document.getElementById(
+  'lowhighStreakDots'
+);
+export const dotsEvenOdd = document.getElementById(
+  'evenoddStreakDots'
+);
+export const dotsColors = document.getElementById('colorsStreakDots');
 
 /* steps boxes & msgs */
 export const dznStepsBox = document.getElementById('dznStepsBox');
@@ -73,11 +127,22 @@ export const rowStepsBox = document.getElementById('rowStepsBox');
 export const sixStepsBox = document.getElementById('sixStepsBox');
 export const threesStepsBox =
   document.getElementById('threesStepsBox');
+// NEW:
+export const lowhighStepsBox =
+  document.getElementById('lowhighStepsBox');
+export const evenoddStepsBox =
+  document.getElementById('evenoddStepsBox');
+export const colorsStepsBox =
+  document.getElementById('colorsStepsBox');
 
 export const cfgDznMsg = document.getElementById('cfgDznMsg');
 export const cfgRowMsg = document.getElementById('cfgRowMsg');
 export const cfgSixMsg = document.getElementById('cfgSixMsg');
 export const cfgThreesMsg = document.getElementById('cfgThreesMsg');
+// NEW:
+export const cfgLowHighMsg = document.getElementById('cfgLowHighMsg');
+export const cfgEvenOddMsg = document.getElementById('cfgEvenOddMsg');
+export const cfgColorsMsg = document.getElementById('cfgColorsMsg');
 
 /* chips ui */
 export const cfgChipTpl = document.getElementById('cfgChipTpl');

@@ -5,14 +5,26 @@ import {
   dotsRows,
   dotsSix,
   dotsThrees,
+  // NEW:
+  dotsLowHigh,
+  dotsEvenOdd,
+  dotsColors,
   dozensStreakInp,
   rowsStreakInp,
   sixStreakInp,
   threesStreakInp,
+  // NEW:
+  lowhighStreakInp,
+  evenoddStreakInp,
+  colorsStreakInp,
   dozensZeroCk,
   rowsZeroCk,
   sixZeroCk,
   threesZeroCk,
+  // NEW:
+  lowhighZeroCk,
+  evenoddZeroCk,
+  colorsZeroCk,
 } from './dom.js';
 
 let latestSpins = [];
@@ -22,7 +34,16 @@ let currStreakState = {
 };
 
 // с каких индексов считать прогресс (сбрасываем по тумблерам/сигналам)
-const resetIdx = { dozens: 0, rows: 0, six: 0, threes: 0 };
+const resetIdx = {
+  dozens: 0,
+  rows: 0,
+  six: 0,
+  threes: 0,
+  // NEW:
+  lowhigh: 0,
+  evenodd: 0,
+  colors: 0,
+};
 
 export function setLatestSpins(arr) {
   latestSpins = Array.isArray(arr) ? arr : [];
@@ -36,6 +57,9 @@ export function resetStreakDots(market) {
   else if (market === 'rows') resetIdx.rows = i;
   else if (market === 'six') resetIdx.six = i;
   else if (market === 'threes') resetIdx.threes = i;
+  else if (market === 'lowhigh') resetIdx.lowhigh = i;
+  else if (market === 'evenodd') resetIdx.evenodd = i;
+  else if (market === 'colors') resetIdx.colors = i;
 }
 
 // индексы
@@ -65,6 +89,25 @@ function streetIndex(n) {
   return Math.ceil(n / 3) - 1;
 }
 
+// NEW: индексы для новых рынков
+function lowHighIndex(n) {
+  if (n === 0) return -1;
+  if (n >= 1 && n <= 18) return 0; // low
+  if (n >= 19 && n <= 36) return 1; // high
+  return -1;
+}
+function evenOddIndex(n) {
+  if (n === 0) return -1;
+  return n % 2 === 0 ? 0 : 1; // 0=even,1=odd
+}
+const RED = new Set([
+  1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36,
+]);
+function colorsIndex(n) {
+  if (n === 0) return -1;
+  return RED.has(n) ? 0 : 1; // 0=red,1=black
+}
+
 // общий прогресс «одна группа»
 function calcOneGroupProgress(spins, need, toIndex, includeZero) {
   let cnt = 0,
@@ -75,6 +118,12 @@ function calcOneGroupProgress(spins, need, toIndex, includeZero) {
     if (!Number.isFinite(n)) break;
     if (n === 0) {
       if (!includeZero) break;
+      if (cand == null) {
+        // 0 до первой ненулевой — не считаем, но и окно не рвём
+        // чтобы строго соответствовать логике триггера по рынкам,
+        // НЕ увеличиваем cnt до фиксации cand
+        continue;
+      }
       cnt++;
       continue;
     }
@@ -145,15 +194,26 @@ export function updateDotsFromState() {
   const maxS = Math.max(1, Number(sixStreakInp.value) || 2);
   const K = Math.max(1, Number(threesStreakInp.value) || 4);
 
+  const maxLH = Math.max(1, Number(lowhighStreakInp?.value) || 2);
+  const maxEO = Math.max(1, Number(evenoddStreakInp?.value) || 2);
+  const maxCL = Math.max(1, Number(colorsStreakInp?.value) || 2);
+
   const incZeroD = !!dozensZeroCk?.checked;
   const incZeroR = !!rowsZeroCk?.checked;
   const incZeroS = !!sixZeroCk?.checked;
   const incZeroT = !!threesZeroCk?.checked;
 
+  const incZeroLH = !!lowhighZeroCk?.checked;
+  const incZeroEO = !!evenoddZeroCk?.checked;
+  const incZeroCL = !!colorsZeroCk?.checked;
+
   const spinsD = latestSpins.slice(Math.max(0, resetIdx.dozens));
   const spinsR = latestSpins.slice(Math.max(0, resetIdx.rows));
   const spinsS = latestSpins.slice(Math.max(0, resetIdx.six));
   const spinsT = latestSpins.slice(Math.max(0, resetIdx.threes));
+  const spinsLH = latestSpins.slice(Math.max(0, resetIdx.lowhigh));
+  const spinsEO = latestSpins.slice(Math.max(0, resetIdx.evenodd));
+  const spinsCL = latestSpins.slice(Math.max(0, resetIdx.colors));
 
   const progD = calcOneGroupProgress(
     spinsD,
@@ -176,13 +236,51 @@ export function updateDotsFromState() {
 
   const threesLen = calcThreesProgress(spinsT, K, incZeroT);
   renderDots(dotsThrees, threesLen, K);
+
+  // NEW:
+  const progLH = calcOneGroupProgress(
+    spinsLH,
+    maxLH,
+    lowHighIndex,
+    incZeroLH
+  );
+  renderDots(dotsLowHigh, Math.min(progLH.len, maxLH), maxLH);
+
+  const progEO = calcOneGroupProgress(
+    spinsEO,
+    maxEO,
+    evenOddIndex,
+    incZeroEO
+  );
+  renderDots(dotsEvenOdd, Math.min(progEO.len, maxEO), maxEO);
+
+  const progCL = calcOneGroupProgress(
+    spinsCL,
+    maxCL,
+    colorsIndex,
+    incZeroCL
+  );
+  renderDots(dotsColors, Math.min(progCL.len, maxCL), maxCL);
 }
 
-// ловим системные сигналы от стратегий (вход/выигрыш трёшек)
+// ловим системные сигналы от стратегий
 export function handleStorageChangeForStreaks(ch, area) {
   if (area !== 'local') return;
   if (ch.threesDotsReset) {
     resetStreakDots('threes');
+    updateDotsFromState();
+  }
+  // NEW: поддержка сигналов для новых рынков (опционально)
+  if (ch.lowhighDotsReset) {
+    resetStreakDots('lowhigh');
+    updateDotsFromState();
+  }
+  if (ch.evenoddDotsReset) {
+    resetStreakDots('evenodd');
+    updateDotsFromState();
+  }
+  if (ch.colorsDotsReset) {
+    resetStreakDots('colors');
     updateDotsFromState();
   }
 }

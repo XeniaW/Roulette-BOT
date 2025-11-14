@@ -1,44 +1,85 @@
 // src/popup/markets.js
 import { sget, sset } from './utils.js';
 import {
+  // streak inputs
   dozensStreakInp,
   rowsStreakInp,
   sixStreakInp,
   threesStreakInp,
+  lowhighStreakInp,
+  evenoddStreakInp,
+  colorsStreakInp,
+
+  // checkboxes (auto-continue)
   dozensAutoCk,
   rowsAutoCk,
   sixAutoCk,
   threesAutoCk,
+  lowhighAutoCk,
+  evenoddAutoCk,
+  colorsAutoCk,
+
+  // checkboxes (include zero)
   dozensZeroCk,
   rowsZeroCk,
   sixZeroCk,
   threesZeroCk,
+  lowhighZeroCk,
+  evenoddZeroCk,
+  colorsZeroCk,
+
+  // toggles
   autoBetToggleDozens,
   autoBetToggleRows,
   autoBetToggleSix,
   autoBetToggleThrees,
+  autoBetToggleLowHigh,
+  autoBetToggleEvenOdd,
+  autoBetToggleColors,
+
+  // steps boxes
   dznStepsBox,
   rowStepsBox,
   sixStepsBox,
   threesStepsBox,
+  lowhighStepsBox,
+  evenoddStepsBox,
+  colorsStepsBox,
+
+  // cfg messages
   cfgDznMsg,
   cfgRowMsg,
   cfgSixMsg,
   cfgThreesMsg,
+  cfgLowHighMsg,
+  cfgEvenOddMsg,
+  cfgColorsMsg,
+
+  // bet status output spans (for initial render only)
   betStatusDozens,
   betStatusRows,
   betStatusSix,
   betStatusThrees,
+  betStatusLowHigh,
+  betStatusEvenOdd,
+  betStatusColors,
 } from './dom.js';
+
 import { renderSteps, getStepsFromUI, addStep } from './steps-ui.js';
 import { DEFAULT_CHIPS, GLOBAL_CHIPS_KEY } from './chips.js';
 import { resetStreakDots, updateDotsFromState } from './streaks.js';
 
+// === CFG keys (storage) ===
 export const CFG_DZN_KEY = 'abDozensConfig';
 export const CFG_ROW_KEY = 'abRowsConfig';
 export const CFG_SIX_KEY = 'abSixConfig';
 export const CFG_THREES_KEY = 'abThreesConfig';
+// NEW:
+export const CFG_LOWHIGH_KEY = 'abLowHighConfig';
+export const CFG_EVENODD_KEY = 'abEvenOddConfig';
+export const CFG_COLORS_KEY = 'abColorsConfig';
 
+// === Default market config ===
 export const DEFAULT_MKT = Object.freeze({
   triggerStreak: 2,
   autoContinue: false,
@@ -67,6 +108,7 @@ export function sanitizeMkt(raw) {
   let steps = Array.isArray(src.steps)
     ? src.steps
     : DEFAULT_MKT.steps;
+
   steps = steps
     .map((st) => (Array.isArray(st) ? st : []))
     .map((st) =>
@@ -81,13 +123,13 @@ export function sanitizeMkt(raw) {
       )
     )
     .filter((st) => st.length);
+
   if (!steps.length)
     steps = JSON.parse(JSON.stringify(DEFAULT_MKT.steps));
   return { triggerStreak, steps, autoContinue, includeZero };
 }
 
 function findAddStepBtn(stepsBox, market) {
-  // пробуем несколько вариантов, чтобы не трогать dom.js
   return (
     stepsBox?.parentElement?.querySelector('.btn-add-step') ||
     stepsBox
@@ -100,6 +142,7 @@ function findAddStepBtn(stepsBox, market) {
   );
 }
 
+/** Отрисовка/подписка UI для заданного рынка */
 export async function loadMarketUI(market) {
   let cfgKey,
     enKey,
@@ -156,38 +199,74 @@ export async function loadMarketUI(market) {
     stepsBox = threesStepsBox;
     msgEl = cfgThreesMsg;
     statusElDest = betStatusThrees;
-  } else return;
+  } else if (market === 'lowhigh') {
+    cfgKey = CFG_LOWHIGH_KEY;
+    enKey = 'autoBettingLowHighEnabled';
+    statusKey = 'bettingStatusLowHigh';
+    streakInp = lowhighStreakInp;
+    autoCk = lowhighAutoCk;
+    zeroCk = lowhighZeroCk;
+    toggle = autoBetToggleLowHigh;
+    stepsBox = lowhighStepsBox;
+    msgEl = cfgLowHighMsg;
+    statusElDest = betStatusLowHigh;
+  } else if (market === 'evenodd') {
+    cfgKey = CFG_EVENODD_KEY;
+    enKey = 'autoBettingEvenOddEnabled';
+    statusKey = 'bettingStatusEvenOdd';
+    streakInp = evenoddStreakInp;
+    autoCk = evenoddAutoCk;
+    zeroCk = evenoddZeroCk;
+    toggle = autoBetToggleEvenOdd;
+    stepsBox = evenoddStepsBox;
+    msgEl = cfgEvenOddMsg;
+    statusElDest = betStatusEvenOdd;
+  } else if (market === 'colors') {
+    cfgKey = CFG_COLORS_KEY;
+    enKey = 'autoBettingColorsEnabled';
+    statusKey = 'bettingStatusColors';
+    streakInp = colorsStreakInp;
+    autoCk = colorsAutoCk;
+    zeroCk = colorsZeroCk;
+    toggle = autoBetToggleColors;
+    stepsBox = colorsStepsBox;
+    msgEl = cfgColorsMsg;
+    statusElDest = betStatusColors;
+  } else {
+    return;
+  }
 
+  // начальные значения enabled + статус
   const st = await sget({
     [enKey]: false,
     [statusKey]: { state: 'off', message: '' },
   });
-  toggle.checked = !!st[enKey];
+  if (toggle) toggle.checked = !!st[enKey];
   const stat = st[statusKey] || { state: 'off', message: '' };
-  statusElDest.textContent = `[${(
-    stat.state || 'off'
-  ).toUpperCase()}] ${stat.message || ''}`;
+  if (statusElDest)
+    statusElDest.textContent = `[${(
+      stat.state || 'off'
+    ).toUpperCase()}] ${stat.message || ''}`;
 
+  // конфиг
   const cfg = sanitizeMkt(
     (await sget({ [cfgKey]: DEFAULT_MKT }))[cfgKey]
   );
-  streakInp.value = String(cfg.triggerStreak);
-  autoCk.checked = !!cfg.autoContinue;
+  if (streakInp) streakInp.value = String(cfg.triggerStreak);
+  if (autoCk) autoCk.checked = !!cfg.autoContinue;
   if (zeroCk) zeroCk.checked = !!cfg.includeZero;
 
-  // КЛЮЧЕВОЕ: рендерим ТИХО, без эмита steps:changed
   renderSteps(stepsBox, cfg.steps, { silent: true });
-  msgEl.textContent = 'Loaded';
+  if (msgEl) msgEl.textContent = 'Loaded';
 
-  // найти кнопку добавления шага рядом с текущим stepsBox
+  // кнопка добавления шага рядом с текущим stepsBox
   const btnAddStep =
     stepsBox?.parentElement?.querySelector('.btn-add-step') ||
     stepsBox?.closest('.market-card')?.querySelector('.btn-add-step');
-
   if (btnAddStep) {
     btnAddStep.addEventListener('click', () => {
-      addStep(stepsBox); // добавит новую карточку и один раз эмитнёт steps:changed
-      // ВАЖНО: НЕ вызывать renderSteps() здесь!
+      addStep(stepsBox);
+      // steps:changed эмитится внутри addStep -> автосейв дернётся снаружи
     });
   }
 }
@@ -223,13 +302,34 @@ export async function saveMarketCfgFromUI(market) {
     streakInpEl = threesStreakInp;
     autoCkEl = threesAutoCk;
     zeroCkEl = threesZeroCk;
+  } else if (market === 'lowhigh') {
+    cfgKey = CFG_LOWHIGH_KEY;
+    stepsBox = lowhighStepsBox;
+    msgEl = cfgLowHighMsg;
+    streakInpEl = lowhighStreakInp;
+    autoCkEl = lowhighAutoCk;
+    zeroCkEl = lowhighZeroCk;
+  } else if (market === 'evenodd') {
+    cfgKey = CFG_EVENODD_KEY;
+    stepsBox = evenoddStepsBox;
+    msgEl = cfgEvenOddMsg;
+    streakInpEl = evenoddStreakInp;
+    autoCkEl = evenoddAutoCk;
+    zeroCkEl = evenoddZeroCk;
+  } else if (market === 'colors') {
+    cfgKey = CFG_COLORS_KEY;
+    stepsBox = colorsStepsBox;
+    msgEl = cfgColorsMsg;
+    streakInpEl = colorsStreakInp;
+    autoCkEl = colorsAutoCk;
+    zeroCkEl = colorsZeroCk;
   } else return;
 
   const streak = Math.max(
     2,
-    Math.floor(Number(streakInpEl.value || 2))
+    Math.floor(Number(streakInpEl?.value || 2))
   );
-  const autoContinue = !!autoCkEl.checked;
+  const autoContinue = !!autoCkEl?.checked;
   const includeZero = zeroCkEl == null ? true : !!zeroCkEl.checked;
 
   const { [GLOBAL_CHIPS_KEY]: chips = DEFAULT_CHIPS } = await sget({
@@ -241,15 +341,17 @@ export async function saveMarketCfgFromUI(market) {
 
   const steps = getStepsFromUI(stepsBox);
   if (!steps.length) {
-    msgEl.textContent = 'Add at least one step';
+    if (msgEl) msgEl.textContent = 'Add at least one step';
     return;
   }
-  for (const stp of steps)
-    for (const it of stp)
+  for (const stp of steps) {
+    for (const it of stp) {
       if (it.chip < 1 || it.chip > chipCount) {
-        msgEl.textContent = 'Step uses invalid Chip #';
+        if (msgEl) msgEl.textContent = 'Step uses invalid Chip #';
         return;
       }
+    }
+  }
 
   const clean = sanitizeMkt({
     triggerStreak: streak,
@@ -278,17 +380,18 @@ export async function saveMarketCfgFromUI(market) {
   try {
     await chrome.runtime.sendMessage({ type: 'AB_CONFIG_SAVED' });
   } catch {}
-  msgEl.textContent = 'Saved.';
+  if (msgEl) msgEl.textContent = 'Saved.';
 }
 
-/* toggles reset — СБРОС ТОЛЬКО при ОТКЛЮЧЕНИИ (unchecked) чекбокса рынка */
+/** Сброс ламп и streak-состояний при выключении рынков */
 export function wireMarketTogglesReset() {
   const DEFAULT_STREAK = {
     dozens: { count: 0, idx: null },
     rows: { count: 0, idx: null },
   };
 
-  autoBetToggleDozens.addEventListener('change', async () => {
+  // Dozens
+  autoBetToggleDozens?.addEventListener('change', async () => {
     const checked = !!autoBetToggleDozens.checked;
     await sset({ autoBettingDozensEnabled: checked });
     if (!checked) {
@@ -306,7 +409,8 @@ export function wireMarketTogglesReset() {
     }
   });
 
-  autoBetToggleRows.addEventListener('change', async () => {
+  // Rows
+  autoBetToggleRows?.addEventListener('change', async () => {
     const checked = !!autoBetToggleRows.checked;
     await sset({ autoBettingRowsEnabled: checked });
     if (!checked) {
@@ -324,7 +428,8 @@ export function wireMarketTogglesReset() {
     }
   });
 
-  autoBetToggleSix.addEventListener('change', async () => {
+  // Six
+  autoBetToggleSix?.addEventListener('change', async () => {
     const checked = !!autoBetToggleSix.checked;
     await sset({ autoBettingSixEnabled: checked });
     if (!checked) {
@@ -333,11 +438,42 @@ export function wireMarketTogglesReset() {
     }
   });
 
-  autoBetToggleThrees.addEventListener('change', async () => {
+  // Threes
+  autoBetToggleThrees?.addEventListener('change', async () => {
     const checked = !!autoBetToggleThrees.checked;
     await sset({ autoBettingThreesEnabled: checked });
     if (!checked) {
       resetStreakDots('threes');
+      updateDotsFromState();
+    }
+  });
+
+  // NEW: Low/High
+  autoBetToggleLowHigh?.addEventListener('change', async () => {
+    const checked = !!autoBetToggleLowHigh.checked;
+    await sset({ autoBettingLowHighEnabled: checked });
+    if (!checked) {
+      resetStreakDots('lowhigh');
+      updateDotsFromState();
+    }
+  });
+
+  // NEW: Even/Odd
+  autoBetToggleEvenOdd?.addEventListener('change', async () => {
+    const checked = !!autoBetToggleEvenOdd.checked;
+    await sset({ autoBettingEvenOddEnabled: checked });
+    if (!checked) {
+      resetStreakDots('evenodd');
+      updateDotsFromState();
+    }
+  });
+
+  // NEW: Colors
+  autoBetToggleColors?.addEventListener('change', async () => {
+    const checked = !!autoBetToggleColors.checked;
+    await sset({ autoBettingColorsEnabled: checked });
+    if (!checked) {
+      resetStreakDots('colors');
       updateDotsFromState();
     }
   });

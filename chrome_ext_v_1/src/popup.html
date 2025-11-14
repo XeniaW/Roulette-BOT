@@ -85,8 +85,8 @@
       <section class="card">
         <h3>Лимит ВХОДОВ на рынок</h3>
         <div class="ai-center">
-          <label class="small label-w" for="maxEntries"></label>
-            *0 = безлимит</label
+          <label class="small label-w" for="maxEntries"
+            >*0 = безлимит</label
           >
           <input
             id="maxEntries"
@@ -226,8 +226,9 @@
       <!-- Threes (streets) -->
       <div class="row ai-center">
         <label
-          ><input type="checkbox" id="autoBetToggleThrees" /> Трёшки
-        </label>
+          ><input type="checkbox" id="autoBetToggleThrees" />
+          Трёшки</label
+        >
         <div class="col">
           <div
             id="threesStreakDots"
@@ -256,6 +257,116 @@
       </div>
       <div class="row">
         <span id="betStatusThrees" class="small"></span>
+      </div>
+
+      <!-- ===== NEW MARKETS ===== -->
+
+      <!-- Low / High -->
+      <div class="row ai-center">
+        <label
+          ><input type="checkbox" id="autoBetToggleLowHigh" />
+          Low/High (1–18 / 19–36)</label
+        >
+        <div class="col">
+          <div
+            id="lowhighStreakDots"
+            class="dots"
+            role="presentation"
+          ></div>
+          <label for="lowhighStreak" class="small label-block"
+            >Стрик</label
+          >
+          <input
+            id="lowhighStreak"
+            type="number"
+            min="2"
+            step="1"
+            value="2"
+          />
+          <label class="small"
+            ><input type="checkbox" id="lowhighAutoContinue" /> Ставки
+            подряд</label
+          >
+          <label class="small"
+            ><input type="checkbox" id="lowhighIncludeZero" />
+            Учитывать 0</label
+          >
+        </div>
+      </div>
+      <div class="row">
+        <span id="betStatusLowHigh" class="small"></span>
+      </div>
+
+      <!-- Even / Odd -->
+      <div class="row ai-center">
+        <label
+          ><input type="checkbox" id="autoBetToggleEvenOdd" />
+          Even/Odd (Чёт/Нечёт)</label
+        >
+        <div class="col">
+          <div
+            id="evenoddStreakDots"
+            class="dots"
+            role="presentation"
+          ></div>
+          <label for="evenoddStreak" class="small label-block"
+            >Стрик</label
+          >
+          <input
+            id="evenoddStreak"
+            type="number"
+            min="2"
+            step="1"
+            value="2"
+          />
+          <label class="small"
+            ><input type="checkbox" id="evenoddAutoContinue" /> Ставки
+            подряд</label
+          >
+          <label class="small"
+            ><input type="checkbox" id="evenoddIncludeZero" />
+            Учитывать 0</label
+          >
+        </div>
+      </div>
+      <div class="row">
+        <span id="betStatusEvenOdd" class="small"></span>
+      </div>
+
+      <!-- Colors -->
+      <div class="row ai-center">
+        <label
+          ><input type="checkbox" id="autoBetToggleColors" /> Colors
+          (Red / Black)</label
+        >
+        <div class="col">
+          <div
+            id="colorsStreakDots"
+            class="dots"
+            role="presentation"
+          ></div>
+          <label for="colorsStreak" class="small label-block"
+            >Стрик</label
+          >
+          <input
+            id="colorsStreak"
+            type="number"
+            min="2"
+            step="1"
+            value="2"
+          />
+          <label class="small"
+            ><input type="checkbox" id="colorsAutoContinue" /> Ставки
+            подряд</label
+          >
+          <label class="small"
+            ><input type="checkbox" id="colorsIncludeZero" />
+            Учитывать 0</label
+          >
+        </div>
+      </div>
+      <div class="row">
+        <span id="betStatusColors" class="small"></span>
       </div>
 
       <div class="row row-end">
@@ -359,6 +470,69 @@
         <button id="btnCfgThreesSave" class="btn">Save</button>
       </div>
       <div id="cfgThreesMsg" class="small"></div>
+    </section>
+
+    <!-- ==== STEPS: LOW/HIGH ==== -->
+    <section class="card">
+      <h3>Steps — Low/High</h3>
+      <div class="card card-inner">
+        <h4>Steps</h4>
+        <div id="lowhighStepsBox"></div>
+        <div class="row">
+          <button id="btnAddLowHighStep" class="btn">
+            + Add step
+          </button>
+        </div>
+      </div>
+      <div class="row row-end">
+        <button id="btnCfgLowHighDefaults" class="btn">
+          Defaults
+        </button>
+        <button id="btnCfgLowHighSave" class="btn">Save</button>
+      </div>
+      <div id="cfgLowHighMsg" class="small"></div>
+    </section>
+
+    <!-- ==== STEPS: EVEN/ODD ==== -->
+    <section class="card">
+      <h3>Steps — Even/Odd</h3>
+      <div class="card card-inner">
+        <h4>Steps</h4>
+        <div id="evenoddStepsBox"></div>
+        <div class="row">
+          <button id="btnAddEvenOddStep" class="btn">
+            + Add step
+          </button>
+        </div>
+      </div>
+      <div class="row row-end">
+        <button id="btnCfgEvenOddDefaults" class="btn">
+          Defaults
+        </button>
+        <button id="btnCfgEvenOddSave" class="btn">Save</button>
+      </div>
+      <div id="cfgEvenOddMsg" class="small"></div>
+    </section>
+
+    <!-- ==== STEPS: COLORS ==== -->
+    <section class="card">
+      <h3>Steps — Colors</h3>
+      <div class="card card-inner">
+        <h4>Steps</h4>
+        <div id="colorsStepsBox"></div>
+        <div class="row">
+          <button id="btnAddColorsStep" class="btn">
+            + Add step
+          </button>
+        </div>
+      </div>
+      <div class="row row-end">
+        <button id="btnCfgColorsDefaults" class="btn">
+          Defaults
+        </button>
+        <button id="btnCfgColorsSave" class="btn">Save</button>
+      </div>
+      <div id="cfgColorsMsg" class="small"></div>
     </section>
 
     <script src="popup.js"></script>

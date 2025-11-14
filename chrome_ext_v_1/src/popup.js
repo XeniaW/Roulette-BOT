@@ -38,6 +38,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadMarketUI('six');
   await loadMarketUI('threes');
 
+  // NEW: дополнительные рынки половин
+  await loadMarketUI('lowhigh'); // 1–18 / 19–36
+  await loadMarketUI('evenodd'); // чёт / нечёт
+  await loadMarketUI('colors'); // красное / чёрное
+
   // главный тумблер
   await loadToggle();
 

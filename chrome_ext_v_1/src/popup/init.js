@@ -10,15 +10,27 @@ import {
   rowsStreakInp,
   sixStreakInp,
   threesStreakInp,
+  // NEW:
+  lowhighStreakInp,
+  evenoddStreakInp,
+  colorsStreakInp,
   dozensZeroCk,
   rowsZeroCk,
   sixZeroCk,
   threesZeroCk,
+  // NEW:
+  lowhighZeroCk,
+  evenoddZeroCk,
+  colorsZeroCk,
   btnSaveAll,
   dznStepsBox,
   rowStepsBox,
   sixStepsBox,
   threesStepsBox,
+  // NEW:
+  lowhighStepsBox,
+  evenoddStepsBox,
+  colorsStepsBox,
   inpPattern,
 } from './dom.js';
 import { exportCSV, clearLogs } from './spin-logs.js';
@@ -65,9 +77,7 @@ function wireAutoSaveForMarket(
     });
   }
   if (autoCk) {
-    autoCk.addEventListener('change', () => {
-      debouncedSave();
-    });
+    autoCk.addEventListener('change', () => debouncedSave());
   }
   if (zeroCk) {
     zeroCk.addEventListener('change', () => {
@@ -76,9 +86,7 @@ function wireAutoSaveForMarket(
     });
   }
   if (stepsBox) {
-    // любое изменение в steps (добавление/удаление/правки) — событие из steps-ui
     stepsBox.addEventListener('steps:changed', () => debouncedSave());
-    // на всякий случай ловим прямые input-ы
     stepsBox.addEventListener('input', () => debouncedSave());
     stepsBox.addEventListener('click', (e) => {
       const btn = e.target?.closest(
@@ -108,6 +116,16 @@ export function wireInitHandlers() {
   document
     .getElementById('btnAddThreesStep')
     ?.addEventListener('click', () => addBlankStep(threesStepsBox));
+  // NEW:
+  document
+    .getElementById('btnAddLowHighStep')
+    ?.addEventListener('click', () => addBlankStep(lowhighStepsBox));
+  document
+    .getElementById('btnAddEvenOddStep')
+    ?.addEventListener('click', () => addBlankStep(evenoddStepsBox));
+  document
+    .getElementById('btnAddColorsStep')
+    ?.addEventListener('click', () => addBlankStep(colorsStepsBox));
 
   // Defaults
   document
@@ -130,6 +148,22 @@ export function wireInitHandlers() {
     ?.addEventListener('click', () =>
       renderSteps(threesStepsBox, DEFAULT_MKT.steps)
     );
+  // NEW:
+  document
+    .getElementById('btnCfgLowHighDefaults')
+    ?.addEventListener('click', () =>
+      renderSteps(lowhighStepsBox, DEFAULT_MKT.steps)
+    );
+  document
+    .getElementById('btnCfgEvenOddDefaults')
+    ?.addEventListener('click', () =>
+      renderSteps(evenoddStepsBox, DEFAULT_MKT.steps)
+    );
+  document
+    .getElementById('btnCfgColorsDefaults')
+    ?.addEventListener('click', () =>
+      renderSteps(colorsStepsBox, DEFAULT_MKT.steps)
+    );
 
   // Save buttons
   document
@@ -144,6 +178,16 @@ export function wireInitHandlers() {
   document
     .getElementById('btnCfgThreesSave')
     ?.addEventListener('click', () => saveMarketCfgFromUI('threes'));
+  // NEW:
+  document
+    .getElementById('btnCfgLowHighSave')
+    ?.addEventListener('click', () => saveMarketCfgFromUI('lowhigh'));
+  document
+    .getElementById('btnCfgEvenOddSave')
+    ?.addEventListener('click', () => saveMarketCfgFromUI('evenodd'));
+  document
+    .getElementById('btnCfgColorsSave')
+    ?.addEventListener('click', () => saveMarketCfgFromUI('colors'));
 
   // Export/Clear
   btnExport.addEventListener('click', exportCSV);
@@ -183,6 +227,13 @@ export function wireInitHandlers() {
   rowsZeroCk?.addEventListener('change', updateDotsFromState);
   sixZeroCk?.addEventListener('change', updateDotsFromState);
   threesZeroCk?.addEventListener('change', updateDotsFromState);
+  // NEW:
+  lowhighStreakInp?.addEventListener('input', updateDotsFromState);
+  evenoddStreakInp?.addEventListener('input', updateDotsFromState);
+  colorsStreakInp?.addEventListener('input', updateDotsFromState);
+  lowhighZeroCk?.addEventListener('change', updateDotsFromState);
+  evenoddZeroCk?.addEventListener('change', updateDotsFromState);
+  colorsZeroCk?.addEventListener('change', updateDotsFromState);
 
   // SAVE ALL
   btnSaveAll.addEventListener('click', async () => {
@@ -191,6 +242,10 @@ export function wireInitHandlers() {
     await saveMarketCfgFromUI('rows');
     await saveMarketCfgFromUI('six');
     await saveMarketCfgFromUI('threes');
+    // NEW:
+    await saveMarketCfgFromUI('lowhigh');
+    await saveMarketCfgFromUI('evenodd');
+    await saveMarketCfgFromUI('colors');
   });
 
   // Автосохранение рынков (streak + includeZero + autoContinue + steps)
@@ -217,6 +272,25 @@ export function wireInitHandlers() {
     autoCk: document.getElementById('threesAutoContinue'),
     zeroCk: document.getElementById('threesIncludeZero'),
     stepsBox: threesStepsBox,
+  });
+  // NEW:
+  wireAutoSaveForMarket('lowhigh', {
+    streakInp: lowhighStreakInp,
+    autoCk: document.getElementById('lowhighAutoContinue'),
+    zeroCk: document.getElementById('lowhighIncludeZero'),
+    stepsBox: lowhighStepsBox,
+  });
+  wireAutoSaveForMarket('evenodd', {
+    streakInp: evenoddStreakInp,
+    autoCk: document.getElementById('evenoddAutoContinue'),
+    zeroCk: document.getElementById('evenoddIncludeZero'),
+    stepsBox: evenoddStepsBox,
+  });
+  wireAutoSaveForMarket('colors', {
+    streakInp: colorsStreakInp,
+    autoCk: document.getElementById('colorsAutoContinue'),
+    zeroCk: document.getElementById('colorsIncludeZero'),
+    stepsBox: colorsStepsBox,
   });
 
   // ==== ENTRY LIMIT UI ====
@@ -258,10 +332,9 @@ export function wireInitHandlers() {
     const max = Math.max(0, v);
     await setGlobalMaxEntries(max);
 
-    // НЕМЕДЛЕННОЕ ПРИМЕНЕНИЕ: если счётчик рынка >= max — выключаем рынок сейчас же
+    // НЕМЕДЛЕННОЕ ПРИМЕНЕНИЕ
     if (max > 0) {
       const counters = (await getAllCounters()) || {};
-      // ключи соответствия market -> enabledKey/execKey/statusKey
       const MAP = {
         dozens: {
           en: 'autoBettingDozensEnabled',
@@ -283,6 +356,22 @@ export function wireInitHandlers() {
           ex: 'betExecThrees',
           st: 'bettingStatusThrees',
         },
+        // NEW:
+        lowhigh: {
+          en: 'autoBettingLowHighEnabled',
+          ex: 'betExecLowHigh',
+          st: 'bettingStatusLowHigh',
+        },
+        evenodd: {
+          en: 'autoBettingEvenOddEnabled',
+          ex: 'betExecEvenOdd',
+          st: 'bettingStatusEvenOdd',
+        },
+        colors: {
+          en: 'autoBettingColorsEnabled',
+          ex: 'betExecColors',
+          st: 'bettingStatusColors',
+        },
       };
       const toDisable = Object.keys(counters).filter(
         (m) => (counters[m] | 0) >= max
@@ -302,8 +391,6 @@ export function wireInitHandlers() {
             },
           });
         } catch {}
-        // В попапе BET может быть недоступен — просто снимем галку через onChanged.
-        // Статус в контенте выставится при следующей инициализации.
       }
     }
 
@@ -323,6 +410,7 @@ export function wireInitHandlers() {
   });
 
   // лайв-обновления от storage
+  chrome.storage.onChanged.addEventListener?.(() => {}); // no-op for MV3 safety
   chrome.storage.onChanged.addListener((ch, area) => {
     if (area !== 'local') return;
     if (ch.entryCounters) renderCounters();
@@ -335,6 +423,6 @@ export function wireInitHandlers() {
   // первичная подгрузка для Entry limit
   refreshEntryLimitUI();
 
-  // Авто-бет тумблеры — сохраняются в wireMarketTogglesReset()
+  // Авто-бет тумблеры
   wireMarketTogglesReset();
 }
