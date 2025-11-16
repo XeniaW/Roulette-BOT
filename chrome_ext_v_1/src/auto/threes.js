@@ -3,10 +3,12 @@ import { entryGateFor } from '../shared/entry-limit.js';
 
 (() => {
   const DEFAULT_CFG = Object.freeze({
-    // Триггер: в хвосте подряд ровно need записей, в которых встречается НЕ БОЛЕЕ 4 уникальных "троек" (стритов).
-    // При includeZero=true нули учитываются в длину (но НЕ добавляют новую тройку). При includeZero=false — 0 рвёт окно.
+    // Триггер: в хвосте подряд минимум triggerStreak записей,
+    // где участвуют НЕ БОЛЕЕ 4 уникальных стритов.
+    // includeZero=true: 0 учитывается в длину, но НЕ добавляет улицу;
+    // includeZero=false: 0 рвёт окно.
     triggerStreak: 4,
-    autoContinue: false,
+    autoContinue: false, // false → играем "через одну"
     includeZero: false,
     steps: [
       [{ chip: 1, times: 1 }],
@@ -26,24 +28,23 @@ import { entryGateFor } from '../shared/entry-limit.js';
     return Math.ceil(n / 3) - 1;
   }
 
-  // Узел кнопки: разные раскладки столов — пробуем последовательные id и шаг 2, плюс data-e2e
+  // Узел кнопки: пробуем несколько раскладок стола
   function getStreetNode(idx) {
     return (
       document.querySelector(`#index-${500 + idx}`) || // 500..511
       document.querySelector(`#index-${500 + idx * 2}`) || // 500,502..,522
-      document.querySelector(`[data-e2e="street-${idx}"]`) || // e2e-атрибут
+      document.querySelector(`[data-e2e="street-${idx}"]`) ||
       null
     );
   }
 
-  // Подпись для логов
   function labelStreet(idx) {
     const a = idx * 3 + 1;
     const b = a + 2;
     return `стрит ${a}-${b}`;
   }
 
-  // Дополняем: цели — все 12 минус покрытые
+  // цели — все 12 минус покрытые
   function targetsFromCovered(coveredSet) {
     const skip = new Set(coveredSet || []);
     const res = [];
@@ -51,42 +52,72 @@ import { entryGateFor } from '../shared/entry-limit.js';
     return res;
   }
 
-  // Единый сигнал для попапа, чтобы погасить лампы мгновенно
-  async function signalResetDots(marketKey) {
+  // сигнал попапу для сброса лампочек
+  async function signalResetDots() {
     try {
-      await chrome.storage.local.set({
-        [`${marketKey}DotsReset`]: Date.now(),
-      });
+      await chrome.storage.local.set({ threesDotsReset: Date.now() });
     } catch {}
   }
 
-  // Проверка окна триггера для троек:
-  // Идём от хвоста, считаем подряд ровно need элементов,
-  // допускаем только 0 (если includeZero) и числа не более чем из 4 улиц.
-  // Возвращаем Set покрытых улиц (size 1..4), либо null.
+  /**
+   * Проверка окна триггера от хвоста.
+   *
+   * Условие (как было ДО 4 улиц):
+   *  - длина окна cnt >= need
+   *  - 1 <= covered.size <= 4 (НЕ БОЛЕЕ 4 улиц)
+   *
+   * Возвращает { ok, covered, startIdx, cnt }.
+   */
   function checkTriggerThrees(spinLogs, need, includeZero) {
+    const len = spinLogs.length;
     let cnt = 0;
-    const set = new Set(); // индексы 0..11
-    for (let i = spinLogs.length - 1; i >= 0 && cnt < need; i--) {
+    const covered = new Set(); // 0..11
+
+    for (let i = len - 1; i >= 0 && cnt < need; i--) {
       const n = Number(spinLogs[i]?.n);
       if (!Number.isFinite(n)) break;
 
       if (n === 0) {
         if (!includeZero) break; // 0 рвёт окно
-        cnt++; // 0 учитываем в длину, но НЕ добавляет улицу
+        cnt++; // 0 только удлиняет, улицу не добавляет
         continue;
       }
 
       const si = streetIndex(n);
       if (si === -1) break;
 
-      if (!set.has(si)) {
-        if (set.size === 4) break; // пятую улицу не допускаем
-        set.add(si);
+      if (!covered.has(si)) {
+        if (covered.size === 4) break; // пятую улицу не даём
+        covered.add(si);
       }
+
       cnt++;
     }
-    return cnt >= need && set.size >= 1 && set.size <= 4 ? set : null;
+
+    if (cnt >= need && covered.size >= 1 && covered.size <= 4) {
+      const startIdx = len - cnt;
+      return { ok: true, covered, startIdx, cnt };
+    }
+    return { ok: false, covered: null, startIdx: -1, cnt };
+  }
+
+  // постановка шага
+  async function placeStep(step, targets, steps, mutex, getNode) {
+    const ok = await BET.tryPlace({
+      step,
+      targets,
+      steps,
+      getTargetNode: (i) => getNode(i),
+      mutex,
+    });
+    if (!ok) return { ok: false, amount: 0 };
+
+    const chips = await BET.loadGlobalChips();
+    const amount =
+      BET.perTargetAmountForStep(step, steps, chips.chipValues) *
+      targets.length;
+
+    return { ok: true, amount };
   }
 
   class ThreesStrategy extends window.MarketBase {
@@ -104,26 +135,79 @@ import { entryGateFor } from '../shared/entry-limit.js';
       });
     }
 
+    async logPlaced(step, amount, message) {
+      try {
+        const { betLogs = [] } = await this.sget({ betLogs: [] });
+        betLogs.push({
+          t: Date.now(),
+          type: 'placed',
+          market: 'threes',
+          phase: 'armed',
+          message,
+          amount,
+          step,
+        });
+        if (betLogs.length > 2000)
+          betLogs.splice(0, betLogs.length - 2000);
+        await this.sset({ betLogs });
+      } catch {}
+    }
+
     async onSpin(n) {
       const exec = await this.getExec();
       if (!exec.enabled) return;
 
-      const { spinLogs = [] } = await this.sget({ spinLogs: [] });
+      // вытаскиваем логи и гарантируем наличие текущего спина
+      const s = await this.sget({ spinLogs: [] });
+      const spinLogs = Array.isArray(s.spinLogs)
+        ? s.spinLogs.slice()
+        : [];
+      if (
+        spinLogs.length === 0 ||
+        spinLogs[spinLogs.length - 1]?.n !== n
+      ) {
+        spinLogs.push({ n });
+      }
+
       const ix = this.getIndex(n);
 
-      // ====== IDLE: ищем вход ======
-      if (exec.phase === 'idle') {
+      // ================== IDLE ==================
+      if (!exec.phase || exec.phase === 'idle') {
         const { triggerStreak, steps, includeZero } =
           await this.loadCfg();
         const need = Math.max(2, triggerStreak | 0);
 
-        const covered = checkTriggerThrees(
-          spinLogs,
-          need,
-          !!includeZero
-        );
-        if (covered) {
-          // 🔒 ГЕЙТ ВХОДА ПО ЛИМИТУ
+        const chk = checkTriggerThrees(spinLogs, need, !!includeZero);
+
+        const guardCutIndex =
+          Number.isInteger(exec.guardCutIndex) &&
+          exec.guardCutIndex >= 0
+            ? exec.guardCutIndex
+            : -1;
+        const idleGuard = !!exec.idleGuard;
+
+        // guard: не даём сразу же перезаходить в то же окно
+        if (idleGuard) {
+          if (chk.ok && chk.startIdx < guardCutIndex) {
+            BET.setBetStatus(
+              this.statusKey,
+              'idle',
+              'Ожидание: требуется разрыв окна перед новым входом'
+            );
+            return;
+          }
+          const cleared = {
+            ...exec,
+            idleGuard: false,
+            guardCutIndex: -1,
+          };
+          await this.setExec(
+            cleared,
+            'Окно разрушено/сдвинуто → guard снят'
+          );
+        }
+
+        if (chk.ok) {
           const gateOk = await entryGateFor(
             'threes',
             'autoBettingThreesEnabled',
@@ -132,14 +216,17 @@ import { entryGateFor } from '../shared/entry-limit.js';
           );
           if (!gateOk) return;
 
-          const targets = targetsFromCovered(covered);
+          const targets = targetsFromCovered(chk.covered);
           const next = {
             ...exec,
             phase: 'armed',
             target: targets,
             step: 1,
             armedAt: Date.now(),
-            cooldownSkipped: undefined,
+            idleGuard: false,
+            guardCutIndex: -1,
+            waitSkipDone: false,
+            waitStep: 0,
           };
           await this.setExec(
             next,
@@ -148,69 +235,58 @@ import { entryGateFor } from '../shared/entry-limit.js';
               .join(', ')} | шаг 1`
           );
 
-          const ok = await BET.tryPlace({
-            step: 1,
+          const res = await placeStep(
+            1,
             targets,
             steps,
-            getTargetNode: (i) => this.getTargetNode(i),
-            mutex: this.mutex,
-          });
+            this.mutex,
+            (i) => this.getTargetNode(i)
+          );
+          if (res.ok)
+            await this.logPlaced(1, res.amount, 'Шаг 1 поставлен');
 
-          if (ok) {
-            const chips = await BET.loadGlobalChips();
-            const amount =
-              BET.perTargetAmountForStep(1, steps, chips.chipValues) *
-              targets.length;
-            try {
-              const { betLogs = [] } = await this.sget({
-                betLogs: [],
-              });
-              betLogs.push({
-                t: Date.now(),
-                type: 'placed',
-                market: 'threes',
-                phase: 'armed',
-                message: 'Шаг 1 поставлен',
-                amount,
-                step: 1,
-              });
-              if (betLogs.length > 2000)
-                betLogs.splice(0, betLogs.length - 2000);
-              await this.sset({ betLogs });
-            } catch {}
-          }
           BET.setBetStatus(
-            'bettingStatusThrees',
-            ok ? 'armed' : 'error',
-            ok ? 'Шаг 1 поставлен' : 'Не удалось поставить шаг 1'
+            this.statusKey,
+            res.ok ? 'armed' : 'error',
+            res.ok ? 'Шаг 1 поставлен' : 'Не удалось поставить шаг 1'
           );
         }
         return;
       }
 
-      // ====== ARMED: проверяем win/loss, двигаем шаг ======
+      // ================== ARMED ==================
       if (exec.phase === 'armed') {
         const isWin = ix !== -1 && exec.target?.includes(ix);
+
         if (isWin) {
-          const next = {
+          const reset = {
             ...exec,
             phase: 'idle',
             target: null,
             step: 1,
             armedAt: 0,
-            cooldownSkipped: undefined,
+            idleGuard: true,
+            guardCutIndex: spinLogs.length, // новый вход только по окну после этой точки
+            waitSkipDone: false,
+            waitStep: 0,
           };
           await this.setExec(
-            next,
-            `ВЫИГРЫШ на ${labelStreet(ix)} → сброс`
+            reset,
+            `ВЫИГРЫШ на ${labelStreet(ix)} → сброс, ждём новый стрик`
           );
-          await signalResetDots('threes');
+          await signalResetDots();
+          BET.setBetStatus(
+            this.statusKey,
+            'idle',
+            'ВЫИГРЫШ → ждём новый стрик'
+          );
           return;
         }
 
         const { steps, autoContinue } = await this.loadCfg();
         const lastStep = Math.max(1, steps.length);
 
+        // слив на последнем шаге → полный сброс + guard
         if (exec.step >= lastStep) {
           const reset = {
             ...exec,
@@ -218,16 +294,25 @@ import { entryGateFor } from '../shared/entry-limit.js';
             target: null,
             step: 1,
             armedAt: 0,
-            cooldownSkipped: undefined,
+            idleGuard: true,
+            guardCutIndex: spinLogs.length,
+            waitSkipDone: false,
+            waitStep: 0,
           };
           await this.setExec(
             reset,
-            `ПРОИГРЫШ на шаге ${lastStep} → сброс`
+            `ПРОИГРЫШ на шаге ${lastStep} → сброс, ждём новый стрик`
           );
-          await signalResetDots('threes');
+          await signalResetDots();
+          BET.setBetStatus(
+            this.statusKey,
+            'idle',
+            `ПРОИГРЫШ на шаге ${lastStep} → ждём новый стрик`
+          );
           return;
         }
 
+        // ===== режим "ставки подряд" =====
         if (autoContinue) {
           const step = exec.step + 1;
           const t = exec.target?.slice() || [];
@@ -237,7 +322,8 @@ import { entryGateFor } from '../shared/entry-limit.js';
             target: t,
             step,
             armedAt: Date.now(),
-            cooldownSkipped: undefined,
+            waitSkipDone: false,
+            waitStep: 0,
           };
           await this.setExec(
             next,
@@ -245,247 +331,113 @@ import { entryGateFor } from '../shared/entry-limit.js';
               .map(labelStreet)
               .join(', ')}`
           );
-          const ok = await BET.tryPlace({
+          const res = await placeStep(
             step,
-            targets: t,
+            t,
             steps,
-            getTargetNode: (i) => this.getTargetNode(i),
-            mutex: this.mutex,
-          });
-          if (ok) {
-            const chips = await BET.loadGlobalChips();
-            const amount =
-              BET.perTargetAmountForStep(
-                step,
-                steps,
-                chips.chipValues
-              ) * t.length;
-            try {
-              const { betLogs = [] } = await this.sget({
-                betLogs: [],
-              });
-              betLogs.push({
-                t: Date.now(),
-                type: 'placed',
-                market: 'threes',
-                phase: 'armed',
-                message: `Шаг ${step} поставлен (auto)`,
-                amount,
-                step,
-              });
-              if (betLogs.length > 2000)
-                betLogs.splice(0, betLogs.length - 2000);
-              await this.sset({ betLogs });
-            } catch {}
-          }
+            this.mutex,
+            (i) => this.getTargetNode(i)
+          );
+          if (res.ok)
+            await this.logPlaced(
+              step,
+              res.amount,
+              `Шаг ${step} поставлен (auto)`
+            );
           BET.setBetStatus(
-            'bettingStatusThrees',
-            ok ? 'armed' : 'error',
-            ok
+            this.statusKey,
+            res.ok ? 'armed' : 'error',
+            res.ok
               ? `Шаг ${step} поставлен`
               : `Не удалось поставить шаг ${step}`
           );
           return;
         }
 
-        // === НОВОЕ ПОВЕДЕНИЕ: autoContinue=false → "через один" ===
+        // ===== режим "через одну" =====
         const next = {
           ...exec,
-          phase: 'cooldown', // пропускаем 1 спин
-          step: exec.step + 1, // следующий шаг
-          armedAt: 0,
-          cooldownSkipped: false, // ещё не отметили пропуск
+          phase: 'waiting', // используем waiting как cooldown-режим
+          waitStep: exec.step + 1, // какой шаг ставим после паузы
+          waitSkipDone: false, // ещё ни один спин не пропущен
         };
         await this.setExec(
           next,
-          `ПРОИГРЫШ → пропускаем 1 спин; следующий шаг ${next.step} через один`
+          `ПРОИГРЫШ → пропускаем 1 спин; следующий шаг ${next.waitStep} через один`
+        );
+        BET.setBetStatus(
+          this.statusKey,
+          'waiting',
+          `ПРОИГРЫШ → пропускаем 1 спин; готовим шаг ${next.waitStep}`
         );
         return;
       }
 
-      // ====== COOLDOWN: пропустить ровно один спин и СРАЗУ ставить (в этом же вызове)
-      if (exec.phase === 'cooldown') {
+      // ================== WAITING ("через одну") ==================
+      if (exec.phase === 'waiting') {
         const { steps } = await this.loadCfg();
-        const lastStep = Math.max(1, steps.length);
-        if (exec.step > lastStep) {
-          const reset = {
+        const t = exec.target?.slice() || [];
+        const step = exec.waitStep;
+
+        // === 1) Если пропуск еще не был выполнен → пропускаем этот спин
+        if (!exec.waitSkipped) {
+          await this.setExec(
+            {
+              ...exec,
+              waitSkipped: true,
+            },
+            `Пропущен 1 спин → сейчас ставим шаг ${step}`
+          );
+
+          // ⛔ ВАЖНО: СТАВКА ДОЛЖНА ПРОИЗОЙТИ СЕЙЧАС ЖЕ, БЕЗ ОЖИДАНИЯ НОВОГО onSpin
+          // Значит, вызываем установку ставки ПРЯМО ЗДЕСЬ:
+
+          const after = {
             ...exec,
-            phase: 'idle',
-            target: null,
-            step: 1,
-            armedAt: 0,
-            cooldownSkipped: undefined,
-          };
-          await this.setExec(
-            reset,
-            `Сброс: превышен лимит шагов (${lastStep}) в cooldown`
-          );
-          await signalResetDots('threes');
-          return;
-        }
-
-        if (!exec.cooldownSkipped) {
-          const step = exec.step;
-          const t = (exec.target || []).slice();
-          const mid = { ...exec, cooldownSkipped: true };
-          await this.setExec(
-            mid,
-            `Cooldown: пропустили 1 спин; ставим шаг ${step} (через один)`
-          );
-
-          const next = {
-            ...mid,
             phase: 'armed',
-            target: t,
             step,
+            waitSkipped: false,
+            waitStep: 0,
             armedAt: Date.now(),
-            cooldownSkipped: undefined,
           };
+
           await this.setExec(
-            next,
-            `ГОТОВ (через один) шаг ${step} на ${t
+            after,
+            `ШАГ ${step} (через одну) на ${t
               .map(labelStreet)
               .join(', ')}`
           );
 
-          const ok = await BET.tryPlace({
+          const res = await placeStep(
             step,
-            targets: t,
+            t,
             steps,
-            getTargetNode: (i) => this.getTargetNode(i),
-            mutex: this.mutex,
-          });
+            this.mutex,
+            (i) => this.getTargetNode(i)
+          );
 
-          if (ok) {
-            const chips = await BET.loadGlobalChips();
-            const amount =
-              BET.perTargetAmountForStep(
-                step,
-                steps,
-                chips.chipValues
-              ) * t.length;
-            try {
-              const { betLogs = [] } = await this.sget({
-                betLogs: [],
-              });
-              betLogs.push({
-                t: Date.now(),
-                type: 'placed',
-                market: 'threes',
-                phase: 'armed',
-                message: `Шаг ${step} поставлен (через один)`,
-                amount,
-                step,
-              });
-              if (betLogs.length > 2000)
-                betLogs.splice(0, betLogs.length - 2000);
-              await this.sset({ betLogs });
-            } catch {}
+          if (res.ok) {
+            await this.logPlaced(
+              step,
+              res.amount,
+              `Шаг ${step} поставлен (через одну)`
+            );
           }
+
           BET.setBetStatus(
-            'bettingStatusThrees',
-            ok ? 'armed' : 'error',
-            ok
+            this.statusKey,
+            res.ok ? 'armed' : 'error',
+            res.ok
               ? `Шаг ${step} поставлен`
               : `Не удалось поставить шаг ${step}`
           );
+
           return;
         }
 
-        // Если сюда попали повторно уже после отметки пропуска — восстановим armed и поставим
-        const step = exec.step;
-        const t = (exec.target || []).slice();
-        const rec = {
-          ...exec,
-          phase: 'armed',
-          target: t,
-          step,
-          armedAt: Date.now(),
-          cooldownSkipped: undefined,
-        };
-        await this.setExec(
-          rec,
-          `ГОТОВ (восстановление) шаг ${step} на ${t
-            .map(labelStreet)
-            .join(', ')}`
-        );
-        const ok = await BET.tryPlace({
-          step,
-          targets: t,
-          steps,
-          getTargetNode: (i) => this.getTargetNode(i),
-          mutex: this.mutex,
-        });
-        BET.setBetStatus(
-          'bettingStatusThrees',
-          ok ? 'armed' : 'error',
-          ok
-            ? `Шаг ${step} поставлен`
-            : `Не удалось поставить шаг ${step}`
-        );
+        // Этот код больше НИКОГДА не будет вызван,
+        // потому что ставка ставится СРАЗУ при waitSkipped = false
         return;
-      }
-
-      // ====== WAITING: оставлено для обратной совместимости; новой логикой не используется
-      if (exec.phase === 'waiting') {
-        if (ix !== -1 && exec.target?.includes(ix)) {
-          const step = exec.step;
-          const t = exec.target?.slice() || [];
-          const { steps } = await this.loadCfg();
-          const next = {
-            ...exec,
-            phase: 'armed',
-            target: t,
-            step,
-            armedAt: Date.now(),
-            cooldownSkipped: undefined,
-          };
-          await this.setExec(
-            next,
-            `ГОТОВ шаг ${step} на ${t.map(labelStreet).join(', ')}`
-          );
-
-          const ok = await BET.tryPlace({
-            step,
-            targets: t,
-            steps,
-            getTargetNode: (i) => this.getTargetNode(i),
-            mutex: this.mutex,
-          });
-          if (ok) {
-            const chips = await BET.loadGlobalChips();
-            const amount =
-              BET.perTargetAmountForStep(
-                step,
-                steps,
-                chips.chipValues
-              ) * t.length;
-            try {
-              const { betLogs = [] } = await this.sget({
-                betLogs: [],
-              });
-              betLogs.push({
-                t: Date.now(),
-                type: 'placed',
-                market: 'threes',
-                phase: 'armed',
-                message: `Шаг ${step} поставлен`,
-                amount,
-                step,
-              });
-              if (betLogs.length > 2000)
-                betLogs.splice(0, betLogs.length - 2000);
-              await this.sset({ betLogs });
-            } catch {}
-          }
-          BET.setBetStatus(
-            'bettingStatusThrees',
-            ok ? 'armed' : 'error',
-            ok
-              ? `Шаг ${step} поставлен`
-              : `Не удалось поставить шаг ${step}`
-          );
-        }
       }
     }
 
