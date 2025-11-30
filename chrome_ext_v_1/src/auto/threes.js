@@ -62,42 +62,64 @@ import { entryGateFor } from '../shared/entry-limit.js';
   /**
    * Проверка окна триггера от хвоста.
    *
-   * Условие (как было ДО 4 улиц):
+   * Новое условие:
    *  - длина окна cnt >= need
-   *  - 1 <= covered.size <= 4 (НЕ БОЛЕЕ 4 улиц)
+   *  - covered.size === 4 (РОВНО 4 уникальных стрита)
    *
    * Возвращает { ok, covered, startIdx, cnt }.
    */
   function checkTriggerThrees(spinLogs, need, includeZero) {
-    const len = spinLogs.length;
-    let cnt = 0;
-    const covered = new Set(); // 0..11
+    const len = Array.isArray(spinLogs) ? spinLogs.length : 0;
 
-    for (let i = len - 1; i >= 0 && cnt < need; i--) {
+    // Спинов меньше, чем нужно — сразу мимо
+    if (len < need) {
+      return { ok: false, covered: null, startIdx: -1, cnt: 0 };
+    }
+
+    // Окно — РОВНО последние `need` записей
+    const startIdx = len - need;
+    const covered = new Set(); // 0..11
+    let cnt = 0;
+
+    for (let i = startIdx; i < len; i++) {
       const n = Number(spinLogs[i]?.n);
-      if (!Number.isFinite(n)) break;
+      if (!Number.isFinite(n)) {
+        // мусор в логах — считаем окно невалидным
+        return { ok: false, covered: null, startIdx: -1, cnt: 0 };
+      }
 
       if (n === 0) {
-        if (!includeZero) break; // 0 рвёт окно
-        cnt++; // 0 только удлиняет, улицу не добавляет
+        if (!includeZero) {
+          // 0 рвёт окно → триггера нет
+          return { ok: false, covered: null, startIdx: -1, cnt: 0 };
+        }
+        // includeZero === true → 0 удлиняет окно, но улицу не добавляет
+        cnt++;
         continue;
       }
 
       const si = streetIndex(n);
-      if (si === -1) break;
+      if (si === -1) {
+        // вне диапазона 1..36 — окно невалидно
+        return { ok: false, covered: null, startIdx: -1, cnt: 0 };
+      }
 
       if (!covered.has(si)) {
-        if (covered.size === 4) break; // пятую улицу не даём
+        // Пытается залететь 5-й стрит → всё, условие про 4 улицы не выполняется
+        if (covered.size === 4) {
+          return { ok: false, covered: null, startIdx: -1, cnt: 0 };
+        }
         covered.add(si);
       }
 
       cnt++;
     }
 
-    if (cnt >= need && covered.size >= 1 && covered.size <= 4) {
-      const startIdx = len - cnt;
+    // Условие триггера: в окне РОВНО `need` спинов и РОВНО 4 разных стрита
+    if (cnt === need && covered.size === 4) {
       return { ok: true, covered, startIdx, cnt };
     }
+
     return { ok: false, covered: null, startIdx: -1, cnt };
   }
 
