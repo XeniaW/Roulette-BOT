@@ -179,9 +179,24 @@
     steps,
     getTargetNode,
     mutex,
+
+    // ✅ новые опции (не обязательные)
+    maxWaitMs,
+    retryMs,
   }) {
     const chips = await loadGlobalChips(); // {chipSelectorTemplate, chipValues}
-    const deadline = Date.now() + RETRY_TIME_LIMIT_MS;
+
+    const timeLimit =
+      Number.isFinite(maxWaitMs) && maxWaitMs > 0
+        ? Math.floor(maxWaitMs)
+        : RETRY_TIME_LIMIT_MS;
+
+    const tick =
+      Number.isFinite(retryMs) && retryMs > 0
+        ? Math.floor(retryMs)
+        : RETRY_MS;
+
+    const deadline = Date.now() + timeLimit;
     const plan = planForStep(step, steps, chips.chipValues.length);
 
     return mutex.run(async () => {
@@ -190,9 +205,11 @@
           chips.chipValues,
           chips.chipSelectorTemplate
         ).map((x) => x.node);
+
         const okChips = plan.every((c) => isEnabled(chipNodes[c.i]));
         const tNodes = targets.map((t) => getTargetNode(t));
         const okTargets = tNodes.every(isEnabled);
+
         if (okChips && okTargets) {
           for (let t = 0; t < targets.length; t++) {
             for (const c of plan) {
@@ -205,7 +222,8 @@
           }
           return true;
         }
-        await new Promise((r) => setTimeout(r, RETRY_MS));
+
+        await new Promise((r) => setTimeout(r, tick));
       }
       return false;
     });

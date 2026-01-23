@@ -21,6 +21,9 @@ import { entryGateFor } from '../shared/entry-limit.js';
     ],
   });
 
+  // ✅ увеличенное окно ожидания ставок ТОЛЬКО для threes
+  const PLACE_MAX_WAIT_MS = 20000;
+
   // 1..36 -> 0..11, 0 -> -1
   function streetIndex(n) {
     if (n === 0) return -1;
@@ -62,8 +65,8 @@ import { entryGateFor } from '../shared/entry-limit.js';
   /**
    * Проверка окна триггера от хвоста.
    *
-   * Новое условие:
-   *  - длина окна cnt >= need
+   * Условие:
+   *  - окно РОВНО последние `need` записей
    *  - covered.size === 4 (РОВНО 4 уникальных стрита)
    *
    * Возвращает { ok, covered, startIdx, cnt }.
@@ -71,12 +74,10 @@ import { entryGateFor } from '../shared/entry-limit.js';
   function checkTriggerThrees(spinLogs, need, includeZero) {
     const len = Array.isArray(spinLogs) ? spinLogs.length : 0;
 
-    // Спинов меньше, чем нужно — сразу мимо
     if (len < need) {
       return { ok: false, covered: null, startIdx: -1, cnt: 0 };
     }
 
-    // Окно — РОВНО последние `need` записей
     const startIdx = len - need;
     const covered = new Set(); // 0..11
     let cnt = 0;
@@ -84,28 +85,23 @@ import { entryGateFor } from '../shared/entry-limit.js';
     for (let i = startIdx; i < len; i++) {
       const n = Number(spinLogs[i]?.n);
       if (!Number.isFinite(n)) {
-        // мусор в логах — считаем окно невалидным
         return { ok: false, covered: null, startIdx: -1, cnt: 0 };
       }
 
       if (n === 0) {
         if (!includeZero) {
-          // 0 рвёт окно → триггера нет
           return { ok: false, covered: null, startIdx: -1, cnt: 0 };
         }
-        // includeZero === true → 0 удлиняет окно, но улицу не добавляет
         cnt++;
         continue;
       }
 
       const si = streetIndex(n);
       if (si === -1) {
-        // вне диапазона 1..36 — окно невалидно
         return { ok: false, covered: null, startIdx: -1, cnt: 0 };
       }
 
       if (!covered.has(si)) {
-        // Пытается залететь 5-й стрит → всё, условие про 4 улицы не выполняется
         if (covered.size === 4) {
           return { ok: false, covered: null, startIdx: -1, cnt: 0 };
         }
@@ -115,7 +111,6 @@ import { entryGateFor } from '../shared/entry-limit.js';
       cnt++;
     }
 
-    // Условие триггера: в окне РОВНО `need` спинов и РОВНО 4 разных стрита
     if (cnt === need && covered.size === 4) {
       return { ok: true, covered, startIdx, cnt };
     }
@@ -123,7 +118,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
     return { ok: false, covered: null, startIdx: -1, cnt };
   }
 
-  // постановка шага
+  // постановка шага (все ставки threes идут через это, значит окно увеличено везде)
   async function placeStep(step, targets, steps, mutex, getNode) {
     const ok = await BET.tryPlace({
       step,
@@ -131,7 +126,9 @@ import { entryGateFor } from '../shared/entry-limit.js';
       steps,
       getTargetNode: (i) => getNode(i),
       mutex,
+      maxWaitMs: PLACE_MAX_WAIT_MS,
     });
+
     if (!ok) return { ok: false, amount: 0 };
 
     const chips = await BET.loadGlobalChips();
@@ -185,7 +182,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
         ? s.spinLogs.slice()
         : [];
       if (
-        spinLogs.length === 0 ||
+        !spinLogs.length ||
         spinLogs[spinLogs.length - 1]?.n !== n
       ) {
         spinLogs.push({ n });
@@ -201,6 +198,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
 
         const chk = checkTriggerThrees(spinLogs, need, !!includeZero);
 
+        // ✅ ВОЗВРАЩЕНО: guardCutIndex + idleGuard
         const guardCutIndex =
           Number.isInteger(exec.guardCutIndex) &&
           exec.guardCutIndex >= 0
@@ -247,9 +245,12 @@ import { entryGateFor } from '../shared/entry-limit.js';
             armedAt: Date.now(),
             idleGuard: false,
             guardCutIndex: -1,
-            waitSkipDone: false,
+
+            // ✅ мини-баг фикс: одно поле
+            waitSkipped: false,
             waitStep: 0,
           };
+
           await this.setExec(
             next,
             `ВХОД → цели: ${targets
@@ -289,7 +290,9 @@ import { entryGateFor } from '../shared/entry-limit.js';
             armedAt: 0,
             idleGuard: true,
             guardCutIndex: spinLogs.length, // новый вход только по окну после этой точки
-            waitSkipDone: false,
+
+            // ✅ мини-баг фикс: одно поле
+            waitSkipped: false,
             waitStep: 0,
           };
           await this.setExec(
@@ -318,7 +321,9 @@ import { entryGateFor } from '../shared/entry-limit.js';
             armedAt: 0,
             idleGuard: true,
             guardCutIndex: spinLogs.length,
-            waitSkipDone: false,
+
+            // ✅ мини-баг фикс: одно поле
+            waitSkipped: false,
             waitStep: 0,
           };
           await this.setExec(
@@ -344,7 +349,9 @@ import { entryGateFor } from '../shared/entry-limit.js';
             target: t,
             step,
             armedAt: Date.now(),
-            waitSkipDone: false,
+
+            // ✅ мини-баг фикс: одно поле
+            waitSkipped: false,
             waitStep: 0,
           };
           await this.setExec(
@@ -353,6 +360,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
               .map(labelStreet)
               .join(', ')}`
           );
+
           const res = await placeStep(
             step,
             t,
@@ -360,12 +368,14 @@ import { entryGateFor } from '../shared/entry-limit.js';
             this.mutex,
             (i) => this.getTargetNode(i)
           );
+
           if (res.ok)
             await this.logPlaced(
               step,
               res.amount,
               `Шаг ${step} поставлен (auto)`
             );
+
           BET.setBetStatus(
             this.statusKey,
             res.ok ? 'armed' : 'error',
@@ -379,10 +389,12 @@ import { entryGateFor } from '../shared/entry-limit.js';
         // ===== режим "через одну" =====
         const next = {
           ...exec,
-          phase: 'waiting', // используем waiting как cooldown-режим
-          waitStep: exec.step + 1, // какой шаг ставим после паузы
-          waitSkipDone: false, // ещё ни один спин не пропущен
+          phase: 'waiting',
+          waitStep: exec.step + 1,
+          // ✅ мини-баг фикс: одно поле
+          waitSkipped: false,
         };
+
         await this.setExec(
           next,
           `ПРОИГРЫШ → пропускаем 1 спин; следующий шаг ${next.waitStep} через один`
@@ -401,7 +413,6 @@ import { entryGateFor } from '../shared/entry-limit.js';
         const t = exec.target?.slice() || [];
         const step = exec.waitStep;
 
-        // === 1) Если пропуск еще не был выполнен → пропускаем этот спин
         if (!exec.waitSkipped) {
           await this.setExec(
             {
@@ -410,9 +421,6 @@ import { entryGateFor } from '../shared/entry-limit.js';
             },
             `Пропущен 1 спин → сейчас ставим шаг ${step}`
           );
-
-          // ⛔ ВАЖНО: СТАВКА ДОЛЖНА ПРОИЗОЙТИ СЕЙЧАС ЖЕ, БЕЗ ОЖИДАНИЯ НОВОГО onSpin
-          // Значит, вызываем установку ставки ПРЯМО ЗДЕСЬ:
 
           const after = {
             ...exec,
@@ -457,8 +465,6 @@ import { entryGateFor } from '../shared/entry-limit.js';
           return;
         }
 
-        // Этот код больше НИКОГДА не будет вызван,
-        // потому что ставка ставится СРАЗУ при waitSkipped = false
         return;
       }
     }
@@ -491,6 +497,8 @@ import { entryGateFor } from '../shared/entry-limit.js';
     window.addEventListener(
       'DOMContentLoaded',
       () => window.__STRAT_THREES__.init(),
-      { once: true }
+      {
+        once: true,
+      }
     );
 })();

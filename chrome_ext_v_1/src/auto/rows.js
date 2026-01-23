@@ -16,6 +16,9 @@ import { entryGateFor } from '../shared/entry-limit.js';
     ],
   });
 
+  // ✅ увеличенное окно ожидания ставок ТОЛЬКО для rows
+  const PLACE_MAX_WAIT_MS = 20000;
+
   // ЖЁСТКАЯ карта селекторов рядов:
   // idx 0 -> ряд 1 (3..36), idx 1 -> ряд 2 (2..35), idx 2 -> ряд 3 (1..34)
   const ROW_SEL = ['#index-700', '#index-701', '#index-702'];
@@ -131,6 +134,9 @@ import { entryGateFor } from '../shared/entry-limit.js';
         steps,
         getTargetNode: (i) => getRowNode(i),
         mutex: this.mutex,
+
+        // ✅ увеличили окно ожидания “между спином и ставками”
+        maxWaitMs: PLACE_MAX_WAIT_MS,
       });
 
       if (ok) {
@@ -302,7 +308,6 @@ import { entryGateFor } from '../shared/entry-limit.js';
           armedAt: 0,
           cooldownSkipped: false, // ещё не отметили пропуск
         };
-        // цель не меняем: против triggerRow
         next.target = opponentsOf(exec.triggerRow);
         await this.setExec(
           next,
@@ -361,7 +366,6 @@ import { entryGateFor } from '../shared/entry-limit.js';
           return;
         }
 
-        // если внезапно пришли во второй раз с уже отмеченным пропуском — просто восстановим armed и поставим
         const step = exec.step;
         const rec = {
           ...exec,
@@ -437,6 +441,8 @@ import { entryGateFor } from '../shared/entry-limit.js';
     window.addEventListener(
       'DOMContentLoaded',
       () => window.__STRAT_ROWS__.init(),
-      { once: true }
+      {
+        once: true,
+      }
     );
 })();

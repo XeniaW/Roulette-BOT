@@ -17,6 +17,9 @@ import { entryGateFor } from '../shared/entry-limit.js';
     ],
   });
 
+  // ✅ увеличенное окно ожидания ставок ТОЛЬКО для evenodd
+  const PLACE_MAX_WAIT_MS = 20000;
+
   // idx: 0 = чёт, 1 = нечёт, -1 = 0
   function eoIndex(n) {
     if (n === 0) return -1;
@@ -62,6 +65,9 @@ import { entryGateFor } from '../shared/entry-limit.js';
       steps,
       getTargetNode: (i) => getNode(i),
       mutex,
+
+      // ✅ увеличили окно ожидания “между спином и ставками”
+      maxWaitMs: PLACE_MAX_WAIT_MS,
     });
     if (!ok) return { ok: false, amount: 0 };
 
@@ -108,6 +114,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
           triggerStreak,
           includeZero
         );
+
         if (ref != null) {
           const gateOk = await entryGateFor(
             'evenodd',
@@ -367,6 +374,8 @@ import { entryGateFor } from '../shared/entry-limit.js';
     window.addEventListener(
       'DOMContentLoaded',
       () => window.__STRAT_EVENODD__.init(),
-      { once: true }
+      {
+        once: true,
+      }
     );
 })();

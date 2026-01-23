@@ -17,6 +17,10 @@ import { entryGateFor } from '../shared/entry-limit.js';
     ],
   });
 
+  // ✅ Дольше ждём появления окна ставок/кнопок только для six
+  // (решает задержку между спином и открытием ставок на некоторых столах)
+  const PLACE_MAX_WAIT_MS = 20000;
+
   // sixIndex: 1..36 -> 0..5, 0 -> -1
   function sixIndex(n) {
     if (n === 0) return -1; // 0 обрабатываем отдельно через includeZero
@@ -138,7 +142,10 @@ import { entryGateFor } from '../shared/entry-limit.js';
             steps,
             getTargetNode: (i) => this.getTargetNode(i),
             mutex: this.mutex,
+            // ✅ увеличили окно ожидания (только six)
+            maxWaitMs: PLACE_MAX_WAIT_MS,
           });
+
           if (ok) {
             const chips = await BET.loadGlobalChips();
             const amount =
@@ -162,6 +169,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
               await this.sset({ betLogs });
             } catch {}
           }
+
           BET.setBetStatus(
             'bettingStatusSix',
             ok ? 'armed' : 'error',
@@ -225,13 +233,17 @@ import { entryGateFor } from '../shared/entry-limit.js';
               .map((x) => this.label(x))
               .join(',')}`
           );
+
           const ok = await BET.tryPlace({
             step,
             targets: t,
             steps,
             getTargetNode: (i) => this.getTargetNode(i),
             mutex: this.mutex,
+            // ✅ увеличили окно ожидания (только six)
+            maxWaitMs: PLACE_MAX_WAIT_MS,
           });
+
           if (ok) {
             const chips = await BET.loadGlobalChips();
             const amount =
@@ -258,6 +270,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
               await this.sset({ betLogs });
             } catch {}
           }
+
           BET.setBetStatus(
             'bettingStatusSix',
             ok ? 'armed' : 'error',
@@ -334,6 +347,8 @@ import { entryGateFor } from '../shared/entry-limit.js';
             steps,
             getTargetNode: (i) => this.getTargetNode(i),
             mutex: this.mutex,
+            // ✅ увеличили окно ожидания (только six)
+            maxWaitMs: PLACE_MAX_WAIT_MS,
           });
 
           if (ok) {
@@ -362,6 +377,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
               await this.sset({ betLogs });
             } catch {}
           }
+
           BET.setBetStatus(
             'bettingStatusSix',
             ok ? 'armed' : 'error',
@@ -389,13 +405,17 @@ import { entryGateFor } from '../shared/entry-limit.js';
             .map((x) => this.label(x))
             .join(',')}`
         );
+
         const ok = await BET.tryPlace({
           step,
           targets: t,
           steps,
           getTargetNode: (i) => this.getTargetNode(i),
           mutex: this.mutex,
+          // ✅ увеличили окно ожидания (только six)
+          maxWaitMs: PLACE_MAX_WAIT_MS,
         });
+
         BET.setBetStatus(
           'bettingStatusSix',
           ok ? 'armed' : 'error',
@@ -426,13 +446,17 @@ import { entryGateFor } from '../shared/entry-limit.js';
               .map((x) => this.label(x))
               .join(',')}`
           );
+
           const ok = await BET.tryPlace({
             step,
             targets: t,
             steps,
             getTargetNode: (i) => this.getTargetNode(i),
             mutex: this.mutex,
+            // ✅ увеличили окно ожидания (только six)
+            maxWaitMs: PLACE_MAX_WAIT_MS,
           });
+
           if (ok) {
             const chips = await BET.loadGlobalChips();
             const amount =
@@ -459,6 +483,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
               await this.sset({ betLogs });
             } catch {}
           }
+
           BET.setBetStatus(
             'bettingStatusSix',
             ok ? 'armed' : 'error',

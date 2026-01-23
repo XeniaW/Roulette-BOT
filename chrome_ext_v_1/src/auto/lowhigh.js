@@ -17,6 +17,9 @@ import { entryGateFor } from '../shared/entry-limit.js';
     ],
   });
 
+  // ✅ увеличенное окно ожидания ставок ТОЛЬКО для lowhigh
+  const PLACE_MAX_WAIT_MS = 20000;
+
   // idx: 0 = 1–18, 1 = 19–36, -1 = 0/мусор
   function sideIndex(n) {
     if (n === 0) return -1;
@@ -65,6 +68,9 @@ import { entryGateFor } from '../shared/entry-limit.js';
       steps,
       getTargetNode: (i) => getNode(i),
       mutex,
+
+      // ✅ увеличили окно ожидания “между спином и ставками”
+      maxWaitMs: PLACE_MAX_WAIT_MS,
     });
     if (!ok) return { ok: false, amount: 0 };
 
@@ -129,6 +135,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
           triggerStreak,
           includeZero
         );
+
         if (ref != null) {
           const gateOk = await entryGateFor(
             'lowhigh',
@@ -328,7 +335,6 @@ import { entryGateFor } from '../shared/entry-limit.js';
             'cooldown',
             `Пропущен 1 спин → сейчас ставим шаг ${step}`
           );
-          // следующий onSpin (следующий спин) уже поставит ставку
           return;
         }
 
@@ -360,6 +366,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
               res.amount,
               `Шаг ${step} поставлен (через одну)`
             );
+
           BET.setBetStatus(
             'bettingStatusLowHigh',
             res.ok ? 'armed' : 'error',
@@ -417,6 +424,8 @@ import { entryGateFor } from '../shared/entry-limit.js';
     window.addEventListener(
       'DOMContentLoaded',
       () => window.__STRAT_LOWHIGH__.init(),
-      { once: true }
+      {
+        once: true,
+      }
     );
 })();

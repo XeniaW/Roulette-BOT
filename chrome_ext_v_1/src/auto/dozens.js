@@ -17,6 +17,9 @@ import { entryGateFor } from '../shared/entry-limit.js';
     ],
   });
 
+  // ✅ увеличенное окно ожидания ставок ТОЛЬКО для dozens
+  const PLACE_MAX_WAIT_MS = 20000;
+
   const $ = (sel) => document.querySelector(sel);
   const dozenButtons = [
     $('#index-800'),
@@ -103,6 +106,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
           includeZero,
           this.getIndex
         );
+
         if (ref != null) {
           // лимит входа (ваш Gate)
           const gateOk = await entryGateFor(
@@ -135,6 +139,8 @@ import { entryGateFor } from '../shared/entry-limit.js';
             steps,
             getTargetNode: (i) => this.getTargetNode(i),
             mutex: this.mutex,
+            // ✅ увеличили окно ожидания
+            maxWaitMs: PLACE_MAX_WAIT_MS,
           });
 
           if (ok) {
@@ -160,6 +166,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
               await this.sset({ betLogs });
             } catch {}
           }
+
           BET.setBetStatus(
             'bettingStatusDozens',
             ok ? 'armed' : 'error',
@@ -206,8 +213,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
           return;
         }
 
-        // === ИЗМЕНЕННАЯ ЛОГИКА ===
-        // если autoContinue ВКЛ → ставим сразу следующий шаг (как раньше)
+        // если autoContinue ВКЛ → ставим сразу следующий шаг
         if (autoContinue) {
           const step = exec.step + 1;
           const t = exec.target.slice();
@@ -232,6 +238,8 @@ import { entryGateFor } from '../shared/entry-limit.js';
             steps,
             getTargetNode: (i) => this.getTargetNode(i),
             mutex: this.mutex,
+            // ✅ увеличили окно ожидания
+            maxWaitMs: PLACE_MAX_WAIT_MS,
           });
 
           if (ok) {
@@ -260,6 +268,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
               await this.sset({ betLogs });
             } catch {}
           }
+
           BET.setBetStatus(
             'bettingStatusDozens',
             ok ? 'armed' : 'error',
@@ -274,11 +283,11 @@ import { entryGateFor } from '../shared/entry-limit.js';
         const step = exec.step + 1;
         const next = {
           ...exec,
-          phase: 'cooldown', // НОВАЯ фаза: пропускаем один спин
+          phase: 'cooldown',
           target: exec.target?.slice(),
           step,
           armedAt: 0,
-          cooldownSkipped: false, // еще не пропустили
+          cooldownSkipped: false,
         };
         await this.setExec(
           next,
@@ -287,7 +296,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
         return;
       }
 
-      // --- COOLDOWN: пропускаем один спин, затем СРАЗУ ставим (в этом же вызове) на следующий
+      // --- COOLDOWN: пропускаем один спин, затем СРАЗУ ставим
       if (exec.phase === 'cooldown') {
         const { steps } = await this.loadCfg();
         const lastStep = Math.max(1, steps.length);
@@ -307,20 +316,16 @@ import { entryGateFor } from '../shared/entry-limit.js';
           return;
         }
 
-        // если ещё не отмечали пропуск — считаем, что ЭТОТ спин и был пропущенным,
-        // и СРАЗУ ставим "через один" (на текущем вызове onSpin).
         if (!exec.cooldownSkipped) {
           const step = exec.step;
           const t = exec.target?.slice() || [];
 
-          // помечаем, что один спин пропустили
           const mid = { ...exec, cooldownSkipped: true };
           await this.setExec(
             mid,
             `Cooldown: пропустили 1 спин; ставим шаг ${step} (через один)`
           );
 
-          // сразу переходим в armed и ставим
           const next = {
             ...mid,
             phase: 'armed',
@@ -342,6 +347,8 @@ import { entryGateFor } from '../shared/entry-limit.js';
             steps,
             getTargetNode: (i) => this.getTargetNode(i),
             mutex: this.mutex,
+            // ✅ увеличили окно ожидания
+            maxWaitMs: PLACE_MAX_WAIT_MS,
           });
 
           if (ok) {
@@ -370,6 +377,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
               await this.sset({ betLogs });
             } catch {}
           }
+
           BET.setBetStatus(
             'bettingStatusDozens',
             ok ? 'armed' : 'error',
@@ -380,8 +388,6 @@ import { entryGateFor } from '../shared/entry-limit.js';
           return;
         }
 
-        // Если каким-то образом сюда попали при cooldownSkipped === true (например, гонка) —
-        // просто восстановим armed без второй попытки пропуска.
         const step = exec.step;
         const t = exec.target?.slice() || [];
         const next = {
@@ -398,13 +404,17 @@ import { entryGateFor } from '../shared/entry-limit.js';
             .map((x) => this.label(x))
             .join(',')}`
         );
+
         const ok = await BET.tryPlace({
           step,
           targets: t,
           steps,
           getTargetNode: (i) => this.getTargetNode(i),
           mutex: this.mutex,
+          // ✅ увеличили окно ожидания
+          maxWaitMs: PLACE_MAX_WAIT_MS,
         });
+
         BET.setBetStatus(
           'bettingStatusDozens',
           ok ? 'armed' : 'error',
@@ -415,7 +425,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
         return;
       }
 
-      // --- WAITING (оставлено для обратной совместимости: не используется в новой схеме)
+      // --- WAITING (оставлено для обратной совместимости)
       if (exec.phase === 'waiting') {
         if (ix !== -1 && exec.target?.includes(ix)) {
           const step = exec.step;
@@ -435,13 +445,17 @@ import { entryGateFor } from '../shared/entry-limit.js';
               .map((x) => this.label(x))
               .join(',')}`
           );
+
           const ok = await BET.tryPlace({
             step,
             targets: t,
             steps,
             getTargetNode: (i) => this.getTargetNode(i),
             mutex: this.mutex,
+            // ✅ увеличили окно ожидания
+            maxWaitMs: PLACE_MAX_WAIT_MS,
           });
+
           if (ok) {
             const chips = await BET.loadGlobalChips();
             const amount =
@@ -468,6 +482,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
               await this.sset({ betLogs });
             } catch {}
           }
+
           BET.setBetStatus(
             'bettingStatusDozens',
             ok ? 'armed' : 'error',
@@ -507,7 +522,9 @@ import { entryGateFor } from '../shared/entry-limit.js';
     window.addEventListener(
       'DOMContentLoaded',
       () => window.__STRAT_DOZENS__.init(),
-      { once: true }
+      {
+        once: true,
+      }
     );
   }
 })();

@@ -17,6 +17,9 @@ import { entryGateFor } from '../shared/entry-limit.js';
     ],
   });
 
+  // ✅ увеличенное окно ожидания ставок ТОЛЬКО для colors
+  const PLACE_MAX_WAIT_MS = 20000;
+
   const RED = new Set([
     1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36,
   ]);
@@ -65,6 +68,9 @@ import { entryGateFor } from '../shared/entry-limit.js';
       steps,
       getTargetNode: (i) => getNode(i),
       mutex,
+
+      // ✅ увеличили окно ожидания “между спином и ставками”
+      maxWaitMs: PLACE_MAX_WAIT_MS,
     });
     if (!ok) return { ok: false, amount: 0 };
 
@@ -370,6 +376,8 @@ import { entryGateFor } from '../shared/entry-limit.js';
     window.addEventListener(
       'DOMContentLoaded',
       () => window.__STRAT_COLORS__.init(),
-      { once: true }
+      {
+        once: true,
+      }
     );
 })();
