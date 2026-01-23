@@ -27,7 +27,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   loadLogs((logs) => {
     setLatestSpins(Array.isArray(logs) ? logs : []);
     renderAll(logs);
-    updateDotsFromState(); // чтобы лампочки сразу соответствовали списку
+    updateDotsFromState();
   });
 
   loadBetLogs(renderBetAll);
@@ -39,9 +39,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadMarketUI('threes');
 
   // NEW: дополнительные рынки половин
-  await loadMarketUI('lowhigh'); // 1–18 / 19–36
-  await loadMarketUI('evenodd'); // чёт / нечёт
-  await loadMarketUI('colors'); // красное / чёрное
+  await loadMarketUI('lowhigh');
+  await loadMarketUI('evenodd');
+  await loadMarketUI('colors');
+
+  // ✅ NEW: sectors (racetrack)
+  await loadMarketUI('sectors');
 
   // главный тумблер
   await loadToggle();
@@ -67,7 +70,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   chrome.storage.onChanged.addListener((ch, area) => {
     if (area !== 'local') return;
 
-    // новые спины → аккуратно обновить и перерисовать прогресс
     if (ch.spinLogs) {
       const next = Array.isArray(ch.spinLogs.newValue)
         ? ch.spinLogs.newValue
@@ -76,13 +78,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       updateDotsFromState();
     }
 
-    // сброс лампочек трёшек от стратегии (вход/выигрыш)
-    // handleStorageChangeForStreaks сам сделает локальный reset+перерисовку
     handleStorageChangeForStreaks(ch, area);
 
-    // streakState мог измениться (например, при выключении рынков) — просто перерисуем
     if (ch.streakState) {
-      // setCurrStreakState не обязателен для точек, но пусть будет консистентность
       setCurrStreakState(ch.streakState.newValue || DEFAULT_STREAK);
       updateDotsFromState();
     }

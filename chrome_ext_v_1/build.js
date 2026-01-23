@@ -31,6 +31,7 @@ const ENTRY_POINTS = [
   'src/auto/colors.js',
   'src/auto/evenodd.js',
   'src/auto/lowhigh.js',
+  'src/auto/sectors.js',
 ];
 
 const BASE = {

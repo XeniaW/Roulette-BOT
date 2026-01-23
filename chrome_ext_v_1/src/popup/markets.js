@@ -9,6 +9,8 @@ import {
   lowhighStreakInp,
   evenoddStreakInp,
   colorsStreakInp,
+  // ✅ NEW:
+  sectorsStreakInp,
 
   // checkboxes (auto-continue)
   dozensAutoCk,
@@ -18,6 +20,8 @@ import {
   lowhighAutoCk,
   evenoddAutoCk,
   colorsAutoCk,
+  // ✅ NEW:
+  sectorsAutoCk,
 
   // checkboxes (include zero)
   dozensZeroCk,
@@ -27,6 +31,8 @@ import {
   lowhighZeroCk,
   evenoddZeroCk,
   colorsZeroCk,
+  // ✅ NEW:
+  sectorsZeroCk,
 
   // toggles
   autoBetToggleDozens,
@@ -36,6 +42,8 @@ import {
   autoBetToggleLowHigh,
   autoBetToggleEvenOdd,
   autoBetToggleColors,
+  // ✅ NEW:
+  autoBetToggleSectors,
 
   // steps boxes
   dznStepsBox,
@@ -45,6 +53,8 @@ import {
   lowhighStepsBox,
   evenoddStepsBox,
   colorsStepsBox,
+  // ✅ NEW:
+  sectorsStepsBox,
 
   // cfg messages
   cfgDznMsg,
@@ -54,8 +64,10 @@ import {
   cfgLowHighMsg,
   cfgEvenOddMsg,
   cfgColorsMsg,
+  // ✅ NEW:
+  cfgSectorsMsg,
 
-  // bet status output spans (for initial render only)
+  // bet status output spans
   betStatusDozens,
   betStatusRows,
   betStatusSix,
@@ -63,6 +75,8 @@ import {
   betStatusLowHigh,
   betStatusEvenOdd,
   betStatusColors,
+  // ✅ NEW:
+  betStatusSectors,
 } from './dom.js';
 
 import { renderSteps, getStepsFromUI, addStep } from './steps-ui.js';
@@ -74,10 +88,11 @@ export const CFG_DZN_KEY = 'abDozensConfig';
 export const CFG_ROW_KEY = 'abRowsConfig';
 export const CFG_SIX_KEY = 'abSixConfig';
 export const CFG_THREES_KEY = 'abThreesConfig';
-// NEW:
 export const CFG_LOWHIGH_KEY = 'abLowHighConfig';
 export const CFG_EVENODD_KEY = 'abEvenOddConfig';
 export const CFG_COLORS_KEY = 'abColorsConfig';
+// ✅ NEW:
+export const CFG_SECTORS_KEY = 'abSectorsConfig';
 
 // === Default market config ===
 export const DEFAULT_MKT = Object.freeze({
@@ -105,6 +120,7 @@ export function sanitizeMkt(raw) {
     src.autoContinue ?? DEFAULT_MKT.autoContinue
   );
   const includeZero = !!(src.includeZero ?? DEFAULT_MKT.includeZero);
+
   let steps = Array.isArray(src.steps)
     ? src.steps
     : DEFAULT_MKT.steps;
@@ -232,15 +248,27 @@ export async function loadMarketUI(market) {
     stepsBox = colorsStepsBox;
     msgEl = cfgColorsMsg;
     statusElDest = betStatusColors;
+  } else if (market === 'sectors') {
+    // ✅ NEW
+    cfgKey = CFG_SECTORS_KEY;
+    enKey = 'autoBettingSectorsEnabled';
+    statusKey = 'bettingStatusSectors';
+    streakInp = sectorsStreakInp;
+    autoCk = sectorsAutoCk;
+    zeroCk = sectorsZeroCk;
+    toggle = autoBetToggleSectors;
+    stepsBox = sectorsStepsBox;
+    msgEl = cfgSectorsMsg;
+    statusElDest = betStatusSectors;
   } else {
     return;
   }
 
-  // начальные значения enabled + статус
   const st = await sget({
     [enKey]: false,
     [statusKey]: { state: 'off', message: '' },
   });
+
   if (toggle) toggle.checked = !!st[enKey];
   const stat = st[statusKey] || { state: 'off', message: '' };
   if (statusElDest)
@@ -248,7 +276,6 @@ export async function loadMarketUI(market) {
       stat.state || 'off'
     ).toUpperCase()}] ${stat.message || ''}`;
 
-  // конфиг
   const cfg = sanitizeMkt(
     (await sget({ [cfgKey]: DEFAULT_MKT }))[cfgKey]
   );
@@ -259,14 +286,16 @@ export async function loadMarketUI(market) {
   renderSteps(stepsBox, cfg.steps, { silent: true });
   if (msgEl) msgEl.textContent = 'Loaded';
 
-  // кнопка добавления шага рядом с текущим stepsBox
   const btnAddStep =
     stepsBox?.parentElement?.querySelector('.btn-add-step') ||
-    stepsBox?.closest('.market-card')?.querySelector('.btn-add-step');
+    stepsBox
+      ?.closest('.market-card')
+      ?.querySelector('.btn-add-step') ||
+    findAddStepBtn(stepsBox, market);
+
   if (btnAddStep) {
     btnAddStep.addEventListener('click', () => {
       addStep(stepsBox);
-      // steps:changed эмитится внутри addStep -> автосейв дернётся снаружи
     });
   }
 }
@@ -323,6 +352,14 @@ export async function saveMarketCfgFromUI(market) {
     streakInpEl = colorsStreakInp;
     autoCkEl = colorsAutoCk;
     zeroCkEl = colorsZeroCk;
+  } else if (market === 'sectors') {
+    // ✅ NEW
+    cfgKey = CFG_SECTORS_KEY;
+    stepsBox = sectorsStepsBox;
+    msgEl = cfgSectorsMsg;
+    streakInpEl = sectorsStreakInp;
+    autoCkEl = sectorsAutoCk;
+    zeroCkEl = sectorsZeroCk;
   } else return;
 
   const streak = Math.max(
@@ -390,7 +427,6 @@ export function wireMarketTogglesReset() {
     rows: { count: 0, idx: null },
   };
 
-  // Dozens
   autoBetToggleDozens?.addEventListener('change', async () => {
     const checked = !!autoBetToggleDozens.checked;
     await sset({ autoBettingDozensEnabled: checked });
@@ -409,7 +445,6 @@ export function wireMarketTogglesReset() {
     }
   });
 
-  // Rows
   autoBetToggleRows?.addEventListener('change', async () => {
     const checked = !!autoBetToggleRows.checked;
     await sset({ autoBettingRowsEnabled: checked });
@@ -428,7 +463,6 @@ export function wireMarketTogglesReset() {
     }
   });
 
-  // Six
   autoBetToggleSix?.addEventListener('change', async () => {
     const checked = !!autoBetToggleSix.checked;
     await sset({ autoBettingSixEnabled: checked });
@@ -438,7 +472,6 @@ export function wireMarketTogglesReset() {
     }
   });
 
-  // Threes
   autoBetToggleThrees?.addEventListener('change', async () => {
     const checked = !!autoBetToggleThrees.checked;
     await sset({ autoBettingThreesEnabled: checked });
@@ -448,7 +481,6 @@ export function wireMarketTogglesReset() {
     }
   });
 
-  // NEW: Low/High
   autoBetToggleLowHigh?.addEventListener('change', async () => {
     const checked = !!autoBetToggleLowHigh.checked;
     await sset({ autoBettingLowHighEnabled: checked });
@@ -458,7 +490,6 @@ export function wireMarketTogglesReset() {
     }
   });
 
-  // NEW: Even/Odd
   autoBetToggleEvenOdd?.addEventListener('change', async () => {
     const checked = !!autoBetToggleEvenOdd.checked;
     await sset({ autoBettingEvenOddEnabled: checked });
@@ -468,12 +499,21 @@ export function wireMarketTogglesReset() {
     }
   });
 
-  // NEW: Colors
   autoBetToggleColors?.addEventListener('change', async () => {
     const checked = !!autoBetToggleColors.checked;
     await sset({ autoBettingColorsEnabled: checked });
     if (!checked) {
       resetStreakDots('colors');
+      updateDotsFromState();
+    }
+  });
+
+  // ✅ NEW: Sectors
+  autoBetToggleSectors?.addEventListener('change', async () => {
+    const checked = !!autoBetToggleSectors.checked;
+    await sset({ autoBettingSectorsEnabled: checked });
+    if (!checked) {
+      resetStreakDots('sectors');
       updateDotsFromState();
     }
   });

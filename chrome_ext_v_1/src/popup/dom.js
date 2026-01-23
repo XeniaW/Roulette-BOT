@@ -149,3 +149,37 @@ export const cfgChipTpl = document.getElementById('cfgChipTpl');
 export const chipsBox = document.getElementById('chipsBox');
 export const cfgChipsMsg = document.getElementById('cfgChipsMsg');
 export const btnAddChip = document.getElementById('btnAddChip');
+
+// toggles
+export const autoBetToggleSectors = document.getElementById(
+  'autoBetToggleSectors'
+);
+
+// streak input
+export const sectorsStreakInp =
+  document.getElementById('sectorsStreak');
+
+// checkboxes
+export const sectorsAutoCk = document.getElementById(
+  'sectorsAutoContinue'
+);
+export const sectorsZeroCk = document.getElementById(
+  'sectorsIncludeZero'
+);
+
+// dots
+export const dotsSectors = document.getElementById(
+  'sectorsStreakDots'
+);
+
+// steps box
+export const sectorsStepsBox =
+  document.getElementById('sectorsStepsBox');
+
+// cfg msg
+export const cfgSectorsMsg = document.getElementById('cfgSectorsMsg');
+
+// bet status span
+export const betStatusSectors = document.getElementById(
+  'betStatusSectors'
+);

@@ -369,6 +369,42 @@
         <span id="betStatusColors" class="small"></span>
       </div>
 
+      <!-- NEW: Sectors -->
+      <div class="row ai-center">
+        <label
+          ><input type="checkbox" id="autoBetToggleSectors" />
+          Сектора</label
+        >
+        <div class="col">
+          <div
+            id="sectorsStreakDots"
+            class="dots"
+            role="presentation"
+          ></div>
+          <label for="sectorsStreak" class="small label-block"
+            >Стрик</label
+          >
+          <input
+            id="sectorsStreak"
+            type="number"
+            min="2"
+            step="1"
+            value="2"
+          />
+          <label class="small"
+            ><input type="checkbox" id="sectorsAutoContinue" /> Ставки
+            подряд</label
+          >
+          <label class="small"
+            ><input type="checkbox" id="sectorsIncludeZero" />
+            Учитывать 0</label
+          >
+        </div>
+      </div>
+      <div class="row">
+        <span id="betStatusSectors" class="small"></span>
+      </div>
+
       <div class="row row-end">
         <span class="small muted"
           >Save All сохранит общие фишки и steps/streak/режим
@@ -533,6 +569,27 @@
         <button id="btnCfgColorsSave" class="btn">Save</button>
       </div>
       <div id="cfgColorsMsg" class="small"></div>
+    </section>
+
+    <!-- NEW: STEPS: SECTORS -->
+    <section class="card">
+      <h3>Steps — Sectors</h3>
+      <div class="card card-inner">
+        <h4>Steps</h4>
+        <div id="sectorsStepsBox"></div>
+        <div class="row">
+          <button id="btnAddSectorsStep" class="btn">
+            + Add step
+          </button>
+        </div>
+      </div>
+      <div class="row row-end">
+        <button id="btnCfgSectorsDefaults" class="btn">
+          Defaults
+        </button>
+        <button id="btnCfgSectorsSave" class="btn">Save</button>
+      </div>
+      <div id="cfgSectorsMsg" class="small"></div>
     </section>
 
     <script src="popup.js"></script>

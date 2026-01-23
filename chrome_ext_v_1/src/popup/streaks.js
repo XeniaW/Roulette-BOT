@@ -9,6 +9,8 @@ import {
   dotsLowHigh,
   dotsEvenOdd,
   dotsColors,
+  // NEW:
+  dotsSectors,
   dozensStreakInp,
   rowsStreakInp,
   sixStreakInp,
@@ -17,6 +19,8 @@ import {
   lowhighStreakInp,
   evenoddStreakInp,
   colorsStreakInp,
+  // NEW:
+  sectorsStreakInp,
   dozensZeroCk,
   rowsZeroCk,
   sixZeroCk,
@@ -25,6 +29,8 @@ import {
   lowhighZeroCk,
   evenoddZeroCk,
   colorsZeroCk,
+  // NEW:
+  sectorsZeroCk,
 } from './dom.js';
 
 let latestSpins = [];
@@ -39,10 +45,11 @@ const resetIdx = {
   rows: 0,
   six: 0,
   threes: 0,
-  // NEW:
   lowhigh: 0,
   evenodd: 0,
   colors: 0,
+  // NEW:
+  sectors: 0,
 };
 
 export function setLatestSpins(arr) {
@@ -60,6 +67,7 @@ export function resetStreakDots(market) {
   else if (market === 'lowhigh') resetIdx.lowhigh = i;
   else if (market === 'evenodd') resetIdx.evenodd = i;
   else if (market === 'colors') resetIdx.colors = i;
+  else if (market === 'sectors') resetIdx.sectors = i;
 }
 
 // индексы
@@ -108,25 +116,42 @@ function colorsIndex(n) {
   return RED.has(n) ? 0 : 1; // 0=red,1=black
 }
 
+// NEW: SECTORS index (tiers/orphelins/voisins/zero)
+const TIERS = new Set([27, 13, 36, 11, 30, 8, 23, 10, 5, 24, 16, 33]);
+const ORPHELINS = new Set([17, 34, 6, 1, 20, 14, 31, 9]);
+const VOISINS = new Set([
+  22, 18, 29, 7, 28, 12, 35, 3, 26, 32, 15, 19, 4, 21, 2, 25,
+]);
+function sectorsIndex(n, includeZero) {
+  if (n === 0) return includeZero ? 3 : -1; // 3=zero
+  if (TIERS.has(n)) return 0;
+  if (ORPHELINS.has(n)) return 1;
+  if (VOISINS.has(n)) return 2;
+  return -1;
+}
+
 // общий прогресс «одна группа»
 function calcOneGroupProgress(spins, need, toIndex, includeZero) {
   let cnt = 0,
     cand = null,
     seenNonZero = false;
+
   for (let i = spins.length - 1; i >= 0 && cnt < need; i--) {
     const n = Number(spins[i]?.n);
     if (!Number.isFinite(n)) break;
+
     if (n === 0) {
       if (!includeZero) break;
+
       if (cand == null) {
         // 0 до первой ненулевой — не считаем, но и окно не рвём
-        // чтобы строго соответствовать логике триггера по рынкам,
-        // НЕ увеличиваем cnt до фиксации cand
+        // (логика как была у тебя)
         continue;
       }
       cnt++;
       continue;
     }
+
     const ix = toIndex(n);
     if (ix === -1) break;
     if (cand == null) cand = ix;
@@ -134,6 +159,7 @@ function calcOneGroupProgress(spins, need, toIndex, includeZero) {
     seenNonZero = true;
     cnt++;
   }
+
   if (!seenNonZero) return { len: 0, cand: null };
   return { len: cnt, cand };
 }
@@ -162,9 +188,6 @@ function calcSixProgress(spins, need, includeZero) {
 }
 
 // ТРЁШКИ: гибридная логика под твои примеры
-// - K<=4  → прогресс = число уникальных стритов в окне с хвоста (до 4)
-// - K>4   → прогресс = длина окна (пока уникальных ≤4)
-// 0: includeZero=true → учитываем в длину, не прибавляет стрит; false → рвёт окно
 function calcThreesProgress(spins, K, includeZero) {
   let len = 0;
   const streets = new Set();
@@ -198,6 +221,8 @@ export function updateDotsFromState() {
   const maxEO = Math.max(1, Number(evenoddStreakInp?.value) || 2);
   const maxCL = Math.max(1, Number(colorsStreakInp?.value) || 2);
 
+  const maxSC = Math.max(1, Number(sectorsStreakInp?.value) || 2);
+
   const incZeroD = !!dozensZeroCk?.checked;
   const incZeroR = !!rowsZeroCk?.checked;
   const incZeroS = !!sixZeroCk?.checked;
@@ -207,6 +232,8 @@ export function updateDotsFromState() {
   const incZeroEO = !!evenoddZeroCk?.checked;
   const incZeroCL = !!colorsZeroCk?.checked;
 
+  const incZeroSC = !!sectorsZeroCk?.checked;
+
   const spinsD = latestSpins.slice(Math.max(0, resetIdx.dozens));
   const spinsR = latestSpins.slice(Math.max(0, resetIdx.rows));
   const spinsS = latestSpins.slice(Math.max(0, resetIdx.six));
@@ -214,6 +241,7 @@ export function updateDotsFromState() {
   const spinsLH = latestSpins.slice(Math.max(0, resetIdx.lowhigh));
   const spinsEO = latestSpins.slice(Math.max(0, resetIdx.evenodd));
   const spinsCL = latestSpins.slice(Math.max(0, resetIdx.colors));
+  const spinsSC = latestSpins.slice(Math.max(0, resetIdx.sectors));
 
   const progD = calcOneGroupProgress(
     spinsD,
@@ -237,7 +265,6 @@ export function updateDotsFromState() {
   const threesLen = calcThreesProgress(spinsT, K, incZeroT);
   renderDots(dotsThrees, threesLen, K);
 
-  // NEW:
   const progLH = calcOneGroupProgress(
     spinsLH,
     maxLH,
@@ -261,6 +288,16 @@ export function updateDotsFromState() {
     incZeroCL
   );
   renderDots(dotsColors, Math.min(progCL.len, maxCL), maxCL);
+
+  // NEW: sectors progress
+  // (важно: sectorsIndex требует includeZero)
+  const progSC = calcOneGroupProgress(
+    spinsSC,
+    maxSC,
+    (n) => sectorsIndex(n, incZeroSC),
+    incZeroSC
+  );
+  renderDots(dotsSectors, Math.min(progSC.len, maxSC), maxSC);
 }
 
 // ловим системные сигналы от стратегий
@@ -270,7 +307,6 @@ export function handleStorageChangeForStreaks(ch, area) {
     resetStreakDots('threes');
     updateDotsFromState();
   }
-  // NEW: поддержка сигналов для новых рынков (опционально)
   if (ch.lowhighDotsReset) {
     resetStreakDots('lowhigh');
     updateDotsFromState();
@@ -281,6 +317,11 @@ export function handleStorageChangeForStreaks(ch, area) {
   }
   if (ch.colorsDotsReset) {
     resetStreakDots('colors');
+    updateDotsFromState();
+  }
+  // NEW:
+  if (ch.sectorsDotsReset) {
+    resetStreakDots('sectors');
     updateDotsFromState();
   }
 }
