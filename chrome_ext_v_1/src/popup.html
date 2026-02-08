@@ -405,6 +405,21 @@
         <span id="betStatusSectors" class="small"></span>
       </div>
 
+      <!-- Neighbors (racetrack, always-on logic) -->
+      <div class="row ai-center" style="padding-top: 15px">
+        <label>
+          <input type="checkbox" id="autoBetToggleNeighbors" />
+          Coседи
+        </label>
+      </div>
+      <div class="row">
+        <span id="betStatusNeighbors" class="small"></span>
+      </div>
+
+      <div class="row">
+        <span id="betStatusNeighbors" class="small"></span>
+      </div>
+
       <div class="row row-end">
         <span class="small muted"
           >Save All сохранит общие фишки и steps/streak/режим
@@ -590,6 +605,26 @@
         <button id="btnCfgSectorsSave" class="btn">Save</button>
       </div>
       <div id="cfgSectorsMsg" class="small"></div>
+    </section>
+    <!-- STEPS: NEIGHBORS -->
+    <section class="card" data-market="neighbors">
+      <h3>Steps — Neighbors</h3>
+      <div class="card card-inner">
+        <h4>Steps</h4>
+        <div id="neighborsStepsBox"></div>
+        <div class="row">
+          <button id="btnAddNeighborsStep" class="btn btn-add-step">
+            + Add step
+          </button>
+        </div>
+      </div>
+      <div class="row row-end">
+        <button id="btnCfgNeighborsDefaults" class="btn">
+          Defaults
+        </button>
+        <button id="btnCfgNeighborsSave" class="btn">Save</button>
+      </div>
+      <div id="cfgNeighborsMsg" class="small"></div>
     </section>
 
     <script src="popup.js"></script>

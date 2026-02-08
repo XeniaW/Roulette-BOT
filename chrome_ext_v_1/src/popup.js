@@ -46,6 +46,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   // ✅ NEW: sectors (racetrack)
   await loadMarketUI('sectors');
 
+  await loadMarketUI('neighbors');
+
   // главный тумблер
   await loadToggle();
 

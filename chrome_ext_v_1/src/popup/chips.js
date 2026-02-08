@@ -10,7 +10,7 @@ import {
 export const GLOBAL_CHIPS_KEY = 'abGlobalChips';
 export const DEFAULT_CHIPS = {
   chipSelectorTemplate: '[data-e2e="chip-{{value}}"]',
-  chipValues: [0.2, 1, 5, 20],
+  chipValues: [0.1, 0.5, 1, 5],
 };
 
 function debounce(fn, ms = 200) {

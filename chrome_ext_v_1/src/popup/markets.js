@@ -9,7 +9,6 @@ import {
   lowhighStreakInp,
   evenoddStreakInp,
   colorsStreakInp,
-  // ✅ NEW:
   sectorsStreakInp,
 
   // checkboxes (auto-continue)
@@ -20,7 +19,6 @@ import {
   lowhighAutoCk,
   evenoddAutoCk,
   colorsAutoCk,
-  // ✅ NEW:
   sectorsAutoCk,
 
   // checkboxes (include zero)
@@ -31,7 +29,6 @@ import {
   lowhighZeroCk,
   evenoddZeroCk,
   colorsZeroCk,
-  // ✅ NEW:
   sectorsZeroCk,
 
   // toggles
@@ -42,7 +39,6 @@ import {
   autoBetToggleLowHigh,
   autoBetToggleEvenOdd,
   autoBetToggleColors,
-  // ✅ NEW:
   autoBetToggleSectors,
 
   // steps boxes
@@ -53,7 +49,6 @@ import {
   lowhighStepsBox,
   evenoddStepsBox,
   colorsStepsBox,
-  // ✅ NEW:
   sectorsStepsBox,
 
   // cfg messages
@@ -64,7 +59,6 @@ import {
   cfgLowHighMsg,
   cfgEvenOddMsg,
   cfgColorsMsg,
-  // ✅ NEW:
   cfgSectorsMsg,
 
   // bet status output spans
@@ -75,11 +69,16 @@ import {
   betStatusLowHigh,
   betStatusEvenOdd,
   betStatusColors,
-  // ✅ NEW:
   betStatusSectors,
+
+  // neighbors
+  autoBetToggleNeighbors,
+  betStatusNeighbors,
+  neighborsStepsBox,
+  cfgNeighborsMsg,
 } from './dom.js';
 
-import { renderSteps, getStepsFromUI, addStep } from './steps-ui.js';
+import { renderSteps, getStepsFromUI } from './steps-ui.js';
 import { DEFAULT_CHIPS, GLOBAL_CHIPS_KEY } from './chips.js';
 import { resetStreakDots, updateDotsFromState } from './streaks.js';
 
@@ -91,10 +90,10 @@ export const CFG_THREES_KEY = 'abThreesConfig';
 export const CFG_LOWHIGH_KEY = 'abLowHighConfig';
 export const CFG_EVENODD_KEY = 'abEvenOddConfig';
 export const CFG_COLORS_KEY = 'abColorsConfig';
-// ✅ NEW:
 export const CFG_SECTORS_KEY = 'abSectorsConfig';
+export const CFG_NEIGHBORS_KEY = 'abNeighborsConfig';
 
-// === Default market config ===
+// === Default configs ===
 export const DEFAULT_MKT = Object.freeze({
   triggerStreak: 2,
   autoContinue: false,
@@ -109,6 +108,45 @@ export const DEFAULT_MKT = Object.freeze({
     ],
   ],
 });
+
+// Neighbors: only steps (same UI/structure as other markets)
+export const DEFAULT_NEIGHBORS = Object.freeze({
+  steps: [
+    [{ chip: 1, times: 1 }],
+    [{ chip: 1, times: 3 }],
+    [{ chip: 2, times: 2 }],
+    [
+      { chip: 3, times: 1 },
+      { chip: 2, times: 1 },
+    ],
+  ],
+});
+
+export function sanitizeNeighbors(raw) {
+  const src = raw || {};
+  let steps = Array.isArray(src.steps)
+    ? src.steps
+    : DEFAULT_NEIGHBORS.steps;
+
+  steps = steps
+    .map((st) => (Array.isArray(st) ? st : []))
+    .map((st) =>
+      st.map((it) => ({
+        chip: Math.max(1, Math.floor(Number(it?.chip ?? 1))),
+        times: Math.max(1, Math.floor(Number(it?.times ?? 1))),
+      }))
+    )
+    .map((st) =>
+      st.filter(
+        (it) => Number.isFinite(it.chip) && Number.isFinite(it.times)
+      )
+    )
+    .filter((st) => st.length);
+
+  if (!steps.length)
+    steps = JSON.parse(JSON.stringify(DEFAULT_NEIGHBORS.steps));
+  return { steps };
+}
 
 export function sanitizeMkt(raw) {
   const src = raw || {};
@@ -145,20 +183,7 @@ export function sanitizeMkt(raw) {
   return { triggerStreak, steps, autoContinue, includeZero };
 }
 
-function findAddStepBtn(stepsBox, market) {
-  return (
-    stepsBox?.parentElement?.querySelector('.btn-add-step') ||
-    stepsBox
-      ?.closest('.market-card')
-      ?.querySelector('.btn-add-step') ||
-    document.querySelector(
-      `[data-market="${market}"] .btn-add-step`
-    ) ||
-    document.querySelector(`#market-${market} .btn-add-step`)
-  );
-}
-
-/** Отрисовка/подписка UI для заданного рынка */
+/** Load/render market UI. NO event listeners here. init.js owns UI wiring. */
 export async function loadMarketUI(market) {
   let cfgKey,
     enKey,
@@ -249,7 +274,6 @@ export async function loadMarketUI(market) {
     msgEl = cfgColorsMsg;
     statusElDest = betStatusColors;
   } else if (market === 'sectors') {
-    // ✅ NEW
     cfgKey = CFG_SECTORS_KEY;
     enKey = 'autoBettingSectorsEnabled';
     statusKey = 'bettingStatusSectors';
@@ -260,6 +284,14 @@ export async function loadMarketUI(market) {
     stepsBox = sectorsStepsBox;
     msgEl = cfgSectorsMsg;
     statusElDest = betStatusSectors;
+  } else if (market === 'neighbors') {
+    cfgKey = CFG_NEIGHBORS_KEY;
+    enKey = 'autoBettingNeighborsEnabled';
+    statusKey = 'bettingStatusNeighbors';
+    toggle = autoBetToggleNeighbors;
+    stepsBox = neighborsStepsBox;
+    msgEl = cfgNeighborsMsg;
+    statusElDest = betStatusNeighbors;
   } else {
     return;
   }
@@ -270,34 +302,30 @@ export async function loadMarketUI(market) {
   });
 
   if (toggle) toggle.checked = !!st[enKey];
+
   const stat = st[statusKey] || { state: 'off', message: '' };
-  if (statusElDest)
-    statusElDest.textContent = `[${(
+  if (statusElDest) {
+    statusElDest.textContent = `[${String(
       stat.state || 'off'
     ).toUpperCase()}] ${stat.message || ''}`;
+  }
 
-  const cfg = sanitizeMkt(
-    (await sget({ [cfgKey]: DEFAULT_MKT }))[cfgKey]
-  );
-  if (streakInp) streakInp.value = String(cfg.triggerStreak);
-  if (autoCk) autoCk.checked = !!cfg.autoContinue;
-  if (zeroCk) zeroCk.checked = !!cfg.includeZero;
+  let cfg;
+  if (market === 'neighbors') {
+    cfg = sanitizeNeighbors(
+      (await sget({ [cfgKey]: DEFAULT_NEIGHBORS }))[cfgKey]
+    );
+  } else {
+    cfg = sanitizeMkt(
+      (await sget({ [cfgKey]: DEFAULT_MKT }))[cfgKey]
+    );
+    if (streakInp) streakInp.value = String(cfg.triggerStreak);
+    if (autoCk) autoCk.checked = !!cfg.autoContinue;
+    if (zeroCk) zeroCk.checked = !!cfg.includeZero;
+  }
 
   renderSteps(stepsBox, cfg.steps, { silent: true });
   if (msgEl) msgEl.textContent = 'Loaded';
-
-  const btnAddStep =
-    stepsBox?.parentElement?.querySelector('.btn-add-step') ||
-    stepsBox
-      ?.closest('.market-card')
-      ?.querySelector('.btn-add-step') ||
-    findAddStepBtn(stepsBox, market);
-
-  if (btnAddStep) {
-    btnAddStep.addEventListener('click', () => {
-      addStep(stepsBox);
-    });
-  }
 }
 
 export async function saveMarketCfgFromUI(market) {
@@ -353,21 +381,17 @@ export async function saveMarketCfgFromUI(market) {
     autoCkEl = colorsAutoCk;
     zeroCkEl = colorsZeroCk;
   } else if (market === 'sectors') {
-    // ✅ NEW
     cfgKey = CFG_SECTORS_KEY;
     stepsBox = sectorsStepsBox;
     msgEl = cfgSectorsMsg;
     streakInpEl = sectorsStreakInp;
     autoCkEl = sectorsAutoCk;
     zeroCkEl = sectorsZeroCk;
+  } else if (market === 'neighbors') {
+    cfgKey = CFG_NEIGHBORS_KEY;
+    stepsBox = neighborsStepsBox;
+    msgEl = cfgNeighborsMsg;
   } else return;
-
-  const streak = Math.max(
-    2,
-    Math.floor(Number(streakInpEl?.value || 2))
-  );
-  const autoContinue = !!autoCkEl?.checked;
-  const includeZero = zeroCkEl == null ? true : !!zeroCkEl.checked;
 
   const { [GLOBAL_CHIPS_KEY]: chips = DEFAULT_CHIPS } = await sget({
     [GLOBAL_CHIPS_KEY]: DEFAULT_CHIPS,
@@ -381,6 +405,7 @@ export async function saveMarketCfgFromUI(market) {
     if (msgEl) msgEl.textContent = 'Add at least one step';
     return;
   }
+
   for (const stp of steps) {
     for (const it of stp) {
       if (it.chip < 1 || it.chip > chipCount) {
@@ -390,12 +415,47 @@ export async function saveMarketCfgFromUI(market) {
     }
   }
 
+  if (market === 'neighbors') {
+    const clean = sanitizeNeighbors({ steps });
+    await sset({ [cfgKey]: clean });
+
+    // write betLogs entry for neighbors too
+    try {
+      const { betLogs = [] } = await sget({ betLogs: [] });
+      betLogs.push({
+        t: Date.now(),
+        type: 'config',
+        market: 'neighbors',
+        message: 'Конфиг сохранён',
+        stepsCount: clean.steps.length,
+      });
+      if (betLogs.length > 2000)
+        betLogs.splice(0, betLogs.length - 2000);
+      await sset({ betLogs });
+    } catch {}
+
+    try {
+      await chrome.runtime.sendMessage({ type: 'AB_CONFIG_SAVED' });
+    } catch {}
+
+    if (msgEl) msgEl.textContent = 'Saved.';
+    return;
+  }
+
+  const streak = Math.max(
+    2,
+    Math.floor(Number(streakInpEl?.value || 2))
+  );
+  const autoContinue = !!autoCkEl?.checked;
+  const includeZero = zeroCkEl == null ? true : !!zeroCkEl.checked;
+
   const clean = sanitizeMkt({
     triggerStreak: streak,
     steps,
     autoContinue,
     includeZero,
   });
+
   await sset({ [cfgKey]: clean });
 
   try {
@@ -414,13 +474,15 @@ export async function saveMarketCfgFromUI(market) {
       betLogs.splice(0, betLogs.length - 2000);
     await sset({ betLogs });
   } catch {}
+
   try {
     await chrome.runtime.sendMessage({ type: 'AB_CONFIG_SAVED' });
   } catch {}
+
   if (msgEl) msgEl.textContent = 'Saved.';
 }
 
-/** Сброс ламп и streak-состояний при выключении рынков */
+/** Reset streak dots only for streak markets; neighbors just writes ON/OFF status */
 export function wireMarketTogglesReset() {
   const DEFAULT_STREAK = {
     dozens: { count: 0, idx: null },
@@ -508,13 +570,28 @@ export function wireMarketTogglesReset() {
     }
   });
 
-  // ✅ NEW: Sectors
   autoBetToggleSectors?.addEventListener('change', async () => {
     const checked = !!autoBetToggleSectors.checked;
     await sset({ autoBettingSectorsEnabled: checked });
     if (!checked) {
       resetStreakDots('sectors');
       updateDotsFromState();
+    }
+  });
+
+  // Neighbors: instant ON/OFF status
+  autoBetToggleNeighbors?.addEventListener('change', async () => {
+    const checked = !!autoBetToggleNeighbors.checked;
+    await sset({
+      autoBettingNeighborsEnabled: checked,
+      bettingStatusNeighbors: checked
+        ? { state: 'idle', message: 'ON (жду спин)' }
+        : { state: 'off', message: '' },
+    });
+    if (betStatusNeighbors) {
+      betStatusNeighbors.textContent = checked
+        ? '[IDLE] ON (жду спин)'
+        : '[OFF]';
     }
   });
 }

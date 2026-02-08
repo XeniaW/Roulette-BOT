@@ -183,3 +183,27 @@ export const cfgSectorsMsg = document.getElementById('cfgSectorsMsg');
 export const betStatusSectors = document.getElementById(
   'betStatusSectors'
 );
+
+// === NEW: Neighbors (minimal UI: toggle + status + steps only) ===
+export const autoBetToggleNeighbors = document.getElementById(
+  'autoBetToggleNeighbors'
+);
+export const betStatusNeighbors = document.getElementById(
+  'betStatusNeighbors'
+);
+export const neighborsStepsBox = document.getElementById(
+  'neighborsStepsBox'
+);
+export const cfgNeighborsMsg =
+  document.getElementById('cfgNeighborsMsg');
+
+// === Neighbors buttons ===
+export const btnAddNeighborsStep = document.getElementById(
+  'btnAddNeighborsStep'
+);
+export const btnCfgNeighborsDefaults = document.getElementById(
+  'btnCfgNeighborsDefaults'
+);
+export const btnCfgNeighborsSave = document.getElementById(
+  'btnCfgNeighborsSave'
+);

@@ -13,7 +13,6 @@ import {
   lowhighStreakInp,
   evenoddStreakInp,
   colorsStreakInp,
-  // ✅ NEW:
   sectorsStreakInp,
   dozensZeroCk,
   rowsZeroCk,
@@ -22,7 +21,6 @@ import {
   lowhighZeroCk,
   evenoddZeroCk,
   colorsZeroCk,
-  // ✅ NEW:
   sectorsZeroCk,
   btnSaveAll,
   dznStepsBox,
@@ -32,9 +30,13 @@ import {
   lowhighStepsBox,
   evenoddStepsBox,
   colorsStepsBox,
-  // ✅ NEW:
   sectorsStepsBox,
   inpPattern,
+
+  // neighbors
+  neighborsStepsBox,
+  autoBetToggleNeighbors,
+  betStatusNeighbors,
 } from './dom.js';
 
 import { exportCSV, clearLogs } from './spin-logs.js';
@@ -42,13 +44,18 @@ import { exportBetCSV, clearBetLogs } from './bet-logs.js';
 import { addPattern } from './domains.js';
 import { updateDotsFromState } from './streaks.js';
 import { setToggle } from './toggle.js';
+
 import {
   saveMarketCfgFromUI,
   DEFAULT_MKT,
+  DEFAULT_NEIGHBORS,
+  CFG_NEIGHBORS_KEY,
   wireMarketTogglesReset,
 } from './markets.js';
+
 import { renderSteps, addStep } from './steps-ui.js';
 import { saveGlobalChipsFromUI } from './chips.js';
+
 import {
   setGlobalMaxEntries,
   getGlobalMaxEntries,
@@ -79,6 +86,7 @@ function wireAutoSaveForMarket(
       debouncedSave();
     });
   }
+
   if (autoCk)
     autoCk.addEventListener('change', () => debouncedSave());
 
@@ -90,6 +98,7 @@ function wireAutoSaveForMarket(
   }
 
   if (stepsBox) {
+    // steps-ui.js should dispatch steps:changed; keep both for safety
     stepsBox.addEventListener('steps:changed', () => debouncedSave());
     stepsBox.addEventListener('input', () => debouncedSave());
     stepsBox.addEventListener('click', (e) => {
@@ -101,38 +110,37 @@ function wireAutoSaveForMarket(
   }
 }
 
-function addBlankStep(box) {
-  addStep(box);
-}
-
 export function wireInitHandlers() {
+  // ===== Add step buttons (ONLY HERE, nowhere else) =====
   document
     .getElementById('btnAddDznStep')
-    ?.addEventListener('click', () => addBlankStep(dznStepsBox));
+    ?.addEventListener('click', () => addStep(dznStepsBox));
   document
     .getElementById('btnAddRowStep')
-    ?.addEventListener('click', () => addBlankStep(rowStepsBox));
+    ?.addEventListener('click', () => addStep(rowStepsBox));
   document
     .getElementById('btnAddSixStep')
-    ?.addEventListener('click', () => addBlankStep(sixStepsBox));
+    ?.addEventListener('click', () => addStep(sixStepsBox));
   document
     .getElementById('btnAddThreesStep')
-    ?.addEventListener('click', () => addBlankStep(threesStepsBox));
+    ?.addEventListener('click', () => addStep(threesStepsBox));
   document
     .getElementById('btnAddLowHighStep')
-    ?.addEventListener('click', () => addBlankStep(lowhighStepsBox));
+    ?.addEventListener('click', () => addStep(lowhighStepsBox));
   document
     .getElementById('btnAddEvenOddStep')
-    ?.addEventListener('click', () => addBlankStep(evenoddStepsBox));
+    ?.addEventListener('click', () => addStep(evenoddStepsBox));
   document
     .getElementById('btnAddColorsStep')
-    ?.addEventListener('click', () => addBlankStep(colorsStepsBox));
-
-  // ✅ NEW
+    ?.addEventListener('click', () => addStep(colorsStepsBox));
   document
     .getElementById('btnAddSectorsStep')
-    ?.addEventListener('click', () => addBlankStep(sectorsStepsBox));
+    ?.addEventListener('click', () => addStep(sectorsStepsBox));
+  document
+    .getElementById('btnAddNeighborsStep')
+    ?.addEventListener('click', () => addStep(neighborsStepsBox));
 
+  // ===== Defaults buttons =====
   document
     .getElementById('btnCfgDznDefaults')
     ?.addEventListener('click', () =>
@@ -168,14 +176,26 @@ export function wireInitHandlers() {
     ?.addEventListener('click', () =>
       renderSteps(colorsStepsBox, DEFAULT_MKT.steps)
     );
-
-  // ✅ NEW
   document
     .getElementById('btnCfgSectorsDefaults')
     ?.addEventListener('click', () =>
       renderSteps(sectorsStepsBox, DEFAULT_MKT.steps)
     );
 
+  document
+    .getElementById('btnCfgNeighborsDefaults')
+    ?.addEventListener('click', async () => {
+      try {
+        await chrome.storage.local.set({
+          [CFG_NEIGHBORS_KEY]: DEFAULT_NEIGHBORS,
+        });
+      } catch {}
+      renderSteps(neighborsStepsBox, DEFAULT_NEIGHBORS.steps);
+      const msg = document.getElementById('cfgNeighborsMsg');
+      if (msg) msg.textContent = 'Defaults loaded';
+    });
+
+  // ===== Save buttons =====
   document
     .getElementById('btnCfgDznSave')
     ?.addEventListener('click', () => saveMarketCfgFromUI('dozens'));
@@ -197,23 +217,26 @@ export function wireInitHandlers() {
   document
     .getElementById('btnCfgColorsSave')
     ?.addEventListener('click', () => saveMarketCfgFromUI('colors'));
-
-  // ✅ NEW
   document
     .getElementById('btnCfgSectorsSave')
     ?.addEventListener('click', () => saveMarketCfgFromUI('sectors'));
+  document
+    .getElementById('btnCfgNeighborsSave')
+    ?.addEventListener('click', () =>
+      saveMarketCfgFromUI('neighbors')
+    );
 
-  btnExport.addEventListener('click', exportCSV);
-  btnClear.addEventListener('click', clearLogs);
-  if (btnBetExport)
-    btnBetExport.addEventListener('click', exportBetCSV);
-  if (btnBetClear)
-    btnBetClear.addEventListener('click', clearBetLogs);
+  // ===== Export / clear logs =====
+  btnExport?.addEventListener('click', exportCSV);
+  btnClear?.addEventListener('click', clearLogs);
+  btnBetExport?.addEventListener('click', exportBetCSV);
+  btnBetClear?.addEventListener('click', clearBetLogs);
 
-  btnAddPattern.addEventListener('click', () =>
+  // ===== Domains =====
+  btnAddPattern?.addEventListener('click', () =>
     addPattern(inpPattern.value)
   );
-  btnAddCurrent.addEventListener('click', async () => {
+  btnAddCurrent?.addEventListener('click', async () => {
     const [tab] = await chrome.tabs.query({
       active: true,
       currentWindow: true,
@@ -225,32 +248,32 @@ export function wireInitHandlers() {
     } catch {}
   });
 
+  // ===== Master tracking toggle =====
   document
     .getElementById('toggleTrack')
-    .addEventListener('change', (e) => setToggle(e.target.checked));
+    ?.addEventListener('change', (e) => setToggle(e.target.checked));
 
-  dozensStreakInp.addEventListener('input', updateDotsFromState);
-  rowsStreakInp.addEventListener('input', updateDotsFromState);
-  sixStreakInp.addEventListener('input', updateDotsFromState);
-  threesStreakInp.addEventListener('input', updateDotsFromState);
+  // ===== Dots updates =====
+  dozensStreakInp?.addEventListener('input', updateDotsFromState);
+  rowsStreakInp?.addEventListener('input', updateDotsFromState);
+  sixStreakInp?.addEventListener('input', updateDotsFromState);
+  threesStreakInp?.addEventListener('input', updateDotsFromState);
+  lowhighStreakInp?.addEventListener('input', updateDotsFromState);
+  evenoddStreakInp?.addEventListener('input', updateDotsFromState);
+  colorsStreakInp?.addEventListener('input', updateDotsFromState);
+  sectorsStreakInp?.addEventListener('input', updateDotsFromState);
 
   dozensZeroCk?.addEventListener('change', updateDotsFromState);
   rowsZeroCk?.addEventListener('change', updateDotsFromState);
   sixZeroCk?.addEventListener('change', updateDotsFromState);
   threesZeroCk?.addEventListener('change', updateDotsFromState);
-
-  lowhighStreakInp?.addEventListener('input', updateDotsFromState);
-  evenoddStreakInp?.addEventListener('input', updateDotsFromState);
-  colorsStreakInp?.addEventListener('input', updateDotsFromState);
   lowhighZeroCk?.addEventListener('change', updateDotsFromState);
   evenoddZeroCk?.addEventListener('change', updateDotsFromState);
   colorsZeroCk?.addEventListener('change', updateDotsFromState);
-
-  // ✅ NEW
-  sectorsStreakInp?.addEventListener('input', updateDotsFromState);
   sectorsZeroCk?.addEventListener('change', updateDotsFromState);
 
-  btnSaveAll.addEventListener('click', async () => {
+  // ===== Save all =====
+  btnSaveAll?.addEventListener('click', async () => {
     await saveGlobalChipsFromUI();
     await saveMarketCfgFromUI('dozens');
     await saveMarketCfgFromUI('rows');
@@ -259,46 +282,53 @@ export function wireInitHandlers() {
     await saveMarketCfgFromUI('lowhigh');
     await saveMarketCfgFromUI('evenodd');
     await saveMarketCfgFromUI('colors');
-    // ✅ NEW
     await saveMarketCfgFromUI('sectors');
+    await saveMarketCfgFromUI('neighbors');
   });
 
+  // ===== Auto-save wiring =====
   wireAutoSaveForMarket('dozens', {
     streakInp: dozensStreakInp,
     autoCk: document.getElementById('dozensAutoContinue'),
     zeroCk: document.getElementById('dozensIncludeZero'),
     stepsBox: dznStepsBox,
   });
+
   wireAutoSaveForMarket('rows', {
     streakInp: rowsStreakInp,
     autoCk: document.getElementById('rowsAutoContinue'),
     zeroCk: document.getElementById('rowsIncludeZero'),
     stepsBox: rowStepsBox,
   });
+
   wireAutoSaveForMarket('six', {
     streakInp: sixStreakInp,
     autoCk: document.getElementById('sixAutoContinue'),
     zeroCk: document.getElementById('sixIncludeZero'),
     stepsBox: sixStepsBox,
   });
+
   wireAutoSaveForMarket('threes', {
     streakInp: threesStreakInp,
     autoCk: document.getElementById('threesAutoContinue'),
     zeroCk: document.getElementById('threesIncludeZero'),
     stepsBox: threesStepsBox,
   });
+
   wireAutoSaveForMarket('lowhigh', {
     streakInp: lowhighStreakInp,
     autoCk: document.getElementById('lowhighAutoContinue'),
     zeroCk: document.getElementById('lowhighIncludeZero'),
     stepsBox: lowhighStepsBox,
   });
+
   wireAutoSaveForMarket('evenodd', {
     streakInp: evenoddStreakInp,
     autoCk: document.getElementById('evenoddAutoContinue'),
     zeroCk: document.getElementById('evenoddIncludeZero'),
     stepsBox: evenoddStepsBox,
   });
+
   wireAutoSaveForMarket('colors', {
     streakInp: colorsStreakInp,
     autoCk: document.getElementById('colorsAutoContinue'),
@@ -306,7 +336,6 @@ export function wireInitHandlers() {
     stepsBox: colorsStepsBox,
   });
 
-  // ✅ NEW
   wireAutoSaveForMarket('sectors', {
     streakInp: sectorsStreakInp,
     autoCk: document.getElementById('sectorsAutoContinue'),
@@ -314,7 +343,31 @@ export function wireInitHandlers() {
     stepsBox: sectorsStepsBox,
   });
 
-  // ==== ENTRY LIMIT UI ====
+  // neighbors: steps only
+  wireAutoSaveForMarket('neighbors', {
+    stepsBox: neighborsStepsBox,
+  });
+
+  // neighbors: instant ON/OFF UI (so it doesn't lie until a bet happens)
+  autoBetToggleNeighbors?.addEventListener('change', async () => {
+    const checked = !!autoBetToggleNeighbors.checked;
+    try {
+      await chrome.storage.local.set({
+        autoBettingNeighborsEnabled: checked,
+        bettingStatusNeighbors: checked
+          ? { state: 'idle', message: 'ON (жду спин)' }
+          : { state: 'off', message: '' },
+      });
+    } catch {}
+
+    if (betStatusNeighbors) {
+      betStatusNeighbors.textContent = checked
+        ? '[IDLE] ON (жду спин)'
+        : '[OFF]';
+    }
+  });
+
+  // ===== ENTRY LIMIT UI =====
   const maxEntriesInp = document.getElementById('maxEntries');
   const btnSaveMaxEntries = document.getElementById(
     'btnSaveMaxEntries'
@@ -331,7 +384,7 @@ export function wireInitHandlers() {
     if (!entryCountersList) return;
     const counters = (await getAllCounters()) || {};
     const markets = Object.keys(counters).sort();
-    if (markets.length === 0) {
+    if (!markets.length) {
       entryCountersList.innerHTML = '<li>—</li>';
       return;
     }
@@ -353,73 +406,6 @@ export function wireInitHandlers() {
     const max = Math.max(0, v);
     await setGlobalMaxEntries(max);
 
-    if (max > 0) {
-      const counters = (await getAllCounters()) || {};
-      const MAP = {
-        dozens: {
-          en: 'autoBettingDozensEnabled',
-          ex: 'betExecDozens',
-          st: 'bettingStatusDozens',
-        },
-        rows: {
-          en: 'autoBettingRowsEnabled',
-          ex: 'betExecRows',
-          st: 'bettingStatusRows',
-        },
-        six: {
-          en: 'autoBettingSixEnabled',
-          ex: 'betExecSix',
-          st: 'bettingStatusSix',
-        },
-        threes: {
-          en: 'autoBettingThreesEnabled',
-          ex: 'betExecThrees',
-          st: 'bettingStatusThrees',
-        },
-        lowhigh: {
-          en: 'autoBettingLowHighEnabled',
-          ex: 'betExecLowHigh',
-          st: 'bettingStatusLowHigh',
-        },
-        evenodd: {
-          en: 'autoBettingEvenOddEnabled',
-          ex: 'betExecEvenOdd',
-          st: 'bettingStatusEvenOdd',
-        },
-        colors: {
-          en: 'autoBettingColorsEnabled',
-          ex: 'betExecColors',
-          st: 'bettingStatusColors',
-        },
-        // ✅ NEW
-        sectors: {
-          en: 'autoBettingSectorsEnabled',
-          ex: 'betExecSectors',
-          st: 'bettingStatusSectors',
-        },
-      };
-
-      const toDisable = Object.keys(counters).filter(
-        (m) => (counters[m] | 0) >= max
-      );
-      for (const m of toDisable) {
-        const meta = MAP[m];
-        if (!meta) continue;
-        try {
-          await chrome.storage.local.set({
-            [meta.en]: false,
-            [meta.ex]: {
-              enabled: false,
-              phase: 'idle',
-              target: null,
-              step: 1,
-              armedAt: 0,
-            },
-          });
-        } catch {}
-      }
-    }
-
     if (entryLimitMsg) {
       entryLimitMsg.textContent = `Лимит сохранён: ${max}.`;
       setTimeout(() => (entryLimitMsg.textContent = ''), 2000);
@@ -435,7 +421,6 @@ export function wireInitHandlers() {
     }
   });
 
-  chrome.storage.onChanged.addEventListener?.(() => {});
   chrome.storage.onChanged.addListener((ch, area) => {
     if (area !== 'local') return;
     if (ch.entryCounters) renderCounters();

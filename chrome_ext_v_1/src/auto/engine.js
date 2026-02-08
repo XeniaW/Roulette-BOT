@@ -6,7 +6,7 @@
   const GLOBAL_CHIPS_KEY = 'abGlobalChips';
   const DEFAULT_CHIPS = Object.freeze({
     chipSelectorTemplate: '[data-e2e="chip-{{value}}"]',
-    chipValues: [0.2, 1, 5, 20],
+    chipValues: [0.1, 0.5, 1, 5],
   });
 
   class Mutex {
