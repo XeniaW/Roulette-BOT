@@ -10,6 +10,9 @@ import {
   rowsStreakInp,
   sixStreakInp,
   threesStreakInp,
+
+  // NEW: anti-dozens
+  antidozensStreakInp,
   lowhighStreakInp,
   evenoddStreakInp,
   colorsStreakInp,
@@ -18,6 +21,9 @@ import {
   rowsZeroCk,
   sixZeroCk,
   threesZeroCk,
+
+  // NEW: anti-dozens
+  antidozensZeroCk,
   lowhighZeroCk,
   evenoddZeroCk,
   colorsZeroCk,
@@ -27,6 +33,9 @@ import {
   rowStepsBox,
   sixStepsBox,
   threesStepsBox,
+
+  // NEW: anti-dozens
+  antiDznStepsBox,
   lowhighStepsBox,
   evenoddStepsBox,
   colorsStepsBox,
@@ -115,6 +124,12 @@ export function wireInitHandlers() {
   document
     .getElementById('btnAddDznStep')
     ?.addEventListener('click', () => addStep(dznStepsBox));
+
+  // NEW: anti-dozens
+  document
+    .getElementById('btnAddAntiDznStep')
+    ?.addEventListener('click', () => addStep(antiDznStepsBox));
+
   document
     .getElementById('btnAddRowStep')
     ?.addEventListener('click', () => addStep(rowStepsBox));
@@ -146,6 +161,14 @@ export function wireInitHandlers() {
     ?.addEventListener('click', () =>
       renderSteps(dznStepsBox, DEFAULT_MKT.steps)
     );
+
+  // NEW: anti-dozens
+  document
+    .getElementById('btnCfgAntiDznDefaults')
+    ?.addEventListener('click', () =>
+      renderSteps(antiDznStepsBox, DEFAULT_MKT.steps)
+    );
+
   document
     .getElementById('btnCfgRowDefaults')
     ?.addEventListener('click', () =>
@@ -199,6 +222,14 @@ export function wireInitHandlers() {
   document
     .getElementById('btnCfgDznSave')
     ?.addEventListener('click', () => saveMarketCfgFromUI('dozens'));
+
+  // NEW: anti-dozens
+  document
+    .getElementById('btnCfgAntiDznSave')
+    ?.addEventListener('click', () =>
+      saveMarketCfgFromUI('antidozens')
+    );
+
   document
     .getElementById('btnCfgRowSave')
     ?.addEventListener('click', () => saveMarketCfgFromUI('rows'));
@@ -258,6 +289,10 @@ export function wireInitHandlers() {
   rowsStreakInp?.addEventListener('input', updateDotsFromState);
   sixStreakInp?.addEventListener('input', updateDotsFromState);
   threesStreakInp?.addEventListener('input', updateDotsFromState);
+
+  // NEW: anti-dozens
+  antidozensStreakInp?.addEventListener('input', updateDotsFromState);
+
   lowhighStreakInp?.addEventListener('input', updateDotsFromState);
   evenoddStreakInp?.addEventListener('input', updateDotsFromState);
   colorsStreakInp?.addEventListener('input', updateDotsFromState);
@@ -267,6 +302,10 @@ export function wireInitHandlers() {
   rowsZeroCk?.addEventListener('change', updateDotsFromState);
   sixZeroCk?.addEventListener('change', updateDotsFromState);
   threesZeroCk?.addEventListener('change', updateDotsFromState);
+
+  // NEW: anti-dozens
+  antidozensZeroCk?.addEventListener('change', updateDotsFromState);
+
   lowhighZeroCk?.addEventListener('change', updateDotsFromState);
   evenoddZeroCk?.addEventListener('change', updateDotsFromState);
   colorsZeroCk?.addEventListener('change', updateDotsFromState);
@@ -276,6 +315,7 @@ export function wireInitHandlers() {
   btnSaveAll?.addEventListener('click', async () => {
     await saveGlobalChipsFromUI();
     await saveMarketCfgFromUI('dozens');
+    await saveMarketCfgFromUI('antidozens'); // NEW
     await saveMarketCfgFromUI('rows');
     await saveMarketCfgFromUI('six');
     await saveMarketCfgFromUI('threes');
@@ -292,6 +332,14 @@ export function wireInitHandlers() {
     autoCk: document.getElementById('dozensAutoContinue'),
     zeroCk: document.getElementById('dozensIncludeZero'),
     stepsBox: dznStepsBox,
+  });
+
+  // NEW: anti-dozens
+  wireAutoSaveForMarket('antidozens', {
+    streakInp: antidozensStreakInp,
+    autoCk: document.getElementById('antidozensAutoContinue'),
+    zeroCk: document.getElementById('antidozensIncludeZero'),
+    stepsBox: antiDznStepsBox,
   });
 
   wireAutoSaveForMarket('rows', {
@@ -344,9 +392,7 @@ export function wireInitHandlers() {
   });
 
   // neighbors: steps only
-  wireAutoSaveForMarket('neighbors', {
-    stepsBox: neighborsStepsBox,
-  });
+  wireAutoSaveForMarket('neighbors', { stepsBox: neighborsStepsBox });
 
   // neighbors: instant ON/OFF UI (so it doesn't lie until a bet happens)
   autoBetToggleNeighbors?.addEventListener('change', async () => {

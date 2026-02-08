@@ -45,6 +45,7 @@ chrome.runtime.onInstalled.addListener(async () => {
   try {
     await chrome.permissions.request({ origins: defaults });
   } catch {}
+
   await registerCS();
 
   // init streaks from existing logs
@@ -72,10 +73,14 @@ const DEFAULT_STREAK = {
   rows: { count: 0, idx: null },
   combo: { count: 0, d: null, r: null },
 
-  // NEW:
+  // halves/colors
   lowhigh: { count: 0, idx: null }, // 0: Low(1–18), 1: High(19–36)
   evenodd: { count: 0, idx: null }, // 0: even, 1: odd
   colors: { count: 0, idx: null }, // 0: red,  1: black
+
+  // NEW: антидюжины
+  // idx = какая дюжина "пропала" (0..2), count = сколько спинов её не было подряд (лучший кандидат)
+  antidozens: { count: 0, idx: null },
 };
 
 // ---- indexes ----
@@ -94,35 +99,73 @@ function rowIndex(n) {
   if (r === 0) return 2;
   return -1;
 }
-
-// 1–18 / 19–36
 function lowHighIndex(n) {
   if (n === 0) return -1;
-  if (n >= 1 && n <= 18) return 0; // Low
-  if (n >= 19 && n <= 36) return 1; // High
+  if (n >= 1 && n <= 18) return 0;
+  if (n >= 19 && n <= 36) return 1;
   return -1;
 }
-
-// even / odd
 function evenOddIndex(n) {
   if (n === 0) return -1;
-  return n % 2 === 0 ? 0 : 1; // 0-even, 1-odd
+  return n % 2 === 0 ? 0 : 1;
 }
-
-// colors (European single zero). 0=red, 1=black
 const RED_SET = new Set([
   1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36,
 ]);
 function colorIndex(n) {
   if (n === 0) return -1;
-  if (RED_SET.has(n)) return 0; // red
-  return 1; // black
+  return RED_SET.has(n) ? 0 : 1;
+}
+
+// ---- anti-dozens helpers ----
+// “best missing dozen tail length” + which dozen is missing
+function calcAntiDozensFromLogsTail(logs, includeZero) {
+  if (!Array.isArray(logs) || !logs.length)
+    return { count: 0, idx: null };
+
+  // miss[d] = сколько подряд последних спинов НЕ было дюжины d (пока d не встретили)
+  const miss = [0, 0, 0];
+  const found = [false, false, false];
+
+  for (let i = logs.length - 1; i >= 0; i--) {
+    const n = Number(logs[i]?.n);
+    if (!Number.isFinite(n)) continue;
+
+    if (n === 0 && !includeZero) {
+      // 0 “ломает” как и остальные рынки при includeZero=false
+      break;
+    }
+
+    const di = dozenIndex(n); // -1 для 0
+
+    for (let d = 0; d < 3; d++) {
+      if (found[d]) continue;
+      if (di !== -1 && d === di) continue; // это как раз d, значит она была
+      miss[d] += 1;
+    }
+    if (di !== -1 && !found[di]) found[di] = true;
+
+    // если все дюжины уже “встречены” в хвосте, дальше увеличивать нечего
+    if (found[0] && found[1] && found[2]) break;
+  }
+
+  let bestIdx = 0;
+  if (miss[1] > miss[bestIdx]) bestIdx = 1;
+  if (miss[2] > miss[bestIdx]) bestIdx = 2;
+
+  const best = miss[bestIdx] || 0;
+  return best > 0
+    ? { count: best, idx: bestIdx }
+    : { count: 0, idx: null };
 }
 
 // ---- storage helpers ----
 async function getStreakState() {
   const { streakState = DEFAULT_STREAK } =
-    await chrome.storage.local.get({ streakState: DEFAULT_STREAK });
+    await chrome.storage.local.get({
+      streakState: DEFAULT_STREAK,
+    });
+
   // normalize (добавим недостающие ключи)
   const st = { ...DEFAULT_STREAK, ...(streakState || {}) };
 
@@ -132,6 +175,7 @@ async function getStreakState() {
   if (!('lowhigh' in st)) st.lowhigh = { count: 0, idx: null };
   if (!('evenodd' in st)) st.evenodd = { count: 0, idx: null };
   if (!('colors' in st)) st.colors = { count: 0, idx: null };
+  if (!('antidozens' in st)) st.antidozens = { count: 0, idx: null };
 
   return st;
 }
@@ -139,6 +183,16 @@ async function setStreakState(st) {
   try {
     await chrome.storage.local.set({ streakState: st });
   } catch {}
+}
+
+async function getAntiDozensIncludeZero() {
+  // config may not exist yet; default = true (as in your DEFAULT_MKT.includeZero)
+  const { abAntiDozensConfig = { includeZero: true } } =
+    await chrome.storage.local.get({
+      abAntiDozensConfig: { includeZero: true },
+    });
+
+  return !!(abAntiDozensConfig && abAntiDozensConfig.includeZero);
 }
 
 async function recomputeStreaksFromAllLogs() {
@@ -154,10 +208,10 @@ async function recomputeStreaksFromAllLogs() {
     lowhigh: { count: 0, idx: null },
     evenodd: { count: 0, idx: null },
     colors: { count: 0, idx: null },
+    antidozens: { count: 0, idx: null },
   };
 
   if (logs.length) {
-    // helper: generic last-run counter for binary indexes (-1 breaks)
     const countTail = (fnIdx) => {
       let i = logs.length - 1;
       const first = fnIdx(logs[i]?.n);
@@ -207,17 +261,17 @@ async function recomputeStreaksFromAllLogs() {
       }
     }
 
-    // combo dozen+row
+    // combo
     {
       let i = logs.length - 1;
-      let lastD = dozenIndex(logs[i]?.n),
-        lastR = rowIndex(logs[i]?.n);
+      let lastD = dozenIndex(logs[i]?.n);
+      let lastR = rowIndex(logs[i]?.n);
       if (lastD !== -1 && lastR !== -1) {
         let c = 1;
         i--;
         while (i >= 0) {
-          const d = dozenIndex(logs[i]?.n),
-            r = rowIndex(logs[i]?.n);
+          const d = dozenIndex(logs[i]?.n);
+          const r = rowIndex(logs[i]?.n);
           if (d === lastD && r === lastR) c++;
           else break;
           i--;
@@ -226,10 +280,14 @@ async function recomputeStreaksFromAllLogs() {
       }
     }
 
-    // NEW: low/high, even/odd, colors
+    // halves/colors
     st.lowhigh = countTail(lowHighIndex);
     st.evenodd = countTail(evenOddIndex);
     st.colors = countTail(colorIndex);
+
+    // NEW: anti-dozens (depends on includeZero config)
+    const inc0 = await getAntiDozensIncludeZero();
+    st.antidozens = calcAntiDozensFromLogsTail(logs, inc0);
   }
 
   await setStreakState(st);
@@ -243,58 +301,41 @@ function advanceStreakStateWithNumber(st, n) {
   const ci = colorIndex(n);
 
   // dozens
-  if (di === -1) {
-    st.dozens = { count: 0, idx: null };
-  } else if (st.dozens.idx === di) {
+  if (di === -1) st.dozens = { count: 0, idx: null };
+  else if (st.dozens.idx === di)
     st.dozens.count = (st.dozens.count | 0) + 1;
-  } else {
-    st.dozens = { count: 1, idx: di };
-  }
+  else st.dozens = { count: 1, idx: di };
 
   // rows
-  if (ri === -1) {
-    st.rows = { count: 0, idx: null };
-  } else if (st.rows.idx === ri) {
+  if (ri === -1) st.rows = { count: 0, idx: null };
+  else if (st.rows.idx === ri)
     st.rows.count = (st.rows.count | 0) + 1;
-  } else {
-    st.rows = { count: 1, idx: ri };
-  }
+  else st.rows = { count: 1, idx: ri };
 
   // combo
-  if (di === -1 || ri === -1) {
+  if (di === -1 || ri === -1)
     st.combo = { count: 0, d: null, r: null };
-  } else if (st.combo.d === di && st.combo.r === ri) {
+  else if (st.combo.d === di && st.combo.r === ri)
     st.combo.count = (st.combo.count | 0) + 1;
-  } else {
-    st.combo = { count: 1, d: di, r: ri };
-  }
+  else st.combo = { count: 1, d: di, r: ri };
 
-  // NEW: low/high
-  if (li === -1) {
-    st.lowhigh = { count: 0, idx: null };
-  } else if (st.lowhigh.idx === li) {
+  // low/high
+  if (li === -1) st.lowhigh = { count: 0, idx: null };
+  else if (st.lowhigh.idx === li)
     st.lowhigh.count = (st.lowhigh.count | 0) + 1;
-  } else {
-    st.lowhigh = { count: 1, idx: li };
-  }
+  else st.lowhigh = { count: 1, idx: li };
 
-  // NEW: even/odd
-  if (ei === -1) {
-    st.evenodd = { count: 0, idx: null };
-  } else if (st.evenodd.idx === ei) {
+  // even/odd
+  if (ei === -1) st.evenodd = { count: 0, idx: null };
+  else if (st.evenodd.idx === ei)
     st.evenodd.count = (st.evenodd.count | 0) + 1;
-  } else {
-    st.evenodd = { count: 1, idx: ei };
-  }
+  else st.evenodd = { count: 1, idx: ei };
 
-  // NEW: colors
-  if (ci === -1) {
-    st.colors = { count: 0, idx: null };
-  } else if (st.colors.idx === ci) {
+  // colors
+  if (ci === -1) st.colors = { count: 0, idx: null };
+  else if (st.colors.idx === ci)
     st.colors.count = (st.colors.count | 0) + 1;
-  } else {
-    st.colors = { count: 1, idx: ci };
-  }
+  else st.colors = { count: 1, idx: ci };
 }
 
 /* === helper to reset a single streak kind === */
@@ -307,6 +348,8 @@ async function resetStreak(kind) {
   else if (kind === 'lowhigh') st.lowhigh = { count: 0, idx: null };
   else if (kind === 'evenodd') st.evenodd = { count: 0, idx: null };
   else if (kind === 'colors') st.colors = { count: 0, idx: null };
+  else if (kind === 'antidozens')
+    st.antidozens = { count: 0, idx: null };
   await setStreakState(st);
 }
 
@@ -326,12 +369,29 @@ chrome.storage.onChanged.addListener(async (ch, area) => {
       const added = newVal.slice(oldVal.length);
       if (added.length) {
         const st = await getStreakState();
+
+        // normal streaks: incremental
         for (const e of added) advanceStreakStateWithNumber(st, e.n);
         await setStreakState(st);
+
+        // anti-dozens depends on includeZero + is “best missing tail”.
+        // Easiest correct way: recompute only antidozens from tail, not everything.
+        try {
+          const inc0 = await getAntiDozensIncludeZero();
+          const nextAD = calcAntiDozensFromLogsTail(newVal, inc0);
+          const st2 = await getStreakState();
+          st2.antidozens = nextAD;
+          await setStreakState(st2);
+        } catch {}
       }
     } else {
       await recomputeStreaksFromAllLogs();
     }
+  }
+
+  // if anti-dozens config changed (includeZero), recompute its streak
+  if ('abAntiDozensConfig' in ch) {
+    await recomputeStreaksFromAllLogs();
   }
 
   /* === autoBet toggles -> reset only when turned OFF === */
@@ -350,23 +410,26 @@ chrome.storage.onChanged.addListener(async (ch, area) => {
     const from = !!ch.autoBettingComboEnabled.oldValue;
     if (from && !to) await resetStreak('combo');
   }
-
-  // NEW: low/high
   if ('autoBettingLowHighEnabled' in ch) {
     const to = !!ch.autoBettingLowHighEnabled.newValue;
     const from = !!ch.autoBettingLowHighEnabled.oldValue;
     if (from && !to) await resetStreak('lowhigh');
   }
-  // NEW: even/odd
   if ('autoBettingEvenOddEnabled' in ch) {
     const to = !!ch.autoBettingEvenOddEnabled.newValue;
     const from = !!ch.autoBettingEvenOddEnabled.oldValue;
     if (from && !to) await resetStreak('evenodd');
   }
-  // NEW: colors
   if ('autoBettingColorsEnabled' in ch) {
     const to = !!ch.autoBettingColorsEnabled.newValue;
     const from = !!ch.autoBettingColorsEnabled.oldValue;
     if (from && !to) await resetStreak('colors');
+  }
+
+  // NEW: anti-dozens toggle
+  if ('autoBettingAntiDozensEnabled' in ch) {
+    const to = !!ch.autoBettingAntiDozensEnabled.newValue;
+    const from = !!ch.autoBettingAntiDozensEnabled.oldValue;
+    if (from && !to) await resetStreak('antidozens');
   }
 });

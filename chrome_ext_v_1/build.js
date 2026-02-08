@@ -33,6 +33,7 @@ const ENTRY_POINTS = [
   'src/auto/lowhigh.js',
   'src/auto/sectors.js',
   'src/auto/neighbors.js',
+  'src/auto/anti-dozens.js',
 ];
 
 const BASE = {

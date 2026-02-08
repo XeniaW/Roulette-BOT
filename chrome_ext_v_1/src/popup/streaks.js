@@ -5,30 +5,45 @@ import {
   dotsRows,
   dotsSix,
   dotsThrees,
+
+  // NEW: anti-dozens
+  dotsAntiDozens,
+
   // NEW:
   dotsLowHigh,
   dotsEvenOdd,
   dotsColors,
+
   // NEW:
   dotsSectors,
   dozensStreakInp,
   rowsStreakInp,
   sixStreakInp,
   threesStreakInp,
+
+  // NEW: anti-dozens
+  antidozensStreakInp,
+
   // NEW:
   lowhighStreakInp,
   evenoddStreakInp,
   colorsStreakInp,
+
   // NEW:
   sectorsStreakInp,
   dozensZeroCk,
   rowsZeroCk,
   sixZeroCk,
   threesZeroCk,
+
+  // NEW: anti-dozens
+  antidozensZeroCk,
+
   // NEW:
   lowhighZeroCk,
   evenoddZeroCk,
   colorsZeroCk,
+
   // NEW:
   sectorsZeroCk,
 } from './dom.js';
@@ -42,13 +57,13 @@ let currStreakState = {
 // с каких индексов считать прогресс (сбрасываем по тумблерам/сигналам)
 const resetIdx = {
   dozens: 0,
+  antidozens: 0, // NEW
   rows: 0,
   six: 0,
   threes: 0,
   lowhigh: 0,
   evenodd: 0,
   colors: 0,
-  // NEW:
   sectors: 0,
 };
 
@@ -61,6 +76,7 @@ export function setCurrStreakState(st) {
 export function resetStreakDots(market) {
   const i = Array.isArray(latestSpins) ? latestSpins.length : 0;
   if (market === 'dozens') resetIdx.dozens = i;
+  else if (market === 'antidozens') resetIdx.antidozens = i; // NEW
   else if (market === 'rows') resetIdx.rows = i;
   else if (market === 'six') resetIdx.six = i;
   else if (market === 'threes') resetIdx.threes = i;
@@ -116,7 +132,7 @@ function colorsIndex(n) {
   return RED.has(n) ? 0 : 1; // 0=red,1=black
 }
 
-// NEW: SECTORS index (tiers/orphelins/voisins/zero)
+// SECTORS index (tiers/orphelins/voisins/zero)
 const TIERS = new Set([27, 13, 36, 11, 30, 8, 23, 10, 5, 24, 16, 33]);
 const ORPHELINS = new Set([17, 34, 6, 1, 20, 14, 31, 9]);
 const VOISINS = new Set([
@@ -145,7 +161,6 @@ function calcOneGroupProgress(spins, need, toIndex, includeZero) {
 
       if (cand == null) {
         // 0 до первой ненулевой — не считаем, но и окно не рвём
-        // (логика как была у тебя)
         continue;
       }
       cnt++;
@@ -210,20 +225,46 @@ function calcThreesProgress(spins, K, includeZero) {
   return K <= 4 ? Math.min(streets.size, K) : Math.min(len, K);
 }
 
+// NEW: антидюжины — прогресс "сколько спинов не выходила какая-то дюжина"
+function calcMissingDozenBestLen(spins, need, includeZero) {
+  const miss = [0, 0, 0];
+  const found = [false, false, false];
+
+  for (let i = spins.length - 1; i >= 0; i--) {
+    const n = Number(spins[i]?.n);
+    if (!Number.isFinite(n)) continue;
+    if (n === 0 && !includeZero) continue;
+
+    const di = dozenIndex(n); // -1 для 0
+    for (let d = 0; d < 3; d++) {
+      if (found[d]) continue;
+      if (di !== -1 && d === di) continue;
+      miss[d]++;
+    }
+    if (di !== -1 && !found[di]) found[di] = true;
+
+    if (found[0] && found[1] && found[2]) break;
+  }
+
+  const bestLen = Math.max(miss[0], miss[1], miss[2]);
+  return Math.min(bestLen, need);
+}
+
 // рендер
 export function updateDotsFromState() {
-  const maxD = Math.max(1, Number(dozensStreakInp.value) || 2);
-  const maxR = Math.max(1, Number(rowsStreakInp.value) || 2);
-  const maxS = Math.max(1, Number(sixStreakInp.value) || 2);
-  const K = Math.max(1, Number(threesStreakInp.value) || 4);
+  const maxD = Math.max(1, Number(dozensStreakInp?.value) || 2);
+  const maxAD = Math.max(1, Number(antidozensStreakInp?.value) || 10); // NEW
+  const maxR = Math.max(1, Number(rowsStreakInp?.value) || 2);
+  const maxS = Math.max(1, Number(sixStreakInp?.value) || 2);
+  const K = Math.max(1, Number(threesStreakInp?.value) || 4);
 
   const maxLH = Math.max(1, Number(lowhighStreakInp?.value) || 2);
   const maxEO = Math.max(1, Number(evenoddStreakInp?.value) || 2);
   const maxCL = Math.max(1, Number(colorsStreakInp?.value) || 2);
-
   const maxSC = Math.max(1, Number(sectorsStreakInp?.value) || 2);
 
   const incZeroD = !!dozensZeroCk?.checked;
+  const incZeroAD = !!antidozensZeroCk?.checked; // NEW
   const incZeroR = !!rowsZeroCk?.checked;
   const incZeroS = !!sixZeroCk?.checked;
   const incZeroT = !!threesZeroCk?.checked;
@@ -231,10 +272,10 @@ export function updateDotsFromState() {
   const incZeroLH = !!lowhighZeroCk?.checked;
   const incZeroEO = !!evenoddZeroCk?.checked;
   const incZeroCL = !!colorsZeroCk?.checked;
-
   const incZeroSC = !!sectorsZeroCk?.checked;
 
   const spinsD = latestSpins.slice(Math.max(0, resetIdx.dozens));
+  const spinsAD = latestSpins.slice(Math.max(0, resetIdx.antidozens)); // NEW
   const spinsR = latestSpins.slice(Math.max(0, resetIdx.rows));
   const spinsS = latestSpins.slice(Math.max(0, resetIdx.six));
   const spinsT = latestSpins.slice(Math.max(0, resetIdx.threes));
@@ -250,6 +291,10 @@ export function updateDotsFromState() {
     incZeroD
   );
   renderDots(dotsDozens, Math.min(progD.len, maxD), maxD);
+
+  // NEW: anti-dozens dots
+  const antiLen = calcMissingDozenBestLen(spinsAD, maxAD, incZeroAD);
+  renderDots(dotsAntiDozens, antiLen, maxAD);
 
   const progR = calcOneGroupProgress(
     spinsR,
@@ -289,8 +334,7 @@ export function updateDotsFromState() {
   );
   renderDots(dotsColors, Math.min(progCL.len, maxCL), maxCL);
 
-  // NEW: sectors progress
-  // (важно: sectorsIndex требует includeZero)
+  // sectors progress (важно: sectorsIndex требует includeZero)
   const progSC = calcOneGroupProgress(
     spinsSC,
     maxSC,
@@ -319,9 +363,10 @@ export function handleStorageChangeForStreaks(ch, area) {
     resetStreakDots('colors');
     updateDotsFromState();
   }
-  // NEW:
   if (ch.sectorsDotsReset) {
     resetStreakDots('sectors');
     updateDotsFromState();
   }
+  // если захочешь отдельный reset-сигнал для антидюжин — добавим:
+  // if (ch.antidozensDotsReset) { resetStreakDots('antidozens'); updateDotsFromState(); }
 }

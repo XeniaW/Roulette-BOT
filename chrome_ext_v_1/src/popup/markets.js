@@ -11,6 +11,9 @@ import {
   colorsStreakInp,
   sectorsStreakInp,
 
+  // NEW anti-dozens
+  antidozensStreakInp,
+
   // checkboxes (auto-continue)
   dozensAutoCk,
   rowsAutoCk,
@@ -20,6 +23,9 @@ import {
   evenoddAutoCk,
   colorsAutoCk,
   sectorsAutoCk,
+
+  // NEW anti-dozens
+  antidozensAutoCk,
 
   // checkboxes (include zero)
   dozensZeroCk,
@@ -31,6 +37,9 @@ import {
   colorsZeroCk,
   sectorsZeroCk,
 
+  // NEW anti-dozens
+  antidozensZeroCk,
+
   // toggles
   autoBetToggleDozens,
   autoBetToggleRows,
@@ -40,6 +49,9 @@ import {
   autoBetToggleEvenOdd,
   autoBetToggleColors,
   autoBetToggleSectors,
+
+  // NEW anti-dozens
+  autoBetToggleAntiDozens,
 
   // steps boxes
   dznStepsBox,
@@ -51,6 +63,9 @@ import {
   colorsStepsBox,
   sectorsStepsBox,
 
+  // NEW anti-dozens
+  antiDznStepsBox,
+
   // cfg messages
   cfgDznMsg,
   cfgRowMsg,
@@ -61,6 +76,9 @@ import {
   cfgColorsMsg,
   cfgSectorsMsg,
 
+  // NEW anti-dozens
+  cfgAntiDznMsg,
+
   // bet status output spans
   betStatusDozens,
   betStatusRows,
@@ -70,6 +88,9 @@ import {
   betStatusEvenOdd,
   betStatusColors,
   betStatusSectors,
+
+  // NEW anti-dozens
+  betStatusAntiDozens,
 
   // neighbors
   autoBetToggleNeighbors,
@@ -84,6 +105,7 @@ import { resetStreakDots, updateDotsFromState } from './streaks.js';
 
 // === CFG keys (storage) ===
 export const CFG_DZN_KEY = 'abDozensConfig';
+export const CFG_ANTI_DZN_KEY = 'abAntiDozensConfig';
 export const CFG_ROW_KEY = 'abRowsConfig';
 export const CFG_SIX_KEY = 'abSixConfig';
 export const CFG_THREES_KEY = 'abThreesConfig';
@@ -109,7 +131,6 @@ export const DEFAULT_MKT = Object.freeze({
   ],
 });
 
-// Neighbors: only steps (same UI/structure as other markets)
 export const DEFAULT_NEIGHBORS = Object.freeze({
   steps: [
     [{ chip: 1, times: 1 }],
@@ -207,6 +228,17 @@ export async function loadMarketUI(market) {
     stepsBox = dznStepsBox;
     msgEl = cfgDznMsg;
     statusElDest = betStatusDozens;
+  } else if (market === 'antidozens') {
+    cfgKey = CFG_ANTI_DZN_KEY;
+    enKey = 'autoBettingAntiDozensEnabled';
+    statusKey = 'bettingStatusAntiDozens';
+    streakInp = antidozensStreakInp;
+    autoCk = antidozensAutoCk;
+    zeroCk = antidozensZeroCk;
+    toggle = autoBetToggleAntiDozens;
+    stepsBox = antiDznStepsBox;
+    msgEl = cfgAntiDznMsg;
+    statusElDest = betStatusAntiDozens;
   } else if (market === 'rows') {
     cfgKey = CFG_ROW_KEY;
     enKey = 'autoBettingRowsEnabled';
@@ -292,9 +324,7 @@ export async function loadMarketUI(market) {
     stepsBox = neighborsStepsBox;
     msgEl = cfgNeighborsMsg;
     statusElDest = betStatusNeighbors;
-  } else {
-    return;
-  }
+  } else return;
 
   const st = await sget({
     [enKey]: false,
@@ -338,6 +368,13 @@ export async function saveMarketCfgFromUI(market) {
     streakInpEl = dozensStreakInp;
     autoCkEl = dozensAutoCk;
     zeroCkEl = dozensZeroCk;
+  } else if (market === 'antidozens') {
+    cfgKey = CFG_ANTI_DZN_KEY;
+    stepsBox = antiDznStepsBox;
+    msgEl = cfgAntiDznMsg;
+    streakInpEl = antidozensStreakInp;
+    autoCkEl = antidozensAutoCk;
+    zeroCkEl = antidozensZeroCk;
   } else if (market === 'rows') {
     cfgKey = CFG_ROW_KEY;
     stepsBox = rowStepsBox;
@@ -418,26 +455,6 @@ export async function saveMarketCfgFromUI(market) {
   if (market === 'neighbors') {
     const clean = sanitizeNeighbors({ steps });
     await sset({ [cfgKey]: clean });
-
-    // write betLogs entry for neighbors too
-    try {
-      const { betLogs = [] } = await sget({ betLogs: [] });
-      betLogs.push({
-        t: Date.now(),
-        type: 'config',
-        market: 'neighbors',
-        message: 'Конфиг сохранён',
-        stepsCount: clean.steps.length,
-      });
-      if (betLogs.length > 2000)
-        betLogs.splice(0, betLogs.length - 2000);
-      await sset({ betLogs });
-    } catch {}
-
-    try {
-      await chrome.runtime.sendMessage({ type: 'AB_CONFIG_SAVED' });
-    } catch {}
-
     if (msgEl) msgEl.textContent = 'Saved.';
     return;
   }
@@ -455,54 +472,27 @@ export async function saveMarketCfgFromUI(market) {
     autoContinue,
     includeZero,
   });
-
   await sset({ [cfgKey]: clean });
-
-  try {
-    const { betLogs = [] } = await sget({ betLogs: [] });
-    betLogs.push({
-      t: Date.now(),
-      type: 'config',
-      market,
-      message: 'Конфиг сохранён',
-      stepsCount: clean.steps.length,
-      triggerStreak: clean.triggerStreak,
-      autoContinue: clean.autoContinue,
-      includeZero: clean.includeZero,
-    });
-    if (betLogs.length > 2000)
-      betLogs.splice(0, betLogs.length - 2000);
-    await sset({ betLogs });
-  } catch {}
-
-  try {
-    await chrome.runtime.sendMessage({ type: 'AB_CONFIG_SAVED' });
-  } catch {}
 
   if (msgEl) msgEl.textContent = 'Saved.';
 }
 
-/** Reset streak dots only for streak markets; neighbors just writes ON/OFF status */
+/** Reset streak dots only for streak markets */
 export function wireMarketTogglesReset() {
-  const DEFAULT_STREAK = {
-    dozens: { count: 0, idx: null },
-    rows: { count: 0, idx: null },
-  };
-
   autoBetToggleDozens?.addEventListener('change', async () => {
     const checked = !!autoBetToggleDozens.checked;
     await sset({ autoBettingDozensEnabled: checked });
     if (!checked) {
       resetStreakDots('dozens');
-      const { streakState = DEFAULT_STREAK } = await sget({
-        streakState: DEFAULT_STREAK,
-      });
-      const st = {
-        ...DEFAULT_STREAK,
-        ...streakState,
-        dozens: { count: 0, idx: null },
-      };
-      await sset({ streakState: st });
+      updateDotsFromState();
+    }
+  });
+
+  autoBetToggleAntiDozens?.addEventListener('change', async () => {
+    const checked = !!autoBetToggleAntiDozens.checked;
+    await sset({ autoBettingAntiDozensEnabled: checked });
+    if (!checked) {
+      resetStreakDots('antidozens');
       updateDotsFromState();
     }
   });
@@ -512,15 +502,6 @@ export function wireMarketTogglesReset() {
     await sset({ autoBettingRowsEnabled: checked });
     if (!checked) {
       resetStreakDots('rows');
-      const { streakState = DEFAULT_STREAK } = await sget({
-        streakState: DEFAULT_STREAK,
-      });
-      const st = {
-        ...DEFAULT_STREAK,
-        ...streakState,
-        rows: { count: 0, idx: null },
-      };
-      await sset({ streakState: st });
       updateDotsFromState();
     }
   });
@@ -579,7 +560,6 @@ export function wireMarketTogglesReset() {
     }
   });
 
-  // Neighbors: instant ON/OFF status
   autoBetToggleNeighbors?.addEventListener('change', async () => {
     const checked = !!autoBetToggleNeighbors.checked;
     await sset({

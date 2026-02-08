@@ -48,6 +48,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   await loadMarketUI('neighbors');
 
+  await loadMarketUI('antidozens');
+
   // главный тумблер
   await loadToggle();
 

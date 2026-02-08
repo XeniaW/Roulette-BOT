@@ -420,6 +420,42 @@
         <span id="betStatusNeighbors" class="small"></span>
       </div>
 
+      <!-- Anti-Dozens -->
+      <div class="row ai-center">
+        <label
+          ><input type="checkbox" id="autoBetToggleAntiDozens" />
+          Антидюжины</label
+        >
+        <div class="col">
+          <div
+            id="antidozensStreakDots"
+            class="dots"
+            role="presentation"
+          ></div>
+          <label for="antidozensStreak" class="small label-block"
+            >Стрик
+          </label>
+          <input
+            id="antidozensStreak"
+            type="number"
+            min="2"
+            step="1"
+            value="10"
+          />
+          <label class="small"
+            ><input type="checkbox" id="antidozensAutoContinue" />
+            Ставки подряд</label
+          >
+          <label class="small"
+            ><input type="checkbox" id="antidozensIncludeZero" />
+            Учитывать 0</label
+          >
+        </div>
+      </div>
+      <div class="row">
+        <span id="betStatusAntiDozens" class="small"></span>
+      </div>
+
       <div class="row row-end">
         <span class="small muted"
           >Save All сохранит общие фишки и steps/streak/режим
@@ -625,6 +661,26 @@
         <button id="btnCfgNeighborsSave" class="btn">Save</button>
       </div>
       <div id="cfgNeighborsMsg" class="small"></div>
+    </section>
+    <!-- ==== STEPS: ANTI-DOZENS ==== -->
+    <section class="card">
+      <h3>Steps — Anti-Dozens</h3>
+      <div class="card card-inner">
+        <h4>Steps</h4>
+        <div id="antiDznStepsBox"></div>
+        <div class="row">
+          <button id="btnAddAntiDznStep" class="btn">
+            + Add step
+          </button>
+        </div>
+      </div>
+      <div class="row row-end">
+        <button id="btnCfgAntiDznDefaults" class="btn">
+          Defaults
+        </button>
+        <button id="btnCfgAntiDznSave" class="btn">Save</button>
+      </div>
+      <div id="cfgAntiDznMsg" class="small"></div>
     </section>
 
     <script src="popup.js"></script>

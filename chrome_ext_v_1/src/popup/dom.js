@@ -27,7 +27,12 @@ export const autoBetToggleSix = document.getElementById(
 export const autoBetToggleThrees = document.getElementById(
   'autoBetToggleThrees'
 );
+
 // NEW:
+export const autoBetToggleAntiDozens = document.getElementById(
+  'autoBetToggleAntiDozens'
+);
+
 export const autoBetToggleLowHigh = document.getElementById(
   'autoBetToggleLowHigh'
 );
@@ -44,7 +49,12 @@ export const betStatusRows = document.getElementById('betStatusRows');
 export const betStatusSix = document.getElementById('betStatusSix');
 export const betStatusThrees =
   document.getElementById('betStatusThrees');
+
 // NEW:
+export const betStatusAntiDozens = document.getElementById(
+  'betStatusAntiDozens'
+);
+
 export const betStatusLowHigh = document.getElementById(
   'betStatusLowHigh'
 );
@@ -60,7 +70,12 @@ export const rowsStreakInp = document.getElementById('rowsStreak');
 export const sixStreakInp = document.getElementById('sixStreak');
 export const threesStreakInp =
   document.getElementById('threesStreak');
+
 // NEW:
+export const antidozensStreakInp = document.getElementById(
+  'antidozensStreak'
+);
+
 export const lowhighStreakInp =
   document.getElementById('lowhighStreak');
 export const evenoddStreakInp =
@@ -76,7 +91,12 @@ export const sixAutoCk = document.getElementById('sixAutoContinue');
 export const threesAutoCk = document.getElementById(
   'threesAutoContinue'
 );
+
 // NEW:
+export const antidozensAutoCk = document.getElementById(
+  'antidozensAutoContinue'
+);
+
 export const lowhighAutoCk = document.getElementById(
   'lowhighAutoContinue'
 );
@@ -95,7 +115,12 @@ export const sixZeroCk = document.getElementById('sixIncludeZero');
 export const threesZeroCk = document.getElementById(
   'threesIncludeZero'
 );
+
 // NEW:
+export const antidozensZeroCk = document.getElementById(
+  'antidozensIncludeZero'
+);
+
 export const lowhighZeroCk = document.getElementById(
   'lowhighIncludeZero'
 );
@@ -112,7 +137,12 @@ export const dotsDozens = document.getElementById('dozensStreakDots');
 export const dotsRows = document.getElementById('rowsStreakDots');
 export const dotsSix = document.getElementById('sixStreakDots');
 export const dotsThrees = document.getElementById('threesStreakDots');
+
 // NEW:
+export const dotsAntiDozens = document.getElementById(
+  'antidozensStreakDots'
+);
+
 export const dotsLowHigh = document.getElementById(
   'lowhighStreakDots'
 );
@@ -127,7 +157,11 @@ export const rowStepsBox = document.getElementById('rowStepsBox');
 export const sixStepsBox = document.getElementById('sixStepsBox');
 export const threesStepsBox =
   document.getElementById('threesStepsBox');
+
 // NEW:
+export const antiDznStepsBox =
+  document.getElementById('antiDznStepsBox');
+
 export const lowhighStepsBox =
   document.getElementById('lowhighStepsBox');
 export const evenoddStepsBox =
@@ -139,7 +173,10 @@ export const cfgDznMsg = document.getElementById('cfgDznMsg');
 export const cfgRowMsg = document.getElementById('cfgRowMsg');
 export const cfgSixMsg = document.getElementById('cfgSixMsg');
 export const cfgThreesMsg = document.getElementById('cfgThreesMsg');
+
 // NEW:
+export const cfgAntiDznMsg = document.getElementById('cfgAntiDznMsg');
+
 export const cfgLowHighMsg = document.getElementById('cfgLowHighMsg');
 export const cfgEvenOddMsg = document.getElementById('cfgEvenOddMsg');
 export const cfgColorsMsg = document.getElementById('cfgColorsMsg');

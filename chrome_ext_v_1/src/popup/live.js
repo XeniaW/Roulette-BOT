@@ -3,49 +3,80 @@ import { renderStatus } from './status.js';
 import { appendNew, renderAll } from './spin-logs.js';
 import { appendBetNew, renderBetAll } from './bet-logs.js';
 import { loadDomains } from './domains.js';
-import { sanitizeMkt } from './markets.js';
+import { sanitizeMkt, sanitizeNeighbors } from './markets.js';
 import {
   betStatusDozens,
   betStatusRows,
   betStatusSix,
   betStatusThrees,
-  // NEW
+
+  // NEW: anti-dozens
+  betStatusAntiDozens,
+
+  // NEW (halves)
   betStatusLowHigh,
   betStatusEvenOdd,
   betStatusColors,
+
+  // NEW (sectors)
+  betStatusSectors,
+
+  // neighbors
+  betStatusNeighbors,
   dznStepsBox,
   rowStepsBox,
   sixStepsBox,
   threesStepsBox,
+
+  // NEW: anti-dozens
+  antiDznStepsBox,
+
   // NEW
   lowhighStepsBox,
   evenoddStepsBox,
   colorsStepsBox,
+  sectorsStepsBox,
   dozensStreakInp,
   rowsStreakInp,
   sixStreakInp,
   threesStreakInp,
+
+  // NEW: anti-dozens
+  antidozensStreakInp,
+
   // NEW
   lowhighStreakInp,
   evenoddStreakInp,
   colorsStreakInp,
+  sectorsStreakInp,
   dozensAutoCk,
   rowsAutoCk,
   sixAutoCk,
   threesAutoCk,
+
+  // NEW: anti-dozens
+  antidozensAutoCk,
+
   // NEW
   lowhighAutoCk,
   evenoddAutoCk,
   colorsAutoCk,
+  sectorsAutoCk,
   dozensZeroCk,
   rowsZeroCk,
   sixZeroCk,
   threesZeroCk,
+
+  // NEW: anti-dozens
+  antidozensZeroCk,
+
   // NEW
   lowhighZeroCk,
   evenoddZeroCk,
   colorsZeroCk,
+  sectorsZeroCk,
 } from './dom.js';
+
 import { renderSteps } from './steps-ui.js';
 import {
   updateDotsFromState,
@@ -82,6 +113,7 @@ chrome.storage.onChanged.addListener((ch, area) => {
       const { oldValue = [], newValue = [] } = ch.spinLogs;
       const arr = Array.isArray(newValue) ? newValue : [];
       setLatestSpins(arr);
+
       if (
         Array.isArray(newValue) &&
         newValue.length > oldValue.length
@@ -93,9 +125,7 @@ chrome.storage.onChanged.addListener((ch, area) => {
       updateDotsFromState();
     }
 
-    // === 2) Остальные не критичные апдейты — максимально безопасно ===
-
-    // toggle track state (guard DOM)
+    // === 2) Остальные апдейты — максимально безопасно ===
     if (ch.trackingEnabled) {
       const tgl = document.getElementById('toggleTrack');
       if (tgl) tgl.checked = !!ch.trackingEnabled.newValue;
@@ -118,12 +148,18 @@ chrome.storage.onChanged.addListener((ch, area) => {
     // statuses from strategies
     if (ch.bettingStatusDozens)
       setStatusText(betStatusDozens, ch.bettingStatusDozens.newValue);
+    if (ch.bettingStatusAntiDozens)
+      setStatusText(
+        betStatusAntiDozens,
+        ch.bettingStatusAntiDozens.newValue
+      );
     if (ch.bettingStatusRows)
       setStatusText(betStatusRows, ch.bettingStatusRows.newValue);
     if (ch.bettingStatusSix)
       setStatusText(betStatusSix, ch.bettingStatusSix.newValue);
     if (ch.bettingStatusThrees)
       setStatusText(betStatusThrees, ch.bettingStatusThrees.newValue);
+
     if (ch.bettingStatusLowHigh)
       setStatusText(
         betStatusLowHigh,
@@ -136,6 +172,17 @@ chrome.storage.onChanged.addListener((ch, area) => {
       );
     if (ch.bettingStatusColors)
       setStatusText(betStatusColors, ch.bettingStatusColors.newValue);
+
+    if (ch.bettingStatusSectors)
+      setStatusText(
+        betStatusSectors,
+        ch.bettingStatusSectors.newValue
+      );
+    if (ch.bettingStatusNeighbors)
+      setStatusText(
+        betStatusNeighbors,
+        ch.bettingStatusNeighbors.newValue
+      );
 
     // show [ON] right after toggle on (before first status)
     if (ch.autoBettingLowHighEnabled) {
@@ -171,6 +218,20 @@ chrome.storage.onChanged.addListener((ch, area) => {
       if (dznStepsBox) renderSteps(dznStepsBox, cfg.steps);
       updateDotsFromState();
     }
+
+    // NEW: anti-dozens config
+    if (ch.abAntiDozensConfig) {
+      const cfg = sanitizeMkt(ch.abAntiDozensConfig.newValue);
+      if (antidozensStreakInp)
+        antidozensStreakInp.value = cfg.triggerStreak;
+      if (antidozensAutoCk)
+        antidozensAutoCk.checked = !!cfg.autoContinue;
+      if (antidozensZeroCk)
+        antidozensZeroCk.checked = !!cfg.includeZero;
+      if (antiDznStepsBox) renderSteps(antiDznStepsBox, cfg.steps);
+      updateDotsFromState();
+    }
+
     if (ch.abRowsConfig) {
       const cfg = sanitizeMkt(ch.abRowsConfig.newValue);
       if (rowsStreakInp) rowsStreakInp.value = cfg.triggerStreak;
@@ -179,6 +240,7 @@ chrome.storage.onChanged.addListener((ch, area) => {
       if (rowStepsBox) renderSteps(rowStepsBox, cfg.steps);
       updateDotsFromState();
     }
+
     if (ch.abSixConfig) {
       const cfg = sanitizeMkt(ch.abSixConfig.newValue);
       if (sixStreakInp) sixStreakInp.value = cfg.triggerStreak;
@@ -187,6 +249,7 @@ chrome.storage.onChanged.addListener((ch, area) => {
       if (sixStepsBox) renderSteps(sixStepsBox, cfg.steps);
       updateDotsFromState();
     }
+
     if (ch.abThreesConfig) {
       const cfg = sanitizeMkt(ch.abThreesConfig.newValue);
       if (threesStreakInp) threesStreakInp.value = cfg.triggerStreak;
@@ -196,7 +259,6 @@ chrome.storage.onChanged.addListener((ch, area) => {
       updateDotsFromState();
     }
 
-    // NEW configs
     if (ch.abLowHighConfig) {
       const cfg = sanitizeMkt(ch.abLowHighConfig.newValue);
       if (lowhighStreakInp)
@@ -204,7 +266,9 @@ chrome.storage.onChanged.addListener((ch, area) => {
       if (lowhighAutoCk) lowhighAutoCk.checked = !!cfg.autoContinue;
       if (lowhighZeroCk) lowhighZeroCk.checked = !!cfg.includeZero;
       if (lowhighStepsBox) renderSteps(lowhighStepsBox, cfg.steps);
+      updateDotsFromState();
     }
+
     if (ch.abEvenOddConfig) {
       const cfg = sanitizeMkt(ch.abEvenOddConfig.newValue);
       if (evenoddStreakInp)
@@ -212,13 +276,34 @@ chrome.storage.onChanged.addListener((ch, area) => {
       if (evenoddAutoCk) evenoddAutoCk.checked = !!cfg.autoContinue;
       if (evenoddZeroCk) evenoddZeroCk.checked = !!cfg.includeZero;
       if (evenoddStepsBox) renderSteps(evenoddStepsBox, cfg.steps);
+      updateDotsFromState();
     }
+
     if (ch.abColorsConfig) {
       const cfg = sanitizeMkt(ch.abColorsConfig.newValue);
       if (colorsStreakInp) colorsStreakInp.value = cfg.triggerStreak;
       if (colorsAutoCk) colorsAutoCk.checked = !!cfg.autoContinue;
       if (colorsZeroCk) colorsZeroCk.checked = !!cfg.includeZero;
       if (colorsStepsBox) renderSteps(colorsStepsBox, cfg.steps);
+      updateDotsFromState();
+    }
+
+    if (ch.abSectorsConfig) {
+      const cfg = sanitizeMkt(ch.abSectorsConfig.newValue);
+      if (sectorsStreakInp)
+        sectorsStreakInp.value = cfg.triggerStreak;
+      if (sectorsAutoCk) sectorsAutoCk.checked = !!cfg.autoContinue;
+      if (sectorsZeroCk) sectorsZeroCk.checked = !!cfg.includeZero;
+      if (sectorsStepsBox) renderSteps(sectorsStepsBox, cfg.steps);
+      updateDotsFromState();
+    }
+
+    // neighbors config (steps only)
+    if (ch.abNeighborsConfig) {
+      const cfg = sanitizeNeighbors(ch.abNeighborsConfig.newValue);
+      // neighborsStepsBox here is not imported in this file by design; config UI is handled by loadMarketUI/init wiring
+      // (если захочешь, могу добавить сюда тоже, но сейчас это не требуется)
+      void cfg;
     }
 
     // streaks
@@ -227,10 +312,9 @@ chrome.storage.onChanged.addListener((ch, area) => {
       updateDotsFromState();
     }
 
-    // трёшки: системный сигнал на сброс ламп
+    // системные сигналы от стратегий
     handleStorageChangeForStreaks(ch, area);
   } catch (e) {
-    // гасим любые ошибки, чтобы не ломать realtime-обновление логов
     console.warn('[live:onChanged] suppressed error', e);
   }
 });
