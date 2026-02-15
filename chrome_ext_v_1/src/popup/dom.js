@@ -33,6 +33,11 @@ export const autoBetToggleAntiDozens = document.getElementById(
   'autoBetToggleAntiDozens'
 );
 
+// NEW: anti-rows
+export const autoBetToggleAntiRows = document.getElementById(
+  'autoBetToggleAntiRows'
+);
+
 export const autoBetToggleLowHigh = document.getElementById(
   'autoBetToggleLowHigh'
 );
@@ -53,6 +58,11 @@ export const betStatusThrees =
 // NEW:
 export const betStatusAntiDozens = document.getElementById(
   'betStatusAntiDozens'
+);
+
+// NEW: anti-rows
+export const betStatusAntiRows = document.getElementById(
+  'betStatusAntiRows'
 );
 
 export const betStatusLowHigh = document.getElementById(
@@ -76,6 +86,10 @@ export const antidozensStreakInp = document.getElementById(
   'antidozensStreak'
 );
 
+// NEW: anti-rows
+export const antirowsStreakInp =
+  document.getElementById('antirowsStreak');
+
 export const lowhighStreakInp =
   document.getElementById('lowhighStreak');
 export const evenoddStreakInp =
@@ -95,6 +109,11 @@ export const threesAutoCk = document.getElementById(
 // NEW:
 export const antidozensAutoCk = document.getElementById(
   'antidozensAutoContinue'
+);
+
+// NEW: anti-rows
+export const antirowsAutoCk = document.getElementById(
+  'antirowsAutoContinue'
 );
 
 export const lowhighAutoCk = document.getElementById(
@@ -121,6 +140,11 @@ export const antidozensZeroCk = document.getElementById(
   'antidozensIncludeZero'
 );
 
+// NEW: anti-rows
+export const antirowsZeroCk = document.getElementById(
+  'antirowsIncludeZero'
+);
+
 export const lowhighZeroCk = document.getElementById(
   'lowhighIncludeZero'
 );
@@ -143,6 +167,11 @@ export const dotsAntiDozens = document.getElementById(
   'antidozensStreakDots'
 );
 
+// NEW: anti-rows
+export const dotsAntiRows = document.getElementById(
+  'antirowsStreakDots'
+);
+
 export const dotsLowHigh = document.getElementById(
   'lowhighStreakDots'
 );
@@ -162,6 +191,11 @@ export const threesStepsBox =
 export const antiDznStepsBox =
   document.getElementById('antiDznStepsBox');
 
+// NEW: anti-rows
+export const antiRowsStepsBox = document.getElementById(
+  'antiRowsStepsBox'
+);
+
 export const lowhighStepsBox =
   document.getElementById('lowhighStepsBox');
 export const evenoddStepsBox =
@@ -176,6 +210,10 @@ export const cfgThreesMsg = document.getElementById('cfgThreesMsg');
 
 // NEW:
 export const cfgAntiDznMsg = document.getElementById('cfgAntiDznMsg');
+
+// NEW: anti-rows
+export const cfgAntiRowsMsg =
+  document.getElementById('cfgAntiRowsMsg');
 
 export const cfgLowHighMsg = document.getElementById('cfgLowHighMsg');
 export const cfgEvenOddMsg = document.getElementById('cfgEvenOddMsg');

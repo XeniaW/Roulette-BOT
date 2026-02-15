@@ -14,6 +14,9 @@ import {
   // NEW anti-dozens
   antidozensStreakInp,
 
+  // NEW anti-rows
+  antirowsStreakInp,
+
   // checkboxes (auto-continue)
   dozensAutoCk,
   rowsAutoCk,
@@ -26,6 +29,9 @@ import {
 
   // NEW anti-dozens
   antidozensAutoCk,
+
+  // NEW anti-rows
+  antirowsAutoCk,
 
   // checkboxes (include zero)
   dozensZeroCk,
@@ -40,6 +46,9 @@ import {
   // NEW anti-dozens
   antidozensZeroCk,
 
+  // NEW anti-rows
+  antirowsZeroCk,
+
   // toggles
   autoBetToggleDozens,
   autoBetToggleRows,
@@ -52,6 +61,9 @@ import {
 
   // NEW anti-dozens
   autoBetToggleAntiDozens,
+
+  // NEW anti-rows
+  autoBetToggleAntiRows,
 
   // steps boxes
   dznStepsBox,
@@ -66,6 +78,9 @@ import {
   // NEW anti-dozens
   antiDznStepsBox,
 
+  // NEW anti-rows
+  antiRowsStepsBox,
+
   // cfg messages
   cfgDznMsg,
   cfgRowMsg,
@@ -79,6 +94,9 @@ import {
   // NEW anti-dozens
   cfgAntiDznMsg,
 
+  // NEW anti-rows
+  cfgAntiRowsMsg,
+
   // bet status output spans
   betStatusDozens,
   betStatusRows,
@@ -91,6 +109,9 @@ import {
 
   // NEW anti-dozens
   betStatusAntiDozens,
+
+  // NEW anti-rows
+  betStatusAntiRows,
 
   // neighbors
   autoBetToggleNeighbors,
@@ -114,6 +135,9 @@ export const CFG_EVENODD_KEY = 'abEvenOddConfig';
 export const CFG_COLORS_KEY = 'abColorsConfig';
 export const CFG_SECTORS_KEY = 'abSectorsConfig';
 export const CFG_NEIGHBORS_KEY = 'abNeighborsConfig';
+
+// NEW: anti-rows
+export const CFG_ANTI_ROWS_KEY = 'abAntiRowsConfig';
 
 // === Default configs ===
 export const DEFAULT_MKT = Object.freeze({
@@ -239,6 +263,17 @@ export async function loadMarketUI(market) {
     stepsBox = antiDznStepsBox;
     msgEl = cfgAntiDznMsg;
     statusElDest = betStatusAntiDozens;
+  } else if (market === 'antirows') {
+    cfgKey = CFG_ANTI_ROWS_KEY;
+    enKey = 'autoBettingAntiRowsEnabled';
+    statusKey = 'bettingStatusAntiRows';
+    streakInp = antirowsStreakInp;
+    autoCk = antirowsAutoCk;
+    zeroCk = antirowsZeroCk;
+    toggle = autoBetToggleAntiRows;
+    stepsBox = antiRowsStepsBox;
+    msgEl = cfgAntiRowsMsg;
+    statusElDest = betStatusAntiRows;
   } else if (market === 'rows') {
     cfgKey = CFG_ROW_KEY;
     enKey = 'autoBettingRowsEnabled';
@@ -375,6 +410,13 @@ export async function saveMarketCfgFromUI(market) {
     streakInpEl = antidozensStreakInp;
     autoCkEl = antidozensAutoCk;
     zeroCkEl = antidozensZeroCk;
+  } else if (market === 'antirows') {
+    cfgKey = CFG_ANTI_ROWS_KEY;
+    stepsBox = antiRowsStepsBox;
+    msgEl = cfgAntiRowsMsg;
+    streakInpEl = antirowsStreakInp;
+    autoCkEl = antirowsAutoCk;
+    zeroCkEl = antirowsZeroCk;
   } else if (market === 'rows') {
     cfgKey = CFG_ROW_KEY;
     stepsBox = rowStepsBox;
@@ -493,6 +535,16 @@ export function wireMarketTogglesReset() {
     await sset({ autoBettingAntiDozensEnabled: checked });
     if (!checked) {
       resetStreakDots('antidozens');
+      updateDotsFromState();
+    }
+  });
+
+  // NEW: anti-rows
+  autoBetToggleAntiRows?.addEventListener('change', async () => {
+    const checked = !!autoBetToggleAntiRows.checked;
+    await sset({ autoBettingAntiRowsEnabled: checked });
+    if (!checked) {
+      resetStreakDots('antirows');
       updateDotsFromState();
     }
   });

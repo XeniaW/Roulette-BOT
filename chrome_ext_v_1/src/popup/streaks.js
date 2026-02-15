@@ -9,6 +9,9 @@ import {
   // NEW: anti-dozens
   dotsAntiDozens,
 
+  // NEW: anti-rows
+  dotsAntiRows,
+
   // NEW:
   dotsLowHigh,
   dotsEvenOdd,
@@ -24,6 +27,9 @@ import {
   // NEW: anti-dozens
   antidozensStreakInp,
 
+  // NEW: anti-rows
+  antirowsStreakInp,
+
   // NEW:
   lowhighStreakInp,
   evenoddStreakInp,
@@ -38,6 +44,9 @@ import {
 
   // NEW: anti-dozens
   antidozensZeroCk,
+
+  // NEW: anti-rows
+  antirowsZeroCk,
 
   // NEW:
   lowhighZeroCk,
@@ -58,6 +67,7 @@ let currStreakState = {
 const resetIdx = {
   dozens: 0,
   antidozens: 0, // NEW
+  antirows: 0, // NEW
   rows: 0,
   six: 0,
   threes: 0,
@@ -77,6 +87,7 @@ export function resetStreakDots(market) {
   const i = Array.isArray(latestSpins) ? latestSpins.length : 0;
   if (market === 'dozens') resetIdx.dozens = i;
   else if (market === 'antidozens') resetIdx.antidozens = i; // NEW
+  else if (market === 'antirows') resetIdx.antirows = i; // NEW
   else if (market === 'rows') resetIdx.rows = i;
   else if (market === 'six') resetIdx.six = i;
   else if (market === 'threes') resetIdx.threes = i;
@@ -250,10 +261,36 @@ function calcMissingDozenBestLen(spins, need, includeZero) {
   return Math.min(bestLen, need);
 }
 
+// NEW: антиряды — прогресс "сколько спинов не выходил какой-то ряд"
+function calcMissingRowBestLen(spins, need, includeZero) {
+  const miss = [0, 0, 0];
+  const found = [false, false, false];
+
+  for (let i = spins.length - 1; i >= 0; i--) {
+    const n = Number(spins[i]?.n);
+    if (!Number.isFinite(n)) continue;
+    if (n === 0 && !includeZero) continue;
+
+    const ri = rowIndex(n); // -1 для 0
+    for (let r = 0; r < 3; r++) {
+      if (found[r]) continue;
+      if (ri !== -1 && r === ri) continue;
+      miss[r]++;
+    }
+    if (ri !== -1 && !found[ri]) found[ri] = true;
+
+    if (found[0] && found[1] && found[2]) break;
+  }
+
+  const bestLen = Math.max(miss[0], miss[1], miss[2]);
+  return Math.min(bestLen, need);
+}
+
 // рендер
 export function updateDotsFromState() {
   const maxD = Math.max(1, Number(dozensStreakInp?.value) || 2);
   const maxAD = Math.max(1, Number(antidozensStreakInp?.value) || 10); // NEW
+  const maxAR = Math.max(1, Number(antirowsStreakInp?.value) || 10); // NEW
   const maxR = Math.max(1, Number(rowsStreakInp?.value) || 2);
   const maxS = Math.max(1, Number(sixStreakInp?.value) || 2);
   const K = Math.max(1, Number(threesStreakInp?.value) || 4);
@@ -265,6 +302,7 @@ export function updateDotsFromState() {
 
   const incZeroD = !!dozensZeroCk?.checked;
   const incZeroAD = !!antidozensZeroCk?.checked; // NEW
+  const incZeroAR = !!antirowsZeroCk?.checked; // NEW
   const incZeroR = !!rowsZeroCk?.checked;
   const incZeroS = !!sixZeroCk?.checked;
   const incZeroT = !!threesZeroCk?.checked;
@@ -276,6 +314,7 @@ export function updateDotsFromState() {
 
   const spinsD = latestSpins.slice(Math.max(0, resetIdx.dozens));
   const spinsAD = latestSpins.slice(Math.max(0, resetIdx.antidozens)); // NEW
+  const spinsAR = latestSpins.slice(Math.max(0, resetIdx.antirows)); // NEW
   const spinsR = latestSpins.slice(Math.max(0, resetIdx.rows));
   const spinsS = latestSpins.slice(Math.max(0, resetIdx.six));
   const spinsT = latestSpins.slice(Math.max(0, resetIdx.threes));
@@ -295,6 +334,10 @@ export function updateDotsFromState() {
   // NEW: anti-dozens dots
   const antiLen = calcMissingDozenBestLen(spinsAD, maxAD, incZeroAD);
   renderDots(dotsAntiDozens, antiLen, maxAD);
+
+  // NEW: anti-rows dots
+  const antiRowLen = calcMissingRowBestLen(spinsAR, maxAR, incZeroAR);
+  renderDots(dotsAntiRows, antiRowLen, maxAR);
 
   const progR = calcOneGroupProgress(
     spinsR,
@@ -367,6 +410,13 @@ export function handleStorageChangeForStreaks(ch, area) {
     resetStreakDots('sectors');
     updateDotsFromState();
   }
-  // если захочешь отдельный reset-сигнал для антидюжин — добавим:
-  // if (ch.antidozensDotsReset) { resetStreakDots('antidozens'); updateDotsFromState(); }
+  // если захочешь отдельные reset-сигналы:
+  if (ch.antidozensDotsReset) {
+    resetStreakDots('antidozens');
+    updateDotsFromState();
+  }
+  if (ch.antirowsDotsReset) {
+    resetStreakDots('antirows');
+    updateDotsFromState();
+  }
 }

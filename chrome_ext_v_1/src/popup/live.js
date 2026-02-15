@@ -13,6 +13,9 @@ import {
   // NEW: anti-dozens
   betStatusAntiDozens,
 
+  // NEW: anti-rows
+  betStatusAntiRows,
+
   // NEW (halves)
   betStatusLowHigh,
   betStatusEvenOdd,
@@ -31,6 +34,9 @@ import {
   // NEW: anti-dozens
   antiDznStepsBox,
 
+  // NEW: anti-rows
+  antiRowsStepsBox,
+
   // NEW
   lowhighStepsBox,
   evenoddStepsBox,
@@ -43,6 +49,9 @@ import {
 
   // NEW: anti-dozens
   antidozensStreakInp,
+
+  // NEW: anti-rows
+  antirowsStreakInp,
 
   // NEW
   lowhighStreakInp,
@@ -57,6 +66,9 @@ import {
   // NEW: anti-dozens
   antidozensAutoCk,
 
+  // NEW: anti-rows
+  antirowsAutoCk,
+
   // NEW
   lowhighAutoCk,
   evenoddAutoCk,
@@ -69,6 +81,9 @@ import {
 
   // NEW: anti-dozens
   antidozensZeroCk,
+
+  // NEW: anti-rows
+  antirowsZeroCk,
 
   // NEW
   lowhighZeroCk,
@@ -153,6 +168,11 @@ chrome.storage.onChanged.addListener((ch, area) => {
         betStatusAntiDozens,
         ch.bettingStatusAntiDozens.newValue
       );
+    if (ch.bettingStatusAntiRows)
+      setStatusText(
+        betStatusAntiRows,
+        ch.bettingStatusAntiRows.newValue
+      );
     if (ch.bettingStatusRows)
       setStatusText(betStatusRows, ch.bettingStatusRows.newValue);
     if (ch.bettingStatusSix)
@@ -232,6 +252,17 @@ chrome.storage.onChanged.addListener((ch, area) => {
       updateDotsFromState();
     }
 
+    // NEW: anti-rows config
+    if (ch.abAntiRowsConfig) {
+      const cfg = sanitizeMkt(ch.abAntiRowsConfig.newValue);
+      if (antirowsStreakInp)
+        antirowsStreakInp.value = cfg.triggerStreak;
+      if (antirowsAutoCk) antirowsAutoCk.checked = !!cfg.autoContinue;
+      if (antirowsZeroCk) antirowsZeroCk.checked = !!cfg.includeZero;
+      if (antiRowsStepsBox) renderSteps(antiRowsStepsBox, cfg.steps);
+      updateDotsFromState();
+    }
+
     if (ch.abRowsConfig) {
       const cfg = sanitizeMkt(ch.abRowsConfig.newValue);
       if (rowsStreakInp) rowsStreakInp.value = cfg.triggerStreak;
@@ -301,8 +332,6 @@ chrome.storage.onChanged.addListener((ch, area) => {
     // neighbors config (steps only)
     if (ch.abNeighborsConfig) {
       const cfg = sanitizeNeighbors(ch.abNeighborsConfig.newValue);
-      // neighborsStepsBox here is not imported in this file by design; config UI is handled by loadMarketUI/init wiring
-      // (если захочешь, могу добавить сюда тоже, но сейчас это не требуется)
       void cfg;
     }
 

@@ -433,8 +433,8 @@
             role="presentation"
           ></div>
           <label for="antidozensStreak" class="small label-block"
-            >Стрик
-          </label>
+            >Стрик</label
+          >
           <input
             id="antidozensStreak"
             type="number"
@@ -454,6 +454,42 @@
       </div>
       <div class="row">
         <span id="betStatusAntiDozens" class="small"></span>
+      </div>
+
+      <!-- NEW: Anti-Rows -->
+      <div class="row ai-center">
+        <label
+          ><input type="checkbox" id="autoBetToggleAntiRows" />
+          Антиряды</label
+        >
+        <div class="col">
+          <div
+            id="antirowsStreakDots"
+            class="dots"
+            role="presentation"
+          ></div>
+          <label for="antirowsStreak" class="small label-block"
+            >Стрик</label
+          >
+          <input
+            id="antirowsStreak"
+            type="number"
+            min="2"
+            step="1"
+            value="10"
+          />
+          <label class="small"
+            ><input type="checkbox" id="antirowsAutoContinue" />
+            Ставки подряд</label
+          >
+          <label class="small"
+            ><input type="checkbox" id="antirowsIncludeZero" />
+            Учитывать 0</label
+          >
+        </div>
+      </div>
+      <div class="row">
+        <span id="betStatusAntiRows" class="small"></span>
       </div>
 
       <div class="row row-end">
@@ -642,6 +678,7 @@
       </div>
       <div id="cfgSectorsMsg" class="small"></div>
     </section>
+
     <!-- STEPS: NEIGHBORS -->
     <section class="card" data-market="neighbors">
       <h3>Steps — Neighbors</h3>
@@ -662,6 +699,7 @@
       </div>
       <div id="cfgNeighborsMsg" class="small"></div>
     </section>
+
     <!-- ==== STEPS: ANTI-DOZENS ==== -->
     <section class="card">
       <h3>Steps — Anti-Dozens</h3>
@@ -681,6 +719,27 @@
         <button id="btnCfgAntiDznSave" class="btn">Save</button>
       </div>
       <div id="cfgAntiDznMsg" class="small"></div>
+    </section>
+
+    <!-- ==== NEW: STEPS: ANTI-ROWS ==== -->
+    <section class="card">
+      <h3>Steps — Anti-Rows</h3>
+      <div class="card card-inner">
+        <h4>Steps</h4>
+        <div id="antiRowsStepsBox"></div>
+        <div class="row">
+          <button id="btnAddAntiRowStep" class="btn">
+            + Add step
+          </button>
+        </div>
+      </div>
+      <div class="row row-end">
+        <button id="btnCfgAntiRowDefaults" class="btn">
+          Defaults
+        </button>
+        <button id="btnCfgAntiRowSave" class="btn">Save</button>
+      </div>
+      <div id="cfgAntiRowsMsg" class="small"></div>
     </section>
 
     <script src="popup.js"></script>

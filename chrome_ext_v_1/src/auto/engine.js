@@ -26,6 +26,10 @@
     }
   }
 
+  // ✅ один mutex на ВСЕ рынки/ставки (одна активная фишка на стол)
+  const GLOBAL_BET_MUTEX = (window.__GLOBAL_BET_MUTEX__ ||=
+    new Mutex());
+
   async function sget(defs) {
     try {
       return await chrome.storage.local.get(defs || {});
@@ -95,6 +99,26 @@
     await new Promise((r) => setTimeout(r, 30));
   }
 
+  // ✅ подтверждение выбора фишки, чтобы не кликать "в воздух"
+  async function ensureChipSelected(chipEl) {
+    if (!chipEl) return false;
+
+    // если UI уже отмечает выбранность
+    const isSel = () =>
+      chipEl.getAttribute('data-selected') === 'true';
+
+    if (isSel()) return true;
+
+    await clickElement(chipEl);
+    await new Promise((r) => setTimeout(r, 60));
+    if (isSel()) return true;
+
+    // один ретрай
+    await clickElement(chipEl);
+    await new Promise((r) => setTimeout(r, 120));
+    return isSel() || true; // если нет data-selected, просто не блокируемся
+  }
+
   function selectorsFromTemplate(chipValues, template) {
     const out = [];
     for (const v of chipValues) {
@@ -124,7 +148,6 @@
     return out;
   }
 
-  // steps: массив шагов; каждый шаг — массив {chip:1-based, times}
   function planForStep(step, steps, chipCount) {
     const idx = Math.max(0, Math.min(steps.length - 1, step - 1));
     const plan = steps[idx] || [{ chip: 1, times: 1 }];
@@ -172,19 +195,17 @@
     });
   }
 
-  // Универсальная постановка: использует ГЛОБАЛЬНЫЕ фишки + локальные steps
   async function tryPlace({
     step,
     targets,
     steps,
     getTargetNode,
-    mutex,
+    mutex, // локальный, можно оставить
 
-    // ✅ новые опции (не обязательные)
     maxWaitMs,
     retryMs,
   }) {
-    const chips = await loadGlobalChips(); // {chipSelectorTemplate, chipValues}
+    const chips = await loadGlobalChips();
 
     const timeLimit =
       Number.isFinite(maxWaitMs) && maxWaitMs > 0
@@ -199,7 +220,7 @@
     const deadline = Date.now() + timeLimit;
     const plan = planForStep(step, steps, chips.chipValues.length);
 
-    return mutex.run(async () => {
+    const placeOnce = async () => {
       while (Date.now() < deadline) {
         const chipNodes = selectorsFromTemplate(
           chips.chipValues,
@@ -213,7 +234,9 @@
         if (okChips && okTargets) {
           for (let t = 0; t < targets.length; t++) {
             for (const c of plan) {
-              await clickElement(chipNodes[c.i]);
+              const chipEl = chipNodes[c.i];
+              await ensureChipSelected(chipEl);
+
               for (let k = 0; k < c.times; k++) {
                 await clickElement(tNodes[t]);
                 await new Promise((r) => setTimeout(r, 40));
@@ -226,6 +249,13 @@
         await new Promise((r) => setTimeout(r, tick));
       }
       return false;
+    };
+
+    // ✅ СНАЧАЛА глобальный замок (между рынками), потом локальный (если есть)
+    return GLOBAL_BET_MUTEX.run(() => {
+      if (mutex && typeof mutex.run === 'function')
+        return mutex.run(placeOnce);
+      return placeOnce();
     });
   }
 
@@ -236,7 +266,6 @@
     setBetStatus,
     tryPlace,
     perTargetAmountForStep,
-    // global chips API (для popup.js)
     loadGlobalChips,
     saveGlobalChips,
     sanitizeChips,

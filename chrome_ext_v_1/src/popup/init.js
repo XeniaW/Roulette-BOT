@@ -11,8 +11,11 @@ import {
   sixStreakInp,
   threesStreakInp,
 
-  // NEW: anti-dozens
+  // anti-dozens
   antidozensStreakInp,
+
+  // NEW: anti-rows
+  antirowsStreakInp,
   lowhighStreakInp,
   evenoddStreakInp,
   colorsStreakInp,
@@ -22,8 +25,11 @@ import {
   sixZeroCk,
   threesZeroCk,
 
-  // NEW: anti-dozens
+  // anti-dozens
   antidozensZeroCk,
+
+  // NEW: anti-rows
+  antirowsZeroCk,
   lowhighZeroCk,
   evenoddZeroCk,
   colorsZeroCk,
@@ -34,8 +40,11 @@ import {
   sixStepsBox,
   threesStepsBox,
 
-  // NEW: anti-dozens
+  // anti-dozens
   antiDznStepsBox,
+
+  // NEW: anti-rows
+  antiRowsStepsBox,
   lowhighStepsBox,
   evenoddStepsBox,
   colorsStepsBox,
@@ -125,10 +134,15 @@ export function wireInitHandlers() {
     .getElementById('btnAddDznStep')
     ?.addEventListener('click', () => addStep(dznStepsBox));
 
-  // NEW: anti-dozens
+  // anti-dozens
   document
     .getElementById('btnAddAntiDznStep')
     ?.addEventListener('click', () => addStep(antiDznStepsBox));
+
+  // NEW: anti-rows
+  document
+    .getElementById('btnAddAntiRowStep')
+    ?.addEventListener('click', () => addStep(antiRowsStepsBox));
 
   document
     .getElementById('btnAddRowStep')
@@ -162,11 +176,18 @@ export function wireInitHandlers() {
       renderSteps(dznStepsBox, DEFAULT_MKT.steps)
     );
 
-  // NEW: anti-dozens
+  // anti-dozens
   document
     .getElementById('btnCfgAntiDznDefaults')
     ?.addEventListener('click', () =>
       renderSteps(antiDznStepsBox, DEFAULT_MKT.steps)
+    );
+
+  // NEW: anti-rows
+  document
+    .getElementById('btnCfgAntiRowDefaults')
+    ?.addEventListener('click', () =>
+      renderSteps(antiRowsStepsBox, DEFAULT_MKT.steps)
     );
 
   document
@@ -223,11 +244,18 @@ export function wireInitHandlers() {
     .getElementById('btnCfgDznSave')
     ?.addEventListener('click', () => saveMarketCfgFromUI('dozens'));
 
-  // NEW: anti-dozens
+  // anti-dozens
   document
     .getElementById('btnCfgAntiDznSave')
     ?.addEventListener('click', () =>
       saveMarketCfgFromUI('antidozens')
+    );
+
+  // NEW: anti-rows
+  document
+    .getElementById('btnCfgAntiRowSave')
+    ?.addEventListener('click', () =>
+      saveMarketCfgFromUI('antirows')
     );
 
   document
@@ -290,8 +318,11 @@ export function wireInitHandlers() {
   sixStreakInp?.addEventListener('input', updateDotsFromState);
   threesStreakInp?.addEventListener('input', updateDotsFromState);
 
-  // NEW: anti-dozens
+  // anti-dozens
   antidozensStreakInp?.addEventListener('input', updateDotsFromState);
+
+  // NEW: anti-rows
+  antirowsStreakInp?.addEventListener('input', updateDotsFromState);
 
   lowhighStreakInp?.addEventListener('input', updateDotsFromState);
   evenoddStreakInp?.addEventListener('input', updateDotsFromState);
@@ -303,8 +334,11 @@ export function wireInitHandlers() {
   sixZeroCk?.addEventListener('change', updateDotsFromState);
   threesZeroCk?.addEventListener('change', updateDotsFromState);
 
-  // NEW: anti-dozens
+  // anti-dozens
   antidozensZeroCk?.addEventListener('change', updateDotsFromState);
+
+  // NEW: anti-rows
+  antirowsZeroCk?.addEventListener('change', updateDotsFromState);
 
   lowhighZeroCk?.addEventListener('change', updateDotsFromState);
   evenoddZeroCk?.addEventListener('change', updateDotsFromState);
@@ -315,7 +349,8 @@ export function wireInitHandlers() {
   btnSaveAll?.addEventListener('click', async () => {
     await saveGlobalChipsFromUI();
     await saveMarketCfgFromUI('dozens');
-    await saveMarketCfgFromUI('antidozens'); // NEW
+    await saveMarketCfgFromUI('antidozens');
+    await saveMarketCfgFromUI('antirows'); // NEW
     await saveMarketCfgFromUI('rows');
     await saveMarketCfgFromUI('six');
     await saveMarketCfgFromUI('threes');
@@ -334,12 +369,19 @@ export function wireInitHandlers() {
     stepsBox: dznStepsBox,
   });
 
-  // NEW: anti-dozens
   wireAutoSaveForMarket('antidozens', {
     streakInp: antidozensStreakInp,
     autoCk: document.getElementById('antidozensAutoContinue'),
     zeroCk: document.getElementById('antidozensIncludeZero'),
     stepsBox: antiDznStepsBox,
+  });
+
+  // NEW: anti-rows
+  wireAutoSaveForMarket('antirows', {
+    streakInp: antirowsStreakInp,
+    autoCk: document.getElementById('antirowsAutoContinue'),
+    zeroCk: document.getElementById('antirowsIncludeZero'),
+    stepsBox: antiRowsStepsBox,
   });
 
   wireAutoSaveForMarket('rows', {
