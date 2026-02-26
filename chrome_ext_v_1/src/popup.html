@@ -1,5 +1,5 @@
 <!-- popup.html -->
-<!DOCTYPE html>
+<!doctype html>
 <html>
   <head>
     <meta charset="utf-8" />
@@ -35,6 +35,12 @@
       <h3>
         Logs <small>(<span id="count">0</span>)</small>
       </h3>
+
+      <!-- ✅ NEW: уникальные числа (сколько еще НЕ выпадало) -->
+      <div class="small muted" style="margin: 4px 0 8px">
+        Уникальные числа: <span id="uniqueLeft">37</span>
+      </div>
+
       <div id="list">
         <table>
           <thead>
@@ -416,10 +422,6 @@
         <span id="betStatusNeighbors" class="small"></span>
       </div>
 
-      <div class="row">
-        <span id="betStatusNeighbors" class="small"></span>
-      </div>
-
       <!-- Anti-Dozens -->
       <div class="row ai-center">
         <label
@@ -490,6 +492,49 @@
       </div>
       <div class="row">
         <span id="betStatusAntiRows" class="small"></span>
+      </div>
+
+      <!-- Numbers -->
+      <div class="row ai-center">
+        <label>
+          <input type="checkbox" id="autoBetToggleNumbers" />
+          Числа
+        </label>
+
+        <div class="col">
+          <label for="numbersGap" class="small label-block"
+            >Стрик</label
+          >
+          <input
+            id="numbersGap"
+            type="number"
+            min="1"
+            step="1"
+            value="120"
+          />
+
+          <label for="numbersMaxTargets" class="small label-block"
+            >Ставка на кол-во чисел</label
+          >
+          <input
+            id="numbersMaxTargets"
+            type="number"
+            min="1"
+            step="1"
+            value="1"
+          />
+
+          <label class="small">
+            <input type="checkbox" id="numbersAutoContinue" />
+            Ставки подряд
+          </label>
+        </div>
+      </div>
+      <div class="row">
+        <span id="betStatusNumbers" class="small"></span>
+      </div>
+      <div class="row">
+        <span id="numbersNear" class="small mono"></span>
       </div>
 
       <div class="row row-end">
@@ -740,6 +785,27 @@
         <button id="btnCfgAntiRowSave" class="btn">Save</button>
       </div>
       <div id="cfgAntiRowsMsg" class="small"></div>
+    </section>
+
+    <!-- ==== NEW: STEPS: NUMBERS ==== -->
+    <section class="card">
+      <h3>Steps — Numbers</h3>
+      <div class="card card-inner">
+        <h4>Steps</h4>
+        <div id="numbersStepsBox"></div>
+        <div class="row">
+          <button id="btnAddNumbersStep" class="btn">
+            + Add step
+          </button>
+        </div>
+      </div>
+      <div class="row row-end">
+        <button id="btnCfgNumbersDefaults" class="btn">
+          Defaults
+        </button>
+        <button id="btnCfgNumbersSave" class="btn">Save</button>
+      </div>
+      <div id="cfgNumbersMsg" class="small"></div>
     </section>
 
     <script src="popup.js"></script>

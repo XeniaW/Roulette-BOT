@@ -7,6 +7,10 @@ export const btnAddCurrent = document.getElementById('btnAddCurrent');
 
 export const tbody = document.getElementById('tbody');
 export const countEl = document.getElementById('count');
+
+// ✅ alias для совместимости (spin-logs.js импортит `count`)
+export const count = countEl;
+
 export const btnExport = document.getElementById('btnExport');
 export const btnClear = document.getElementById('btnClear');
 
@@ -16,36 +20,36 @@ export const btnBetExport = document.getElementById('btnBetExport');
 export const btnBetClear = document.getElementById('btnBetClear');
 
 export const autoBetToggleDozens = document.getElementById(
-  'autoBetToggleDozens'
+  'autoBetToggleDozens',
 );
 export const autoBetToggleRows = document.getElementById(
-  'autoBetToggleRows'
+  'autoBetToggleRows',
 );
 export const autoBetToggleSix = document.getElementById(
-  'autoBetToggleSix'
+  'autoBetToggleSix',
 );
 export const autoBetToggleThrees = document.getElementById(
-  'autoBetToggleThrees'
+  'autoBetToggleThrees',
 );
 
 // NEW:
 export const autoBetToggleAntiDozens = document.getElementById(
-  'autoBetToggleAntiDozens'
+  'autoBetToggleAntiDozens',
 );
 
 // NEW: anti-rows
 export const autoBetToggleAntiRows = document.getElementById(
-  'autoBetToggleAntiRows'
+  'autoBetToggleAntiRows',
 );
 
 export const autoBetToggleLowHigh = document.getElementById(
-  'autoBetToggleLowHigh'
+  'autoBetToggleLowHigh',
 );
 export const autoBetToggleEvenOdd = document.getElementById(
-  'autoBetToggleEvenOdd'
+  'autoBetToggleEvenOdd',
 );
 export const autoBetToggleColors = document.getElementById(
-  'autoBetToggleColors'
+  'autoBetToggleColors',
 );
 
 export const betStatusDozens =
@@ -57,19 +61,19 @@ export const betStatusThrees =
 
 // NEW:
 export const betStatusAntiDozens = document.getElementById(
-  'betStatusAntiDozens'
+  'betStatusAntiDozens',
 );
 
 // NEW: anti-rows
 export const betStatusAntiRows = document.getElementById(
-  'betStatusAntiRows'
+  'betStatusAntiRows',
 );
 
 export const betStatusLowHigh = document.getElementById(
-  'betStatusLowHigh'
+  'betStatusLowHigh',
 );
 export const betStatusEvenOdd = document.getElementById(
-  'betStatusEvenOdd'
+  'betStatusEvenOdd',
 );
 export const betStatusColors =
   document.getElementById('betStatusColors');
@@ -83,7 +87,7 @@ export const threesStreakInp =
 
 // NEW:
 export const antidozensStreakInp = document.getElementById(
-  'antidozensStreak'
+  'antidozensStreak',
 );
 
 // NEW: anti-rows
@@ -98,61 +102,61 @@ export const colorsStreakInp =
   document.getElementById('colorsStreak');
 
 export const dozensAutoCk = document.getElementById(
-  'dozensAutoContinue'
+  'dozensAutoContinue',
 );
 export const rowsAutoCk = document.getElementById('rowsAutoContinue');
 export const sixAutoCk = document.getElementById('sixAutoContinue');
 export const threesAutoCk = document.getElementById(
-  'threesAutoContinue'
+  'threesAutoContinue',
 );
 
 // NEW:
 export const antidozensAutoCk = document.getElementById(
-  'antidozensAutoContinue'
+  'antidozensAutoContinue',
 );
 
 // NEW: anti-rows
 export const antirowsAutoCk = document.getElementById(
-  'antirowsAutoContinue'
+  'antirowsAutoContinue',
 );
 
 export const lowhighAutoCk = document.getElementById(
-  'lowhighAutoContinue'
+  'lowhighAutoContinue',
 );
 export const evenoddAutoCk = document.getElementById(
-  'evenoddAutoContinue'
+  'evenoddAutoContinue',
 );
 export const colorsAutoCk = document.getElementById(
-  'colorsAutoContinue'
+  'colorsAutoContinue',
 );
 
 export const dozensZeroCk = document.getElementById(
-  'dozensIncludeZero'
+  'dozensIncludeZero',
 );
 export const rowsZeroCk = document.getElementById('rowsIncludeZero');
 export const sixZeroCk = document.getElementById('sixIncludeZero');
 export const threesZeroCk = document.getElementById(
-  'threesIncludeZero'
+  'threesIncludeZero',
 );
 
 // NEW:
 export const antidozensZeroCk = document.getElementById(
-  'antidozensIncludeZero'
+  'antidozensIncludeZero',
 );
 
 // NEW: anti-rows
 export const antirowsZeroCk = document.getElementById(
-  'antirowsIncludeZero'
+  'antirowsIncludeZero',
 );
 
 export const lowhighZeroCk = document.getElementById(
-  'lowhighIncludeZero'
+  'lowhighIncludeZero',
 );
 export const evenoddZeroCk = document.getElementById(
-  'evenoddIncludeZero'
+  'evenoddIncludeZero',
 );
 export const colorsZeroCk = document.getElementById(
-  'colorsIncludeZero'
+  'colorsIncludeZero',
 );
 
 export const btnSaveAll = document.getElementById('btnSaveAll');
@@ -164,19 +168,19 @@ export const dotsThrees = document.getElementById('threesStreakDots');
 
 // NEW:
 export const dotsAntiDozens = document.getElementById(
-  'antidozensStreakDots'
+  'antidozensStreakDots',
 );
 
 // NEW: anti-rows
 export const dotsAntiRows = document.getElementById(
-  'antirowsStreakDots'
+  'antirowsStreakDots',
 );
 
 export const dotsLowHigh = document.getElementById(
-  'lowhighStreakDots'
+  'lowhighStreakDots',
 );
 export const dotsEvenOdd = document.getElementById(
-  'evenoddStreakDots'
+  'evenoddStreakDots',
 );
 export const dotsColors = document.getElementById('colorsStreakDots');
 
@@ -193,7 +197,7 @@ export const antiDznStepsBox =
 
 // NEW: anti-rows
 export const antiRowsStepsBox = document.getElementById(
-  'antiRowsStepsBox'
+  'antiRowsStepsBox',
 );
 
 export const lowhighStepsBox =
@@ -227,7 +231,7 @@ export const btnAddChip = document.getElementById('btnAddChip');
 
 // toggles
 export const autoBetToggleSectors = document.getElementById(
-  'autoBetToggleSectors'
+  'autoBetToggleSectors',
 );
 
 // streak input
@@ -236,15 +240,15 @@ export const sectorsStreakInp =
 
 // checkboxes
 export const sectorsAutoCk = document.getElementById(
-  'sectorsAutoContinue'
+  'sectorsAutoContinue',
 );
 export const sectorsZeroCk = document.getElementById(
-  'sectorsIncludeZero'
+  'sectorsIncludeZero',
 );
 
 // dots
 export const dotsSectors = document.getElementById(
-  'sectorsStreakDots'
+  'sectorsStreakDots',
 );
 
 // steps box
@@ -256,29 +260,54 @@ export const cfgSectorsMsg = document.getElementById('cfgSectorsMsg');
 
 // bet status span
 export const betStatusSectors = document.getElementById(
-  'betStatusSectors'
+  'betStatusSectors',
 );
 
 // === NEW: Neighbors (minimal UI: toggle + status + steps only) ===
 export const autoBetToggleNeighbors = document.getElementById(
-  'autoBetToggleNeighbors'
+  'autoBetToggleNeighbors',
 );
 export const betStatusNeighbors = document.getElementById(
-  'betStatusNeighbors'
+  'betStatusNeighbors',
 );
 export const neighborsStepsBox = document.getElementById(
-  'neighborsStepsBox'
+  'neighborsStepsBox',
 );
 export const cfgNeighborsMsg =
   document.getElementById('cfgNeighborsMsg');
 
 // === Neighbors buttons ===
 export const btnAddNeighborsStep = document.getElementById(
-  'btnAddNeighborsStep'
+  'btnAddNeighborsStep',
 );
 export const btnCfgNeighborsDefaults = document.getElementById(
-  'btnCfgNeighborsDefaults'
+  'btnCfgNeighborsDefaults',
 );
 export const btnCfgNeighborsSave = document.getElementById(
-  'btnCfgNeighborsSave'
+  'btnCfgNeighborsSave',
 );
+
+// === NEW: Numbers ===
+export const autoBetToggleNumbers = document.getElementById(
+  'autoBetToggleNumbers',
+);
+export const betStatusNumbers = document.getElementById(
+  'betStatusNumbers',
+);
+
+export const numbersGapInp = document.getElementById('numbersGap');
+export const numbersMaxTargetsInp = document.getElementById(
+  'numbersMaxTargets',
+);
+export const numbersAutoCk = document.getElementById(
+  'numbersAutoContinue',
+);
+
+export const numbersStepsBox =
+  document.getElementById('numbersStepsBox');
+export const cfgNumbersMsg = document.getElementById('cfgNumbersMsg');
+
+// unique left indicator above logs table (you добавила в HTML)
+export const uniqueLeft = document.getElementById('uniqueLeft');
+
+export const numbersNear = document.getElementById('numbersNear');

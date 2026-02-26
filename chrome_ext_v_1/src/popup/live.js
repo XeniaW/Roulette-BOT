@@ -1,9 +1,18 @@
 // src/popup/live.js
 import { renderStatus } from './status.js';
-import { appendNew, renderAll } from './spin-logs.js';
+import {
+  appendNew,
+  renderAll,
+  formatTopNearTrigger,
+} from './spin-logs.js';
 import { appendBetNew, renderBetAll } from './bet-logs.js';
 import { loadDomains } from './domains.js';
-import { sanitizeMkt, sanitizeNeighbors } from './markets.js';
+import {
+  sanitizeMkt,
+  sanitizeNeighbors,
+  sanitizeNumbers,
+} from './markets.js';
+
 import {
   betStatusDozens,
   betStatusRows,
@@ -90,6 +99,13 @@ import {
   evenoddZeroCk,
   colorsZeroCk,
   sectorsZeroCk,
+
+  // === NEW: numbers ===
+  betStatusNumbers,
+  numbersStepsBox,
+  numbersGapInp,
+  numbersAutoCk,
+  numbersNear,
 } from './dom.js';
 
 import { renderSteps } from './steps-ui.js';
@@ -103,9 +119,7 @@ import {
 function setStatusText(el, stObj) {
   const s = stObj || { state: 'off', message: '' };
   if (!el) return;
-  el.textContent = `[${(s.state || 'off').toUpperCase()}] ${
-    s.message || ''
-  }`;
+  el.textContent = `[${(s.state || 'off').toUpperCase()}] ${s.message || ''}`;
 }
 
 function setOnIfEnabled(el, enabled, stObj) {
@@ -119,6 +133,22 @@ function setOnIfEnabled(el, enabled, stObj) {
   if (enabled && !hasMeaningful) el.textContent = `[ON]`;
 }
 
+// держим последний полный массив спинов, чтобы не дергать storage
+let lastSpinLogs = [];
+
+function updateNumbersNearUI(spinLogsArr) {
+  if (!numbersNear) return;
+
+  const tg = Number(numbersGapInp?.value || 0) | 0;
+  if (tg <= 0) {
+    numbersNear.textContent = '';
+    return;
+  }
+
+  const txt = formatTopNearTrigger(spinLogsArr, tg, 5, 0.8);
+  numbersNear.textContent = txt || '';
+}
+
 chrome.storage.onChanged.addListener((ch, area) => {
   if (area !== 'local') return;
 
@@ -127,17 +157,21 @@ chrome.storage.onChanged.addListener((ch, area) => {
     if (ch.spinLogs) {
       const { oldValue = [], newValue = [] } = ch.spinLogs;
       const arr = Array.isArray(newValue) ? newValue : [];
+      lastSpinLogs = arr;
+
       setLatestSpins(arr);
 
       if (
         Array.isArray(newValue) &&
         newValue.length > oldValue.length
       ) {
-        appendNew(newValue.slice(oldValue.length));
+        appendNew(newValue.slice(oldValue.length), arr); // важно: full logs для counters
       } else {
         renderAll(arr);
       }
+
       updateDotsFromState();
+      updateNumbersNearUI(arr); // топ-5 near trigger
     }
 
     // === 2) Остальные апдейты — максимально безопасно ===
@@ -153,9 +187,11 @@ chrome.storage.onChanged.addListener((ch, area) => {
       if (
         Array.isArray(newValue) &&
         newValue.length > oldValue.length
-      )
+      ) {
         appendBetNew(newValue.slice(oldValue.length));
-      else renderBetAll(Array.isArray(newValue) ? newValue : []);
+      } else {
+        renderBetAll(Array.isArray(newValue) ? newValue : []);
+      }
     }
 
     if (ch.domains) loadDomains();
@@ -166,12 +202,12 @@ chrome.storage.onChanged.addListener((ch, area) => {
     if (ch.bettingStatusAntiDozens)
       setStatusText(
         betStatusAntiDozens,
-        ch.bettingStatusAntiDozens.newValue
+        ch.bettingStatusAntiDozens.newValue,
       );
     if (ch.bettingStatusAntiRows)
       setStatusText(
         betStatusAntiRows,
-        ch.bettingStatusAntiRows.newValue
+        ch.bettingStatusAntiRows.newValue,
       );
     if (ch.bettingStatusRows)
       setStatusText(betStatusRows, ch.bettingStatusRows.newValue);
@@ -183,12 +219,12 @@ chrome.storage.onChanged.addListener((ch, area) => {
     if (ch.bettingStatusLowHigh)
       setStatusText(
         betStatusLowHigh,
-        ch.bettingStatusLowHigh.newValue
+        ch.bettingStatusLowHigh.newValue,
       );
     if (ch.bettingStatusEvenOdd)
       setStatusText(
         betStatusEvenOdd,
-        ch.bettingStatusEvenOdd.newValue
+        ch.bettingStatusEvenOdd.newValue,
       );
     if (ch.bettingStatusColors)
       setStatusText(betStatusColors, ch.bettingStatusColors.newValue);
@@ -196,12 +232,19 @@ chrome.storage.onChanged.addListener((ch, area) => {
     if (ch.bettingStatusSectors)
       setStatusText(
         betStatusSectors,
-        ch.bettingStatusSectors.newValue
+        ch.bettingStatusSectors.newValue,
       );
     if (ch.bettingStatusNeighbors)
       setStatusText(
         betStatusNeighbors,
-        ch.bettingStatusNeighbors.newValue
+        ch.bettingStatusNeighbors.newValue,
+      );
+
+    // NEW: numbers status
+    if (ch.bettingStatusNumbers)
+      setStatusText(
+        betStatusNumbers,
+        ch.bettingStatusNumbers.newValue,
       );
 
     // show [ON] right after toggle on (before first status)
@@ -228,6 +271,14 @@ chrome.storage.onChanged.addListener((ch, area) => {
         null;
       setOnIfEnabled(betStatusColors, en, st);
     }
+    if (ch.autoBettingNumbersEnabled) {
+      const en = !!ch.autoBettingNumbersEnabled.newValue;
+      const st =
+        (ch.bettingStatusNumbers &&
+          ch.bettingStatusNumbers.newValue) ||
+        null;
+      setOnIfEnabled(betStatusNumbers, en, st);
+    }
 
     // configs sync
     if (ch.abDozensConfig) {
@@ -239,7 +290,6 @@ chrome.storage.onChanged.addListener((ch, area) => {
       updateDotsFromState();
     }
 
-    // NEW: anti-dozens config
     if (ch.abAntiDozensConfig) {
       const cfg = sanitizeMkt(ch.abAntiDozensConfig.newValue);
       if (antidozensStreakInp)
@@ -252,7 +302,6 @@ chrome.storage.onChanged.addListener((ch, area) => {
       updateDotsFromState();
     }
 
-    // NEW: anti-rows config
     if (ch.abAntiRowsConfig) {
       const cfg = sanitizeMkt(ch.abAntiRowsConfig.newValue);
       if (antirowsStreakInp)
@@ -327,6 +376,17 @@ chrome.storage.onChanged.addListener((ch, area) => {
       if (sectorsZeroCk) sectorsZeroCk.checked = !!cfg.includeZero;
       if (sectorsStepsBox) renderSteps(sectorsStepsBox, cfg.steps);
       updateDotsFromState();
+    }
+
+    // NEW: numbers config (gap-based)
+    if (ch.abNumbersConfig) {
+      const cfg = sanitizeNumbers(ch.abNumbersConfig.newValue);
+      if (numbersGapInp) numbersGapInp.value = cfg.triggerGap;
+      if (numbersAutoCk) numbersAutoCk.checked = !!cfg.autoContinue;
+      if (numbersStepsBox) renderSteps(numbersStepsBox, cfg.steps);
+
+      // near-trigger обновляем сразу после изменения gap
+      updateNumbersNearUI(lastSpinLogs);
     }
 
     // neighbors config (steps only)

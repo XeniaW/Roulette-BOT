@@ -14,7 +14,7 @@ import {
   // anti-dozens
   antidozensStreakInp,
 
-  // NEW: anti-rows
+  // anti-rows
   antirowsStreakInp,
   lowhighStreakInp,
   evenoddStreakInp,
@@ -24,11 +24,7 @@ import {
   rowsZeroCk,
   sixZeroCk,
   threesZeroCk,
-
-  // anti-dozens
   antidozensZeroCk,
-
-  // NEW: anti-rows
   antirowsZeroCk,
   lowhighZeroCk,
   evenoddZeroCk,
@@ -39,11 +35,7 @@ import {
   rowStepsBox,
   sixStepsBox,
   threesStepsBox,
-
-  // anti-dozens
   antiDznStepsBox,
-
-  // NEW: anti-rows
   antiRowsStepsBox,
   lowhighStepsBox,
   evenoddStepsBox,
@@ -55,6 +47,11 @@ import {
   neighborsStepsBox,
   autoBetToggleNeighbors,
   betStatusNeighbors,
+
+  // === numbers ===
+  numbersGapInp,
+  numbersMaxTargetsInp,
+  numbersStepsBox,
 } from './dom.js';
 
 import { exportCSV, clearLogs } from './spin-logs.js';
@@ -98,9 +95,11 @@ function wireAutoSaveForMarket(
     200
   );
 
+  const shouldUpdateDots = market !== 'numbers';
+
   if (streakInp) {
     streakInp.addEventListener('input', () => {
-      updateDotsFromState();
+      if (shouldUpdateDots) updateDotsFromState();
       debouncedSave();
     });
   }
@@ -110,13 +109,12 @@ function wireAutoSaveForMarket(
 
   if (zeroCk) {
     zeroCk.addEventListener('change', () => {
-      updateDotsFromState();
+      if (shouldUpdateDots) updateDotsFromState();
       debouncedSave();
     });
   }
 
   if (stepsBox) {
-    // steps-ui.js should dispatch steps:changed; keep both for safety
     stepsBox.addEventListener('steps:changed', () => debouncedSave());
     stepsBox.addEventListener('input', () => debouncedSave());
     stepsBox.addEventListener('click', (e) => {
@@ -129,21 +127,16 @@ function wireAutoSaveForMarket(
 }
 
 export function wireInitHandlers() {
-  // ===== Add step buttons (ONLY HERE, nowhere else) =====
+  // ===== Add step buttons =====
   document
     .getElementById('btnAddDznStep')
     ?.addEventListener('click', () => addStep(dznStepsBox));
-
-  // anti-dozens
   document
     .getElementById('btnAddAntiDznStep')
     ?.addEventListener('click', () => addStep(antiDznStepsBox));
-
-  // NEW: anti-rows
   document
     .getElementById('btnAddAntiRowStep')
     ?.addEventListener('click', () => addStep(antiRowsStepsBox));
-
   document
     .getElementById('btnAddRowStep')
     ?.addEventListener('click', () => addStep(rowStepsBox));
@@ -169,27 +162,27 @@ export function wireInitHandlers() {
     .getElementById('btnAddNeighborsStep')
     ?.addEventListener('click', () => addStep(neighborsStepsBox));
 
+  // numbers
+  document
+    .getElementById('btnAddNumbersStep')
+    ?.addEventListener('click', () => addStep(numbersStepsBox));
+
   // ===== Defaults buttons =====
   document
     .getElementById('btnCfgDznDefaults')
     ?.addEventListener('click', () =>
       renderSteps(dznStepsBox, DEFAULT_MKT.steps)
     );
-
-  // anti-dozens
   document
     .getElementById('btnCfgAntiDznDefaults')
     ?.addEventListener('click', () =>
       renderSteps(antiDznStepsBox, DEFAULT_MKT.steps)
     );
-
-  // NEW: anti-rows
   document
     .getElementById('btnCfgAntiRowDefaults')
     ?.addEventListener('click', () =>
       renderSteps(antiRowsStepsBox, DEFAULT_MKT.steps)
     );
-
   document
     .getElementById('btnCfgRowDefaults')
     ?.addEventListener('click', () =>
@@ -239,25 +232,27 @@ export function wireInitHandlers() {
       if (msg) msg.textContent = 'Defaults loaded';
     });
 
+  // numbers defaults
+  document
+    .getElementById('btnCfgNumbersDefaults')
+    ?.addEventListener('click', () =>
+      renderSteps(numbersStepsBox, DEFAULT_MKT.steps)
+    );
+
   // ===== Save buttons =====
   document
     .getElementById('btnCfgDznSave')
     ?.addEventListener('click', () => saveMarketCfgFromUI('dozens'));
-
-  // anti-dozens
   document
     .getElementById('btnCfgAntiDznSave')
     ?.addEventListener('click', () =>
       saveMarketCfgFromUI('antidozens')
     );
-
-  // NEW: anti-rows
   document
     .getElementById('btnCfgAntiRowSave')
     ?.addEventListener('click', () =>
       saveMarketCfgFromUI('antirows')
     );
-
   document
     .getElementById('btnCfgRowSave')
     ?.addEventListener('click', () => saveMarketCfgFromUI('rows'));
@@ -284,6 +279,11 @@ export function wireInitHandlers() {
     ?.addEventListener('click', () =>
       saveMarketCfgFromUI('neighbors')
     );
+
+  // numbers save
+  document
+    .getElementById('btnCfgNumbersSave')
+    ?.addEventListener('click', () => saveMarketCfgFromUI('numbers'));
 
   // ===== Export / clear logs =====
   btnExport?.addEventListener('click', exportCSV);
@@ -312,18 +312,13 @@ export function wireInitHandlers() {
     .getElementById('toggleTrack')
     ?.addEventListener('change', (e) => setToggle(e.target.checked));
 
-  // ===== Dots updates =====
+  // ===== Dots updates (только те, у кого есть dots) =====
   dozensStreakInp?.addEventListener('input', updateDotsFromState);
   rowsStreakInp?.addEventListener('input', updateDotsFromState);
   sixStreakInp?.addEventListener('input', updateDotsFromState);
   threesStreakInp?.addEventListener('input', updateDotsFromState);
-
-  // anti-dozens
   antidozensStreakInp?.addEventListener('input', updateDotsFromState);
-
-  // NEW: anti-rows
   antirowsStreakInp?.addEventListener('input', updateDotsFromState);
-
   lowhighStreakInp?.addEventListener('input', updateDotsFromState);
   evenoddStreakInp?.addEventListener('input', updateDotsFromState);
   colorsStreakInp?.addEventListener('input', updateDotsFromState);
@@ -333,13 +328,8 @@ export function wireInitHandlers() {
   rowsZeroCk?.addEventListener('change', updateDotsFromState);
   sixZeroCk?.addEventListener('change', updateDotsFromState);
   threesZeroCk?.addEventListener('change', updateDotsFromState);
-
-  // anti-dozens
   antidozensZeroCk?.addEventListener('change', updateDotsFromState);
-
-  // NEW: anti-rows
   antirowsZeroCk?.addEventListener('change', updateDotsFromState);
-
   lowhighZeroCk?.addEventListener('change', updateDotsFromState);
   evenoddZeroCk?.addEventListener('change', updateDotsFromState);
   colorsZeroCk?.addEventListener('change', updateDotsFromState);
@@ -350,7 +340,7 @@ export function wireInitHandlers() {
     await saveGlobalChipsFromUI();
     await saveMarketCfgFromUI('dozens');
     await saveMarketCfgFromUI('antidozens');
-    await saveMarketCfgFromUI('antirows'); // NEW
+    await saveMarketCfgFromUI('antirows');
     await saveMarketCfgFromUI('rows');
     await saveMarketCfgFromUI('six');
     await saveMarketCfgFromUI('threes');
@@ -359,6 +349,7 @@ export function wireInitHandlers() {
     await saveMarketCfgFromUI('colors');
     await saveMarketCfgFromUI('sectors');
     await saveMarketCfgFromUI('neighbors');
+    await saveMarketCfgFromUI('numbers');
   });
 
   // ===== Auto-save wiring =====
@@ -376,7 +367,6 @@ export function wireInitHandlers() {
     stepsBox: antiDznStepsBox,
   });
 
-  // NEW: anti-rows
   wireAutoSaveForMarket('antirows', {
     streakInp: antirowsStreakInp,
     autoCk: document.getElementById('antirowsAutoContinue'),
@@ -436,7 +426,21 @@ export function wireInitHandlers() {
   // neighbors: steps only
   wireAutoSaveForMarket('neighbors', { stepsBox: neighborsStepsBox });
 
-  // neighbors: instant ON/OFF UI (so it doesn't lie until a bet happens)
+  // numbers: gap + maxTargets + autoContinue + steps (без dots и без includeZero)
+  wireAutoSaveForMarket('numbers', {
+    streakInp: numbersGapInp,
+    autoCk: document.getElementById('numbersAutoContinue'),
+    zeroCk: null,
+    stepsBox: numbersStepsBox,
+  });
+
+  // numbersMaxTargetsInp тоже должен сохраняться
+  numbersMaxTargetsInp?.addEventListener(
+    'input',
+    debounce(() => saveMarketCfgFromUI('numbers'), 200)
+  );
+
+  // neighbors: instant ON/OFF UI
   autoBetToggleNeighbors?.addEventListener('change', async () => {
     const checked = !!autoBetToggleNeighbors.checked;
     try {

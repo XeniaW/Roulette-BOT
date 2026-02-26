@@ -35,6 +35,7 @@ const ENTRY_POINTS = [
   'src/auto/neighbors.js',
   'src/auto/anti-dozens.js',
   'src/auto/anti-rows.js',
+  'src/auto/numbers.js',
 ];
 
 const BASE = {

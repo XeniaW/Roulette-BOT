@@ -53,6 +53,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   // ✅ NEW: anti-rows
   await loadMarketUI('antirows');
 
+  // ✅ NEW: numbers
+  await loadMarketUI('numbers');
+
   // главный тумблер
   await loadToggle();
 

@@ -1,6 +1,8 @@
 // src/shared/entry-limit.js
 const KEY_COUNTERS = 'entryCounters';
 const KEY_GLOBAL_MAX = 'abMaxEntriesPerMarket';
+const KEY_BETLOGS = 'betLogs';
+const BETLOGS_MAX = 2000;
 
 async function sget(defs) {
   try {
@@ -9,6 +11,7 @@ async function sget(defs) {
     return defs || {};
   }
 }
+
 async function sset(obj) {
   try {
     await chrome.storage.local.set(obj);
@@ -21,6 +24,7 @@ async function readCounters() {
   });
   return obj && typeof obj === 'object' ? obj : {};
 }
+
 async function writeCounters(obj) {
   await sset({ [KEY_COUNTERS]: obj || {} });
 }
@@ -30,6 +34,7 @@ export async function setGlobalMaxEntries(n) {
   await sset({ [KEY_GLOBAL_MAX]: max });
   return max;
 }
+
 export async function getGlobalMaxEntries() {
   const { [KEY_GLOBAL_MAX]: max = 0 } = await sget({
     [KEY_GLOBAL_MAX]: 0,
@@ -37,12 +42,44 @@ export async function getGlobalMaxEntries() {
   return Math.max(0, Number(max) | 0);
 }
 
+function mkStatusOffMessage(max) {
+  return `Отключено: достигнут лимит входов (${max})`;
+}
+
+function mkExecReset(prevExec) {
+  // Сброс "по уму": базовые поля приводим к дефолту,
+  // а неизвестные поля сохраняем (например activationIdx у Numbers).
+  const keep =
+    prevExec && typeof prevExec === 'object' ? prevExec : {};
+  return {
+    ...keep,
+    enabled: false,
+    phase: 'idle',
+    target: null,
+    step: 1,
+    armedAt: 0,
+  };
+}
+
+async function pushBetLog(entry) {
+  try {
+    const bag = await sget({ [KEY_BETLOGS]: [] });
+    const betLogs = Array.isArray(bag[KEY_BETLOGS])
+      ? bag[KEY_BETLOGS]
+      : [];
+    betLogs.push(entry);
+    if (betLogs.length > BETLOGS_MAX)
+      betLogs.splice(0, betLogs.length - BETLOGS_MAX);
+    await sset({ [KEY_BETLOGS]: betLogs });
+  } catch {}
+}
+
 /**
  * Гейт ВХОДА (на шаг 1).
  * При достижении лимита:
- *  - выключает рынок (enabled=false),
- *  - СБРАСЫВАЕТ exec (если передан execKey),
- *  - пишет статус,
+ *  - выключает рынок (enabledKey=false),
+ *  - сбрасывает exec (если передан execKey),
+ *  - пишет statusKey в storage,
  *  - пишет запись в betLogs,
  *  - возвращает false.
  *
@@ -50,8 +87,8 @@ export async function getGlobalMaxEntries() {
  * @param {string} enabledKey
  * @param {string} statusKey
  * @param {object} [opts]
- * @param {number} [opts.overrideMax]
- * @param {string} [opts.execKey]   // например: 'betExecDozens'
+ * @param {number} [opts.overrideMax]  // локальный лимит рынка (если надо)
+ * @param {string} [opts.execKey]      // например: 'betExecDozens'
  */
 export async function entryGateFor(
   marketKey,
@@ -65,52 +102,39 @@ export async function entryGateFor(
   const globalMax = await getGlobalMaxEntries();
   const max = Math.max(0, Number(opts.overrideMax ?? globalMax) | 0);
 
+  // лимит включен и достигнут
   if (max > 0 && curr >= max) {
-    // выключаем рынок
+    // 1) выключаем рынок
     try {
-      await chrome.storage.local.set({ [enabledKey]: false });
+      await sset({ [enabledKey]: false });
     } catch {}
 
-    // сброс exec (если известен ключ)
+    // 2) сброс exec (если известен ключ)
     if (opts.execKey) {
       try {
-        await chrome.storage.local.set({
-          [opts.execKey]: {
-            enabled: false,
-            phase: 'idle',
-            target: null,
-            step: 1,
-            armedAt: 0,
-          },
-        });
+        const bag = await sget({ [opts.execKey]: null });
+        const prevExec = bag[opts.execKey];
+        await sset({ [opts.execKey]: mkExecReset(prevExec) });
       } catch {}
     }
 
-    // лог и статус
+    // 3) статус в storage (чтобы popup/live увидели это без BET.setBetStatus)
     try {
-      const bag = await sget({ betLogs: [] });
-      const betLogs = Array.isArray(bag.betLogs) ? bag.betLogs : [];
-      betLogs.push({
-        t: Date.now(),
-        type: 'limit',
-        market: marketKey,
-        message: `Отключено лимитом входов (${max})`,
+      await sset({
+        [statusKey]: {
+          state: 'off',
+          message: mkStatusOffMessage(max),
+        },
       });
-      if (betLogs.length > 2000)
-        betLogs.splice(0, betLogs.length - 2000);
-      await sset({ betLogs });
     } catch {}
 
-    try {
-      // если функция доступна в контексте
-      if (typeof BET !== 'undefined' && BET.setBetStatus) {
-        BET.setBetStatus(
-          statusKey,
-          'off',
-          `Отключено: достигнут лимит входов (${max})`
-        );
-      }
-    } catch {}
+    // 4) betLogs (одно событие, когда лимит сработал)
+    await pushBetLog({
+      t: Date.now(),
+      type: 'limit',
+      market: marketKey,
+      message: `Отключено лимитом входов (${max})`,
+    });
 
     return false;
   }
@@ -125,6 +149,7 @@ export async function entryGateFor(
 export async function getAllCounters() {
   return await readCounters();
 }
+
 export async function setAllCounters(obj) {
   const next = obj && typeof obj === 'object' ? obj : {};
   await writeCounters(next);
@@ -137,6 +162,7 @@ export async function resetCounter(marketKey) {
     await writeCounters(counters);
   }
 }
+
 export async function resetAllCounters() {
   await writeCounters({});
 }

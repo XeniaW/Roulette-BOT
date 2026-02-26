@@ -118,6 +118,15 @@ import {
   betStatusNeighbors,
   neighborsStepsBox,
   cfgNeighborsMsg,
+
+  // === NEW: numbers ===
+  numbersGapInp,
+  numbersMaxTargetsInp,
+  numbersAutoCk,
+  autoBetToggleNumbers,
+  betStatusNumbers,
+  numbersStepsBox,
+  cfgNumbersMsg,
 } from './dom.js';
 
 import { renderSteps, getStepsFromUI } from './steps-ui.js';
@@ -138,6 +147,9 @@ export const CFG_NEIGHBORS_KEY = 'abNeighborsConfig';
 
 // NEW: anti-rows
 export const CFG_ANTI_ROWS_KEY = 'abAntiRowsConfig';
+
+// NEW: numbers
+export const CFG_NUMBERS_KEY = 'abNumbersConfig';
 
 // === Default configs ===
 export const DEFAULT_MKT = Object.freeze({
@@ -165,6 +177,15 @@ export const DEFAULT_NEIGHBORS = Object.freeze({
       { chip: 2, times: 1 },
     ],
   ],
+});
+
+// NEW: numbers defaults (gap-based)
+// 0 ВСЕГДА входит, поэтому includeZero вообще не существует в numbers
+export const DEFAULT_NUMBERS = Object.freeze({
+  triggerGap: 120,
+  maxTargets: 1,
+  autoContinue: false,
+  steps: JSON.parse(JSON.stringify(DEFAULT_MKT.steps)),
 });
 
 export function sanitizeNeighbors(raw) {
@@ -226,6 +247,46 @@ export function sanitizeMkt(raw) {
   if (!steps.length)
     steps = JSON.parse(JSON.stringify(DEFAULT_MKT.steps));
   return { triggerStreak, steps, autoContinue, includeZero };
+}
+
+// NEW: numbers sanitize (gap-based, same steps schema)
+// includeZero УДАЛЁН. 0 всегда в numbers.
+export function sanitizeNumbers(raw) {
+  const src = raw || {};
+  const triggerGap = Math.max(
+    1,
+    Math.floor(Number(src.triggerGap ?? DEFAULT_NUMBERS.triggerGap))
+  );
+  const maxTargets = Math.max(
+    1,
+    Math.floor(Number(src.maxTargets ?? DEFAULT_NUMBERS.maxTargets))
+  );
+  const autoContinue = !!(
+    src.autoContinue ?? DEFAULT_NUMBERS.autoContinue
+  );
+
+  let steps = Array.isArray(src.steps)
+    ? src.steps
+    : DEFAULT_NUMBERS.steps;
+
+  steps = steps
+    .map((st) => (Array.isArray(st) ? st : []))
+    .map((st) =>
+      st.map((it) => ({
+        chip: Math.max(1, Math.floor(Number(it?.chip ?? 1))),
+        times: Math.max(1, Math.floor(Number(it?.times ?? 1))),
+      }))
+    )
+    .map((st) =>
+      st.filter(
+        (it) => Number.isFinite(it.chip) && Number.isFinite(it.times)
+      )
+    )
+    .filter((st) => st.length);
+
+  if (!steps.length)
+    steps = JSON.parse(JSON.stringify(DEFAULT_NUMBERS.steps));
+  return { triggerGap, maxTargets, steps, autoContinue };
 }
 
 /** Load/render market UI. NO event listeners here. init.js owns UI wiring. */
@@ -359,6 +420,17 @@ export async function loadMarketUI(market) {
     stepsBox = neighborsStepsBox;
     msgEl = cfgNeighborsMsg;
     statusElDest = betStatusNeighbors;
+  } else if (market === 'numbers') {
+    cfgKey = CFG_NUMBERS_KEY;
+    enKey = 'autoBettingNumbersEnabled';
+    statusKey = 'bettingStatusNumbers';
+    streakInp = numbersGapInp; // gap
+    autoCk = numbersAutoCk;
+    zeroCk = null; // НЕТ includeZero
+    toggle = autoBetToggleNumbers;
+    stepsBox = numbersStepsBox;
+    msgEl = cfgNumbersMsg;
+    statusElDest = betStatusNumbers;
   } else return;
 
   const st = await sget({
@@ -380,6 +452,14 @@ export async function loadMarketUI(market) {
     cfg = sanitizeNeighbors(
       (await sget({ [cfgKey]: DEFAULT_NEIGHBORS }))[cfgKey]
     );
+  } else if (market === 'numbers') {
+    cfg = sanitizeNumbers(
+      (await sget({ [cfgKey]: DEFAULT_NUMBERS }))[cfgKey]
+    );
+    if (numbersGapInp) numbersGapInp.value = String(cfg.triggerGap);
+    if (numbersMaxTargetsInp)
+      numbersMaxTargetsInp.value = String(cfg.maxTargets);
+    if (numbersAutoCk) numbersAutoCk.checked = !!cfg.autoContinue;
   } else {
     cfg = sanitizeMkt(
       (await sget({ [cfgKey]: DEFAULT_MKT }))[cfgKey]
@@ -470,6 +550,13 @@ export async function saveMarketCfgFromUI(market) {
     cfgKey = CFG_NEIGHBORS_KEY;
     stepsBox = neighborsStepsBox;
     msgEl = cfgNeighborsMsg;
+  } else if (market === 'numbers') {
+    cfgKey = CFG_NUMBERS_KEY;
+    stepsBox = numbersStepsBox;
+    msgEl = cfgNumbersMsg;
+    streakInpEl = numbersGapInp; // gap
+    autoCkEl = numbersAutoCk;
+    zeroCkEl = null; // НЕТ includeZero
   } else return;
 
   const { [GLOBAL_CHIPS_KEY]: chips = DEFAULT_CHIPS } = await sget({
@@ -496,6 +583,29 @@ export async function saveMarketCfgFromUI(market) {
 
   if (market === 'neighbors') {
     const clean = sanitizeNeighbors({ steps });
+    await sset({ [cfgKey]: clean });
+    if (msgEl) msgEl.textContent = 'Saved.';
+    return;
+  }
+
+  if (market === 'numbers') {
+    const gap = Math.max(
+      1,
+      Math.floor(Number(streakInpEl?.value || 1))
+    );
+    const maxTargets = Math.max(
+      1,
+      Math.floor(Number(numbersMaxTargetsInp?.value || 1))
+    );
+    const autoContinue = !!autoCkEl?.checked;
+
+    const clean = sanitizeNumbers({
+      triggerGap: gap,
+      maxTargets,
+      steps,
+      autoContinue,
+    });
+
     await sset({ [cfgKey]: clean });
     if (msgEl) msgEl.textContent = 'Saved.';
     return;
@@ -539,7 +649,6 @@ export function wireMarketTogglesReset() {
     }
   });
 
-  // NEW: anti-rows
   autoBetToggleAntiRows?.addEventListener('change', async () => {
     const checked = !!autoBetToggleAntiRows.checked;
     await sset({ autoBettingAntiRowsEnabled: checked });
@@ -623,6 +732,25 @@ export function wireMarketTogglesReset() {
     if (betStatusNeighbors) {
       betStatusNeighbors.textContent = checked
         ? '[IDLE] ON (жду спин)'
+        : '[OFF]';
+    }
+  });
+
+  // NEW: numbers (no dots)
+  autoBetToggleNumbers?.addEventListener('change', async () => {
+    const checked = !!autoBetToggleNumbers.checked;
+    await sset({
+      autoBettingNumbersEnabled: checked,
+      bettingStatusNumbers: checked
+        ? {
+            state: 'idle',
+            message: 'NUMBERS: spin 0 | candidates 37',
+          }
+        : { state: 'off', message: '' },
+    });
+    if (betStatusNumbers) {
+      betStatusNumbers.textContent = checked
+        ? '[IDLE] NUMBERS: spin 0 | candidates 37'
         : '[OFF]';
     }
   });
