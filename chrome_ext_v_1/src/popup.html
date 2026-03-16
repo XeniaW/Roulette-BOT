@@ -11,802 +11,1002 @@
     />
   </head>
   <body>
-    <header>
-      <label
-        ><input type="checkbox" id="toggleTrack" /> Tracking</label
-      >
-      <span id="status" class="off">OFF</span>
-      <div id="statusMsg" class="muted"></div>
+    <header class="topbar card">
+      <div class="topbar-main">
+        <label class="toggle toggle-lg">
+          <input type="checkbox" id="toggleTrack" />
+          <span>Tracking</span>
+        </label>
+
+        <span id="status" class="status-pill off">OFF</span>
+      </div>
+
+      <div id="statusMsg" class="muted small"></div>
     </header>
 
-    <section>
-      <h3>Domains</h3>
-      <div class="row">
-        <input id="inpPattern" placeholder="https://example.com/*" />
-        <button id="btnAddPattern" class="btn">Add</button>
-        <button id="btnAddCurrent" class="btn">
-          Add current tab
-        </button>
-      </div>
-      <ul id="domList"></ul>
-    </section>
+    <main class="layout">
+      <section class="card section-card">
+        <div class="section-head">
+          <h3>Domains</h3>
+        </div>
 
-    <section>
-      <h3>
-        Logs <small>(<span id="count">0</span>)</small>
-      </h3>
-
-      <!-- ✅ NEW: уникальные числа (сколько еще НЕ выпадало) -->
-      <div class="small muted" style="margin: 4px 0 8px">
-        Уникальные числа: <span id="uniqueLeft">37</span>
-      </div>
-
-      <div id="list">
-        <table>
-          <thead>
-            <tr>
-              <th>Time</th>
-              <th>#</th>
-            </tr>
-          </thead>
-          <tbody id="tbody"></tbody>
-        </table>
-      </div>
-      <div class="row">
-        <button id="btnExport" class="btn">Export CSV</button>
-        <button id="btnClear" class="btn">Clear</button>
-      </div>
-    </section>
-
-    <section>
-      <h3>
-        Bet Logs <small>(<span id="betCount">0</span>)</small>
-      </h3>
-      <div id="betList">
-        <table>
-          <thead>
-            <tr>
-              <th>Time</th>
-              <th>Amount</th>
-              <th>Balance</th>
-              <th>Event</th>
-            </tr>
-          </thead>
-          <tbody id="betTbody"></tbody>
-        </table>
-      </div>
-      <div class="row">
-        <button id="btnBetExport" class="btn">Export CSV</button>
-        <button id="btnBetClear" class="btn">Clear</button>
-      </div>
-    </section>
-
-    <hr />
-
-    <!-- ===== ТУМБЛЕРЫ + СТРИКИ + SAVE ALL ===== -->
-    <section class="card">
-      <h3>Auto-betting</h3>
-
-      <!-- ==== ENTRY LIMIT (по рынкам): глобальный лимит входов ==== -->
-      <section class="card">
-        <h3>Лимит ВХОДОВ на рынок</h3>
-        <div class="ai-center">
-          <label class="small label-w" for="maxEntries"
-            >*0 = безлимит</label
-          >
+        <div class="row row-wrap">
           <input
-            id="maxEntries"
-            type="number"
-            min="0"
-            step="1"
-            value="0"
-            style="max-width: 120px"
+            id="inpPattern"
+            placeholder="https://example.com/*"
           />
-          <button id="btnSaveMaxEntries" class="btn btn-primary">
-            Save
+          <button id="btnAddPattern" class="btn">Add</button>
+          <button id="btnAddCurrent" class="btn">
+            Add current tab
           </button>
         </div>
 
-        <div class="row">
-          <button id="btnResetEntryCounters" class="btn">
-            Сбросить счётчики входов
-          </button>
+        <ul id="domList"></ul>
+      </section>
+
+      <section class="card section-card">
+        <div class="section-head">
+          <h3>
+            Logs <small>(<span id="count">0</span>)</small>
+          </h3>
+          <div class="small muted stat-chip">
+            Уникальные числа: <span id="uniqueLeft">37</span>
+          </div>
         </div>
 
-        <div class="small muted" id="entryLimitMsg"></div>
+        <div id="list" class="table-shell">
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>#</th>
+              </tr>
+            </thead>
+            <tbody id="tbody"></tbody>
+          </table>
+        </div>
 
-        <div class="card card-inner">
-          <h4>Текущее кол-во входов (по рынкам)</h4>
-          <ul id="entryCountersList" class="mono small"></ul>
+        <div class="row row-wrap row-end">
+          <button id="btnExport" class="btn">Export CSV</button>
+          <button id="btnClear" class="btn btn-danger-soft">
+            Clear
+          </button>
         </div>
       </section>
 
-      <!-- Dozens -->
-      <div class="row ai-center">
-        <label
-          ><input type="checkbox" id="autoBetToggleDozens" />
-          Дюжины</label
-        >
-        <div class="col">
-          <div
-            id="dozensStreakDots"
-            class="dots"
-            role="presentation"
-          ></div>
-          <label for="dozensStreak" class="small label-block"
-            >Стрик</label
-          >
-          <input
-            id="dozensStreak"
-            type="number"
-            min="2"
-            step="1"
-            value="2"
-          />
-          <label class="small"
-            ><input type="checkbox" id="dozensAutoContinue" /> Ставки
-            подряд</label
-          >
-          <label class="small"
-            ><input type="checkbox" id="dozensIncludeZero" />
-            Учитывать 0</label
-          >
+      <section class="subcard">
+        <div class="section-head">
+          <h4>Balance stop</h4>
+          <div class="small muted">
+            Current: <span id="balanceStopCurrent">—</span>
+          </div>
         </div>
-      </div>
-      <div class="row">
-        <span id="betStatusDozens" class="small"></span>
-      </div>
 
-      <!-- Rows -->
-      <div class="row ai-center">
-        <label
-          ><input type="checkbox" id="autoBetToggleRows" />
-          Ряды</label
-        >
-        <div class="col">
-          <div
-            id="rowsStreakDots"
-            class="dots"
-            role="presentation"
-          ></div>
-          <label for="rowsStreak" class="small label-block"
-            >Стрик</label
-          >
-          <input
-            id="rowsStreak"
-            type="number"
-            min="2"
-            step="1"
-            value="2"
-          />
-          <label class="small"
-            ><input type="checkbox" id="rowsAutoContinue" /> Ставки
-            подряд</label
-          >
-          <label class="small"
-            ><input type="checkbox" id="rowsIncludeZero" /> Учитывать
-            0</label
-          >
-        </div>
-      </div>
-      <div class="row">
-        <span id="betStatusRows" class="small"></span>
-      </div>
-
-      <!-- Sixlines -->
-      <div class="row ai-center">
-        <label
-          ><input type="checkbox" id="autoBetToggleSix" />
-          Шестерки</label
-        >
-        <div class="col">
-          <div
-            id="sixStreakDots"
-            class="dots"
-            role="presentation"
-          ></div>
-          <label for="sixStreak" class="small label-block"
-            >Стрик</label
-          >
-          <input
-            id="sixStreak"
-            type="number"
-            min="2"
-            step="1"
-            value="2"
-          />
-          <label class="small"
-            ><input type="checkbox" id="sixAutoContinue" /> Ставки
-            подряд</label
-          >
-          <label class="small"
-            ><input type="checkbox" id="sixIncludeZero" /> Учитывать
-            0</label
-          >
-        </div>
-      </div>
-      <div class="row">
-        <span id="betStatusSix" class="small"></span>
-      </div>
-
-      <!-- Threes (streets) -->
-      <div class="row ai-center">
-        <label
-          ><input type="checkbox" id="autoBetToggleThrees" />
-          Трёшки</label
-        >
-        <div class="col">
-          <div
-            id="threesStreakDots"
-            class="dots"
-            role="presentation"
-          ></div>
-          <label for="threesStreak" class="small label-block"
-            >Стрик</label
-          >
-          <input
-            id="threesStreak"
-            type="number"
-            min="2"
-            step="1"
-            value="2"
-          />
-          <label class="small"
-            ><input type="checkbox" id="threesAutoContinue" /> Ставки
-            подряд</label
-          >
-          <label class="small"
-            ><input type="checkbox" id="threesIncludeZero" />
-            Учитывать 0</label
-          >
-        </div>
-      </div>
-      <div class="row">
-        <span id="betStatusThrees" class="small"></span>
-      </div>
-
-      <!-- ===== NEW MARKETS ===== -->
-
-      <!-- Low / High -->
-      <div class="row ai-center">
-        <label
-          ><input type="checkbox" id="autoBetToggleLowHigh" />
-          Low/High (1–18 / 19–36)</label
-        >
-        <div class="col">
-          <div
-            id="lowhighStreakDots"
-            class="dots"
-            role="presentation"
-          ></div>
-          <label for="lowhighStreak" class="small label-block"
-            >Стрик</label
-          >
-          <input
-            id="lowhighStreak"
-            type="number"
-            min="2"
-            step="1"
-            value="2"
-          />
-          <label class="small"
-            ><input type="checkbox" id="lowhighAutoContinue" /> Ставки
-            подряд</label
-          >
-          <label class="small"
-            ><input type="checkbox" id="lowhighIncludeZero" />
-            Учитывать 0</label
-          >
-        </div>
-      </div>
-      <div class="row">
-        <span id="betStatusLowHigh" class="small"></span>
-      </div>
-
-      <!-- Even / Odd -->
-      <div class="row ai-center">
-        <label
-          ><input type="checkbox" id="autoBetToggleEvenOdd" />
-          Even/Odd (Чёт/Нечёт)</label
-        >
-        <div class="col">
-          <div
-            id="evenoddStreakDots"
-            class="dots"
-            role="presentation"
-          ></div>
-          <label for="evenoddStreak" class="small label-block"
-            >Стрик</label
-          >
-          <input
-            id="evenoddStreak"
-            type="number"
-            min="2"
-            step="1"
-            value="2"
-          />
-          <label class="small"
-            ><input type="checkbox" id="evenoddAutoContinue" /> Ставки
-            подряд</label
-          >
-          <label class="small"
-            ><input type="checkbox" id="evenoddIncludeZero" />
-            Учитывать 0</label
-          >
-        </div>
-      </div>
-      <div class="row">
-        <span id="betStatusEvenOdd" class="small"></span>
-      </div>
-
-      <!-- Colors -->
-      <div class="row ai-center">
-        <label
-          ><input type="checkbox" id="autoBetToggleColors" /> Colors
-          (Красное / Черное)</label
-        >
-        <div class="col">
-          <div
-            id="colorsStreakDots"
-            class="dots"
-            role="presentation"
-          ></div>
-          <label for="colorsStreak" class="small label-block"
-            >Стрик</label
-          >
-          <input
-            id="colorsStreak"
-            type="number"
-            min="2"
-            step="1"
-            value="2"
-          />
-          <label class="small"
-            ><input type="checkbox" id="colorsAutoContinue" /> Ставки
-            подряд</label
-          >
-          <label class="small"
-            ><input type="checkbox" id="colorsIncludeZero" />
-            Учитывать 0</label
-          >
-        </div>
-      </div>
-      <div class="row">
-        <span id="betStatusColors" class="small"></span>
-      </div>
-
-      <!-- NEW: Sectors -->
-      <div class="row ai-center">
-        <label
-          ><input type="checkbox" id="autoBetToggleSectors" />
-          Сектора</label
-        >
-        <div class="col">
-          <div
-            id="sectorsStreakDots"
-            class="dots"
-            role="presentation"
-          ></div>
-          <label for="sectorsStreak" class="small label-block"
-            >Стрик</label
-          >
-          <input
-            id="sectorsStreak"
-            type="number"
-            min="2"
-            step="1"
-            value="2"
-          />
-          <label class="small"
-            ><input type="checkbox" id="sectorsAutoContinue" /> Ставки
-            подряд</label
-          >
-          <label class="small"
-            ><input type="checkbox" id="sectorsIncludeZero" />
-            Учитывать 0</label
-          >
-        </div>
-      </div>
-      <div class="row">
-        <span id="betStatusSectors" class="small"></span>
-      </div>
-
-      <!-- Neighbors (racetrack, always-on logic) -->
-      <div class="row ai-center" style="padding-top: 15px">
-        <label>
-          <input type="checkbox" id="autoBetToggleNeighbors" />
-          Coседи
-        </label>
-      </div>
-      <div class="row">
-        <span id="betStatusNeighbors" class="small"></span>
-      </div>
-
-      <!-- Anti-Dozens -->
-      <div class="row ai-center">
-        <label
-          ><input type="checkbox" id="autoBetToggleAntiDozens" />
-          Антидюжины</label
-        >
-        <div class="col">
-          <div
-            id="antidozensStreakDots"
-            class="dots"
-            role="presentation"
-          ></div>
-          <label for="antidozensStreak" class="small label-block"
-            >Стрик</label
-          >
-          <input
-            id="antidozensStreak"
-            type="number"
-            min="2"
-            step="1"
-            value="10"
-          />
-          <label class="small"
-            ><input type="checkbox" id="antidozensAutoContinue" />
-            Ставки подряд</label
-          >
-          <label class="small"
-            ><input type="checkbox" id="antidozensIncludeZero" />
-            Учитывать 0</label
-          >
-        </div>
-      </div>
-      <div class="row">
-        <span id="betStatusAntiDozens" class="small"></span>
-      </div>
-
-      <!-- NEW: Anti-Rows -->
-      <div class="row ai-center">
-        <label
-          ><input type="checkbox" id="autoBetToggleAntiRows" />
-          Антиряды</label
-        >
-        <div class="col">
-          <div
-            id="antirowsStreakDots"
-            class="dots"
-            role="presentation"
-          ></div>
-          <label for="antirowsStreak" class="small label-block"
-            >Стрик</label
-          >
-          <input
-            id="antirowsStreak"
-            type="number"
-            min="2"
-            step="1"
-            value="10"
-          />
-          <label class="small"
-            ><input type="checkbox" id="antirowsAutoContinue" />
-            Ставки подряд</label
-          >
-          <label class="small"
-            ><input type="checkbox" id="antirowsIncludeZero" />
-            Учитывать 0</label
-          >
-        </div>
-      </div>
-      <div class="row">
-        <span id="betStatusAntiRows" class="small"></span>
-      </div>
-
-      <!-- Numbers -->
-      <div class="row ai-center">
-        <label>
-          <input type="checkbox" id="autoBetToggleNumbers" />
-          Числа
-        </label>
-
-        <div class="col">
-          <label for="numbersGap" class="small label-block"
-            >Стрик</label
-          >
-          <input
-            id="numbersGap"
-            type="number"
-            min="1"
-            step="1"
-            value="120"
-          />
-
-          <label for="numbersMaxTargets" class="small label-block"
-            >Ставка на кол-во чисел</label
-          >
-          <input
-            id="numbersMaxTargets"
-            type="number"
-            min="1"
-            step="1"
-            value="1"
-          />
-
-          <label class="small">
-            <input type="checkbox" id="numbersAutoContinue" />
-            Ставки подряд
+        <div class="guard-grid">
+          <label class="small guard-check">
+            <input type="checkbox" id="balanceStopOnMin" />
+            Stop on min balance
           </label>
+
+          <div class="field-row">
+            <label for="balanceStopMin" class="small">Min</label>
+            <input
+              id="balanceStopMin"
+              type="number"
+              min="0"
+              step="0.01"
+              value="40"
+            />
+          </div>
+
+          <label class="small guard-check">
+            <input type="checkbox" id="balanceStopOnMax" />
+            Stop on max balance
+          </label>
+
+          <div class="field-row">
+            <label for="balanceStopMax" class="small">Max</label>
+            <input
+              id="balanceStopMax"
+              type="number"
+              min="0"
+              step="0.01"
+              value="100"
+            />
+          </div>
+
+          <div class="row row-wrap row-end">
+            <button id="btnSaveBalanceStop" class="btn btn-primary">
+              Save
+            </button>
+          </div>
+
+          <div id="balanceStopMsg" class="small muted"></div>
+          <div id="balanceStopLive" class="small muted"></div>
         </div>
-      </div>
-      <div class="row">
-        <span id="betStatusNumbers" class="small"></span>
-      </div>
-      <div class="row">
-        <span id="numbersNear" class="small mono"></span>
-      </div>
+      </section>
 
-      <div class="row row-end">
-        <span class="small muted"
-          >Save All сохранит общие фишки и steps/streak/режим
-          проигрыша для всех рынков</span
-        >
-        <button id="btnSaveAll" class="btn btn-primary">
-          Save All
-        </button>
-      </div>
-    </section>
-
-    <!-- ==== GLOBAL CHIPS ==== -->
-    <section class="card">
-      <h3>Global Chips</h3>
-      <div class="row">
-        <label class="small label-w">Chip selector template</label>
-        <input
-          id="cfgChipTpl"
-          placeholder='[data-e2e="chip-{{value}}"]'
-        />
-      </div>
-      <div class="card card-inner">
-        <h4>Chips (values)</h4>
-        <div id="chipsBox"></div>
-        <div class="row">
-          <button id="btnAddChip" class="btn">+ Add chip</button>
+      <section class="card section-card">
+        <div class="section-head">
+          <h3>
+            Bet Logs <small>(<span id="betCount">0</span>)</small>
+          </h3>
         </div>
-      </div>
-      <div id="cfgChipsMsg" class="small"></div>
-    </section>
 
-    <!-- ==== STEPS: DOZENS ==== -->
-    <section class="card">
-      <h3>Steps — Dozens</h3>
-      <div class="card card-inner">
-        <h4>Steps</h4>
-        <div id="dznStepsBox"></div>
-        <div class="row">
-          <button id="btnAddDznStep" class="btn">+ Add step</button>
+        <div id="betList" class="table-shell">
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Amount</th>
+                <th>Balance</th>
+                <th>Event</th>
+              </tr>
+            </thead>
+            <tbody id="betTbody"></tbody>
+          </table>
         </div>
-      </div>
-      <div class="row row-end">
-        <button id="btnCfgDznDefaults" class="btn">Defaults</button>
-        <button id="btnCfgDznSave" class="btn">Save</button>
-      </div>
-      <div id="cfgDznMsg" class="small"></div>
-    </section>
 
-    <!-- ==== STEPS: ROWS ==== -->
-    <section class="card">
-      <h3>Steps — Rows</h3>
-      <div class="card card-inner">
-        <h4>Steps</h4>
-        <div id="rowStepsBox"></div>
-        <div class="row">
-          <button id="btnAddRowStep" class="btn">+ Add step</button>
-        </div>
-      </div>
-      <div class="row row-end">
-        <button id="btnCfgRowDefaults" class="btn">Defaults</button>
-        <button id="btnCfgRowSave" class="btn">Save</button>
-      </div>
-      <div id="cfgRowMsg" class="small"></div>
-    </section>
-
-    <!-- ==== STEPS: SIXLINES ==== -->
-    <section class="card">
-      <h3>Steps — Sixlines</h3>
-      <div class="card card-inner">
-        <h4>Steps</h4>
-        <div id="sixStepsBox"></div>
-        <div class="row">
-          <button id="btnAddSixStep" class="btn">+ Add step</button>
-        </div>
-      </div>
-      <div class="row row-end">
-        <button id="btnCfgSixDefaults" class="btn">Defaults</button>
-        <button id="btnCfgSixSave" class="btn">Save</button>
-      </div>
-      <div id="cfgSixMsg" class="small"></div>
-    </section>
-
-    <!-- ==== STEPS: THREES ==== -->
-    <section class="card">
-      <h3>Steps — Threes</h3>
-      <div class="card card-inner">
-        <h4>Steps</h4>
-        <div id="threesStepsBox"></div>
-        <div class="row">
-          <button id="btnAddThreesStep" class="btn">
-            + Add step
+        <div class="row row-wrap row-end">
+          <button id="btnBetExport" class="btn">Export CSV</button>
+          <button id="btnBetClear" class="btn btn-danger-soft">
+            Clear
           </button>
         </div>
-      </div>
-      <div class="row row-end">
-        <button id="btnCfgThreesDefaults" class="btn">
-          Defaults
-        </button>
-        <button id="btnCfgThreesSave" class="btn">Save</button>
-      </div>
-      <div id="cfgThreesMsg" class="small"></div>
-    </section>
+      </section>
 
-    <!-- ==== STEPS: LOW/HIGH ==== -->
-    <section class="card">
-      <h3>Steps — Low/High</h3>
-      <div class="card card-inner">
-        <h4>Steps</h4>
-        <div id="lowhighStepsBox"></div>
-        <div class="row">
-          <button id="btnAddLowHighStep" class="btn">
-            + Add step
+      <section class="card section-card">
+        <div class="section-head">
+          <h3>Auto-betting</h3>
+        </div>
+
+        <section class="subcard">
+          <div class="section-head">
+            <h4>Лимит ВХОДОВ на рынок</h4>
+            <div class="small muted">0 = безлимит</div>
+          </div>
+
+          <div class="row row-wrap">
+            <label class="field-label" for="maxEntries">Лимит</label>
+            <input
+              id="maxEntries"
+              type="number"
+              min="0"
+              step="1"
+              value="0"
+            />
+          </div>
+
+          <div class="row row-wrap">
+            <button id="btnSaveMaxEntries" class="btn btn-primary">
+              Save
+            </button>
+            <button id="btnResetEntryCounters" class="btn">
+              Сбросить счётчики входов
+            </button>
+          </div>
+
+          <div class="small muted" id="entryLimitMsg"></div>
+
+          <div class="subcard subcard-inner">
+            <h4>Текущее кол-во входов</h4>
+            <ul id="entryCountersList" class="mono small"></ul>
+          </div>
+        </section>
+
+        <div class="markets-grid">
+          <!-- Dozens -->
+          <article class="market-card" data-market="dozens">
+            <div class="market-top">
+              <label class="toggle">
+                <input type="checkbox" id="autoBetToggleDozens" />
+                <span>Дюжины</span>
+              </label>
+              <span
+                id="betStatusDozens"
+                class="market-status small"
+              ></span>
+            </div>
+
+            <div class="market-body">
+              <div
+                id="dozensStreakDots"
+                class="dots"
+                role="presentation"
+              ></div>
+
+              <div class="field-row">
+                <label for="dozensStreak" class="small">Стрик</label>
+                <input
+                  id="dozensStreak"
+                  type="number"
+                  min="2"
+                  step="1"
+                  value="2"
+                />
+              </div>
+
+              <div class="check-list">
+                <label class="small">
+                  <input type="checkbox" id="dozensAutoContinue" />
+                  Ставки подряд
+                </label>
+                <label class="small">
+                  <input type="checkbox" id="dozensIncludeZero" />
+                  Учитывать 0
+                </label>
+              </div>
+            </div>
+
+            <details class="steps-accordion">
+              <summary>Steps</summary>
+              <div class="steps-panel">
+                <div id="dznStepsBox"></div>
+                <div class="row row-wrap">
+                  <button id="btnAddDznStep" class="btn">
+                    + Add step
+                  </button>
+                  <button id="btnCfgDznDefaults" class="btn">
+                    Defaults
+                  </button>
+                  <button id="btnCfgDznSave" class="btn btn-primary">
+                    Save
+                  </button>
+                </div>
+                <div id="cfgDznMsg" class="small"></div>
+              </div>
+            </details>
+          </article>
+
+          <!-- Rows -->
+          <article class="market-card" data-market="rows">
+            <div class="market-top">
+              <label class="toggle">
+                <input type="checkbox" id="autoBetToggleRows" />
+                <span>Ряды</span>
+              </label>
+              <span
+                id="betStatusRows"
+                class="market-status small"
+              ></span>
+            </div>
+
+            <div class="market-body">
+              <div
+                id="rowsStreakDots"
+                class="dots"
+                role="presentation"
+              ></div>
+
+              <div class="field-row">
+                <label for="rowsStreak" class="small">Стрик</label>
+                <input
+                  id="rowsStreak"
+                  type="number"
+                  min="2"
+                  step="1"
+                  value="2"
+                />
+              </div>
+
+              <div class="check-list">
+                <label class="small">
+                  <input type="checkbox" id="rowsAutoContinue" />
+                  Ставки подряд
+                </label>
+                <label class="small">
+                  <input type="checkbox" id="rowsIncludeZero" />
+                  Учитывать 0
+                </label>
+              </div>
+            </div>
+
+            <details class="steps-accordion">
+              <summary>Steps</summary>
+              <div class="steps-panel">
+                <div id="rowStepsBox"></div>
+                <div class="row row-wrap">
+                  <button id="btnAddRowStep" class="btn">
+                    + Add step
+                  </button>
+                  <button id="btnCfgRowDefaults" class="btn">
+                    Defaults
+                  </button>
+                  <button id="btnCfgRowSave" class="btn btn-primary">
+                    Save
+                  </button>
+                </div>
+                <div id="cfgRowMsg" class="small"></div>
+              </div>
+            </details>
+          </article>
+
+          <!-- Sixlines -->
+          <article class="market-card" data-market="six">
+            <div class="market-top">
+              <label class="toggle">
+                <input type="checkbox" id="autoBetToggleSix" />
+                <span>Шестерки</span>
+              </label>
+              <span
+                id="betStatusSix"
+                class="market-status small"
+              ></span>
+            </div>
+
+            <div class="market-body">
+              <div
+                id="sixStreakDots"
+                class="dots"
+                role="presentation"
+              ></div>
+
+              <div class="field-row">
+                <label for="sixStreak" class="small">Стрик</label>
+                <input
+                  id="sixStreak"
+                  type="number"
+                  min="2"
+                  step="1"
+                  value="2"
+                />
+              </div>
+
+              <div class="check-list">
+                <label class="small">
+                  <input type="checkbox" id="sixAutoContinue" />
+                  Ставки подряд
+                </label>
+                <label class="small">
+                  <input type="checkbox" id="sixIncludeZero" />
+                  Учитывать 0
+                </label>
+              </div>
+            </div>
+
+            <details class="steps-accordion">
+              <summary>Steps</summary>
+              <div class="steps-panel">
+                <div id="sixStepsBox"></div>
+                <div class="row row-wrap">
+                  <button id="btnAddSixStep" class="btn">
+                    + Add step
+                  </button>
+                  <button id="btnCfgSixDefaults" class="btn">
+                    Defaults
+                  </button>
+                  <button id="btnCfgSixSave" class="btn btn-primary">
+                    Save
+                  </button>
+                </div>
+                <div id="cfgSixMsg" class="small"></div>
+              </div>
+            </details>
+          </article>
+
+          <!-- Threes -->
+          <article class="market-card" data-market="threes">
+            <div class="market-top">
+              <label class="toggle">
+                <input type="checkbox" id="autoBetToggleThrees" />
+                <span>Трёшки</span>
+              </label>
+              <span
+                id="betStatusThrees"
+                class="market-status small"
+              ></span>
+            </div>
+
+            <div class="market-body">
+              <div
+                id="threesStreakDots"
+                class="dots"
+                role="presentation"
+              ></div>
+
+              <div class="field-row">
+                <label for="threesStreak" class="small">Стрик</label>
+                <input
+                  id="threesStreak"
+                  type="number"
+                  min="2"
+                  step="1"
+                  value="2"
+                />
+              </div>
+
+              <div class="check-list">
+                <label class="small">
+                  <input type="checkbox" id="threesAutoContinue" />
+                  Ставки подряд
+                </label>
+                <label class="small">
+                  <input type="checkbox" id="threesIncludeZero" />
+                  Учитывать 0
+                </label>
+              </div>
+            </div>
+
+            <details class="steps-accordion">
+              <summary>Steps</summary>
+              <div class="steps-panel">
+                <div id="threesStepsBox"></div>
+                <div class="row row-wrap">
+                  <button id="btnAddThreesStep" class="btn">
+                    + Add step
+                  </button>
+                  <button id="btnCfgThreesDefaults" class="btn">
+                    Defaults
+                  </button>
+                  <button
+                    id="btnCfgThreesSave"
+                    class="btn btn-primary"
+                  >
+                    Save
+                  </button>
+                </div>
+                <div id="cfgThreesMsg" class="small"></div>
+              </div>
+            </details>
+          </article>
+
+          <!-- Low / High -->
+          <article class="market-card" data-market="lowhigh">
+            <div class="market-top">
+              <label class="toggle">
+                <input type="checkbox" id="autoBetToggleLowHigh" />
+                <span>Low / High</span>
+              </label>
+              <span
+                id="betStatusLowHigh"
+                class="market-status small"
+              ></span>
+            </div>
+
+            <div class="market-body">
+              <div
+                id="lowhighStreakDots"
+                class="dots"
+                role="presentation"
+              ></div>
+
+              <div class="field-row">
+                <label for="lowhighStreak" class="small">Стрик</label>
+                <input
+                  id="lowhighStreak"
+                  type="number"
+                  min="2"
+                  step="1"
+                  value="2"
+                />
+              </div>
+
+              <div class="check-list">
+                <label class="small">
+                  <input type="checkbox" id="lowhighAutoContinue" />
+                  Ставки подряд
+                </label>
+                <label class="small">
+                  <input type="checkbox" id="lowhighIncludeZero" />
+                  Учитывать 0
+                </label>
+              </div>
+            </div>
+
+            <details class="steps-accordion">
+              <summary>Steps</summary>
+              <div class="steps-panel">
+                <div id="lowhighStepsBox"></div>
+                <div class="row row-wrap">
+                  <button id="btnAddLowHighStep" class="btn">
+                    + Add step
+                  </button>
+                  <button id="btnCfgLowHighDefaults" class="btn">
+                    Defaults
+                  </button>
+                  <button
+                    id="btnCfgLowHighSave"
+                    class="btn btn-primary"
+                  >
+                    Save
+                  </button>
+                </div>
+                <div id="cfgLowHighMsg" class="small"></div>
+              </div>
+            </details>
+          </article>
+
+          <!-- Even / Odd -->
+          <article class="market-card" data-market="evenodd">
+            <div class="market-top">
+              <label class="toggle">
+                <input type="checkbox" id="autoBetToggleEvenOdd" />
+                <span>Even / Odd</span>
+              </label>
+              <span
+                id="betStatusEvenOdd"
+                class="market-status small"
+              ></span>
+            </div>
+
+            <div class="market-body">
+              <div
+                id="evenoddStreakDots"
+                class="dots"
+                role="presentation"
+              ></div>
+
+              <div class="field-row">
+                <label for="evenoddStreak" class="small">Стрик</label>
+                <input
+                  id="evenoddStreak"
+                  type="number"
+                  min="2"
+                  step="1"
+                  value="2"
+                />
+              </div>
+
+              <div class="check-list">
+                <label class="small">
+                  <input type="checkbox" id="evenoddAutoContinue" />
+                  Ставки подряд
+                </label>
+                <label class="small">
+                  <input type="checkbox" id="evenoddIncludeZero" />
+                  Учитывать 0
+                </label>
+              </div>
+            </div>
+
+            <details class="steps-accordion">
+              <summary>Steps</summary>
+              <div class="steps-panel">
+                <div id="evenoddStepsBox"></div>
+                <div class="row row-wrap">
+                  <button id="btnAddEvenOddStep" class="btn">
+                    + Add step
+                  </button>
+                  <button id="btnCfgEvenOddDefaults" class="btn">
+                    Defaults
+                  </button>
+                  <button
+                    id="btnCfgEvenOddSave"
+                    class="btn btn-primary"
+                  >
+                    Save
+                  </button>
+                </div>
+                <div id="cfgEvenOddMsg" class="small"></div>
+              </div>
+            </details>
+          </article>
+
+          <!-- Colors -->
+          <article class="market-card" data-market="colors">
+            <div class="market-top">
+              <label class="toggle">
+                <input type="checkbox" id="autoBetToggleColors" />
+                <span>Colors</span>
+              </label>
+              <span
+                id="betStatusColors"
+                class="market-status small"
+              ></span>
+            </div>
+
+            <div class="market-body">
+              <div
+                id="colorsStreakDots"
+                class="dots"
+                role="presentation"
+              ></div>
+
+              <div class="field-row">
+                <label for="colorsStreak" class="small">Стрик</label>
+                <input
+                  id="colorsStreak"
+                  type="number"
+                  min="2"
+                  step="1"
+                  value="2"
+                />
+              </div>
+
+              <div class="check-list">
+                <label class="small">
+                  <input type="checkbox" id="colorsAutoContinue" />
+                  Ставки подряд
+                </label>
+                <label class="small">
+                  <input type="checkbox" id="colorsIncludeZero" />
+                  Учитывать 0
+                </label>
+              </div>
+            </div>
+
+            <details class="steps-accordion">
+              <summary>Steps</summary>
+              <div class="steps-panel">
+                <div id="colorsStepsBox"></div>
+                <div class="row row-wrap">
+                  <button id="btnAddColorsStep" class="btn">
+                    + Add step
+                  </button>
+                  <button id="btnCfgColorsDefaults" class="btn">
+                    Defaults
+                  </button>
+                  <button
+                    id="btnCfgColorsSave"
+                    class="btn btn-primary"
+                  >
+                    Save
+                  </button>
+                </div>
+                <div id="cfgColorsMsg" class="small"></div>
+              </div>
+            </details>
+          </article>
+
+          <!-- Sectors -->
+          <article class="market-card" data-market="sectors">
+            <div class="market-top">
+              <label class="toggle">
+                <input type="checkbox" id="autoBetToggleSectors" />
+                <span>Сектора</span>
+              </label>
+              <span
+                id="betStatusSectors"
+                class="market-status small"
+              ></span>
+            </div>
+
+            <div class="market-body">
+              <div
+                id="sectorsStreakDots"
+                class="dots"
+                role="presentation"
+              ></div>
+
+              <div class="field-row">
+                <label for="sectorsStreak" class="small">Стрик</label>
+                <input
+                  id="sectorsStreak"
+                  type="number"
+                  min="2"
+                  step="1"
+                  value="2"
+                />
+              </div>
+
+              <div class="check-list">
+                <label class="small">
+                  <input type="checkbox" id="sectorsAutoContinue" />
+                  Ставки подряд
+                </label>
+                <label class="small">
+                  <input type="checkbox" id="sectorsIncludeZero" />
+                  Учитывать 0
+                </label>
+              </div>
+            </div>
+
+            <details class="steps-accordion">
+              <summary>Steps</summary>
+              <div class="steps-panel">
+                <div id="sectorsStepsBox"></div>
+                <div class="row row-wrap">
+                  <button id="btnAddSectorsStep" class="btn">
+                    + Add step
+                  </button>
+                  <button id="btnCfgSectorsDefaults" class="btn">
+                    Defaults
+                  </button>
+                  <button
+                    id="btnCfgSectorsSave"
+                    class="btn btn-primary"
+                  >
+                    Save
+                  </button>
+                </div>
+                <div id="cfgSectorsMsg" class="small"></div>
+              </div>
+            </details>
+          </article>
+
+          <!-- Neighbors -->
+          <article class="market-card" data-market="neighbors">
+            <div class="market-top">
+              <label class="toggle">
+                <input type="checkbox" id="autoBetToggleNeighbors" />
+                <span>Соседи</span>
+              </label>
+              <span
+                id="betStatusNeighbors"
+                class="market-status small"
+              ></span>
+            </div>
+
+            <div class="market-body">
+              <div class="market-note small muted">
+                Racetrack market. Steps are hidden below.
+              </div>
+            </div>
+
+            <details class="steps-accordion">
+              <summary>Steps</summary>
+              <div class="steps-panel">
+                <div id="neighborsStepsBox"></div>
+                <div class="row row-wrap">
+                  <button id="btnAddNeighborsStep" class="btn">
+                    + Add step
+                  </button>
+                  <button id="btnCfgNeighborsDefaults" class="btn">
+                    Defaults
+                  </button>
+                  <button
+                    id="btnCfgNeighborsSave"
+                    class="btn btn-primary"
+                  >
+                    Save
+                  </button>
+                </div>
+                <div id="cfgNeighborsMsg" class="small"></div>
+              </div>
+            </details>
+          </article>
+
+          <!-- Anti-Dozens -->
+          <article class="market-card" data-market="antidozens">
+            <div class="market-top">
+              <label class="toggle">
+                <input type="checkbox" id="autoBetToggleAntiDozens" />
+                <span>Антидюжины</span>
+              </label>
+              <span
+                id="betStatusAntiDozens"
+                class="market-status small"
+              ></span>
+            </div>
+
+            <div class="market-body">
+              <div
+                id="antidozensStreakDots"
+                class="dots"
+                role="presentation"
+              ></div>
+
+              <div class="field-row">
+                <label for="antidozensStreak" class="small"
+                  >Стрик</label
+                >
+                <input
+                  id="antidozensStreak"
+                  type="number"
+                  min="2"
+                  step="1"
+                  value="10"
+                />
+              </div>
+
+              <div class="check-list">
+                <label class="small">
+                  <input
+                    type="checkbox"
+                    id="antidozensAutoContinue"
+                  />
+                  Ставки подряд
+                </label>
+                <label class="small">
+                  <input type="checkbox" id="antidozensIncludeZero" />
+                  Учитывать 0
+                </label>
+              </div>
+            </div>
+
+            <details class="steps-accordion">
+              <summary>Steps</summary>
+              <div class="steps-panel">
+                <div id="antiDznStepsBox"></div>
+                <div class="row row-wrap">
+                  <button id="btnAddAntiDznStep" class="btn">
+                    + Add step
+                  </button>
+                  <button id="btnCfgAntiDznDefaults" class="btn">
+                    Defaults
+                  </button>
+                  <button
+                    id="btnCfgAntiDznSave"
+                    class="btn btn-primary"
+                  >
+                    Save
+                  </button>
+                </div>
+                <div id="cfgAntiDznMsg" class="small"></div>
+              </div>
+            </details>
+          </article>
+
+          <!-- Anti-Rows -->
+          <article class="market-card" data-market="antirows">
+            <div class="market-top">
+              <label class="toggle">
+                <input type="checkbox" id="autoBetToggleAntiRows" />
+                <span>Антиряды</span>
+              </label>
+              <span
+                id="betStatusAntiRows"
+                class="market-status small"
+              ></span>
+            </div>
+
+            <div class="market-body">
+              <div
+                id="antirowsStreakDots"
+                class="dots"
+                role="presentation"
+              ></div>
+
+              <div class="field-row">
+                <label for="antirowsStreak" class="small"
+                  >Стрик</label
+                >
+                <input
+                  id="antirowsStreak"
+                  type="number"
+                  min="2"
+                  step="1"
+                  value="10"
+                />
+              </div>
+
+              <div class="check-list">
+                <label class="small">
+                  <input type="checkbox" id="antirowsAutoContinue" />
+                  Ставки подряд
+                </label>
+                <label class="small">
+                  <input type="checkbox" id="antirowsIncludeZero" />
+                  Учитывать 0
+                </label>
+              </div>
+            </div>
+
+            <details class="steps-accordion">
+              <summary>Steps</summary>
+              <div class="steps-panel">
+                <div id="antiRowsStepsBox"></div>
+                <div class="row row-wrap">
+                  <button id="btnAddAntiRowStep" class="btn">
+                    + Add step
+                  </button>
+                  <button id="btnCfgAntiRowDefaults" class="btn">
+                    Defaults
+                  </button>
+                  <button
+                    id="btnCfgAntiRowSave"
+                    class="btn btn-primary"
+                  >
+                    Save
+                  </button>
+                </div>
+                <div id="cfgAntiRowsMsg" class="small"></div>
+              </div>
+            </details>
+          </article>
+
+          <!-- Numbers -->
+          <article class="market-card" data-market="numbers">
+            <div class="market-top">
+              <label class="toggle">
+                <input type="checkbox" id="autoBetToggleNumbers" />
+                <span>Числа</span>
+              </label>
+              <span
+                id="betStatusNumbers"
+                class="market-status small"
+              ></span>
+            </div>
+
+            <div class="market-body">
+              <div class="field-row">
+                <label for="numbersGap" class="small">Стрик</label>
+                <input
+                  id="numbersGap"
+                  type="number"
+                  min="1"
+                  step="1"
+                  value="120"
+                />
+              </div>
+
+              <div class="field-row">
+                <label for="numbersMaxTargets" class="small"
+                  >Кол-во чисел</label
+                >
+                <input
+                  id="numbersMaxTargets"
+                  type="number"
+                  min="1"
+                  step="1"
+                  value="1"
+                />
+              </div>
+
+              <div class="check-list">
+                <label class="small">
+                  <input type="checkbox" id="numbersAutoContinue" />
+                  Ставки подряд
+                </label>
+              </div>
+
+              <div
+                class="market-note small mono"
+                id="numbersNear"
+              ></div>
+            </div>
+
+            <details class="steps-accordion">
+              <summary>Steps</summary>
+              <div class="steps-panel">
+                <div id="numbersStepsBox"></div>
+                <div class="row row-wrap">
+                  <button id="btnAddNumbersStep" class="btn">
+                    + Add step
+                  </button>
+                  <button id="btnCfgNumbersDefaults" class="btn">
+                    Defaults
+                  </button>
+                  <button
+                    id="btnCfgNumbersSave"
+                    class="btn btn-primary"
+                  >
+                    Save
+                  </button>
+                </div>
+                <div id="cfgNumbersMsg" class="small"></div>
+              </div>
+            </details>
+          </article>
+        </div>
+
+        <div class="save-all-bar">
+          <span class="small muted">
+            Save All сохранит общие фишки и steps/streak/режим
+            проигрыша для всех рынков
+          </span>
+          <button id="btnSaveAll" class="btn btn-primary">
+            Save All
           </button>
         </div>
-      </div>
-      <div class="row row-end">
-        <button id="btnCfgLowHighDefaults" class="btn">
-          Defaults
-        </button>
-        <button id="btnCfgLowHighSave" class="btn">Save</button>
-      </div>
-      <div id="cfgLowHighMsg" class="small"></div>
-    </section>
+      </section>
 
-    <!-- ==== STEPS: EVEN/ODD ==== -->
-    <section class="card">
-      <h3>Steps — Even/Odd</h3>
-      <div class="card card-inner">
-        <h4>Steps</h4>
-        <div id="evenoddStepsBox"></div>
-        <div class="row">
-          <button id="btnAddEvenOddStep" class="btn">
-            + Add step
-          </button>
+      <section class="card section-card">
+        <div class="section-head">
+          <h3>Global Chips</h3>
         </div>
-      </div>
-      <div class="row row-end">
-        <button id="btnCfgEvenOddDefaults" class="btn">
-          Defaults
-        </button>
-        <button id="btnCfgEvenOddSave" class="btn">Save</button>
-      </div>
-      <div id="cfgEvenOddMsg" class="small"></div>
-    </section>
 
-    <!-- ==== STEPS: COLORS ==== -->
-    <section class="card">
-      <h3>Steps — Colors</h3>
-      <div class="card card-inner">
-        <h4>Steps</h4>
-        <div id="colorsStepsBox"></div>
-        <div class="row">
-          <button id="btnAddColorsStep" class="btn">
-            + Add step
-          </button>
+        <div class="row row-wrap">
+          <label class="field-label" for="cfgChipTpl"
+            >Chip selector template</label
+          >
+          <input
+            id="cfgChipTpl"
+            placeholder='[data-e2e="chip-{{value}}"]'
+          />
         </div>
-      </div>
-      <div class="row row-end">
-        <button id="btnCfgColorsDefaults" class="btn">
-          Defaults
-        </button>
-        <button id="btnCfgColorsSave" class="btn">Save</button>
-      </div>
-      <div id="cfgColorsMsg" class="small"></div>
-    </section>
 
-    <!-- NEW: STEPS: SECTORS -->
-    <section class="card">
-      <h3>Steps — Sectors</h3>
-      <div class="card card-inner">
-        <h4>Steps</h4>
-        <div id="sectorsStepsBox"></div>
-        <div class="row">
-          <button id="btnAddSectorsStep" class="btn">
-            + Add step
-          </button>
+        <div class="subcard subcard-inner">
+          <h4>Chips (values)</h4>
+          <div id="chipsBox"></div>
+          <div class="row row-wrap">
+            <button id="btnAddChip" class="btn">+ Add chip</button>
+          </div>
         </div>
-      </div>
-      <div class="row row-end">
-        <button id="btnCfgSectorsDefaults" class="btn">
-          Defaults
-        </button>
-        <button id="btnCfgSectorsSave" class="btn">Save</button>
-      </div>
-      <div id="cfgSectorsMsg" class="small"></div>
-    </section>
 
-    <!-- STEPS: NEIGHBORS -->
-    <section class="card" data-market="neighbors">
-      <h3>Steps — Neighbors</h3>
-      <div class="card card-inner">
-        <h4>Steps</h4>
-        <div id="neighborsStepsBox"></div>
-        <div class="row">
-          <button id="btnAddNeighborsStep" class="btn btn-add-step">
-            + Add step
-          </button>
-        </div>
-      </div>
-      <div class="row row-end">
-        <button id="btnCfgNeighborsDefaults" class="btn">
-          Defaults
-        </button>
-        <button id="btnCfgNeighborsSave" class="btn">Save</button>
-      </div>
-      <div id="cfgNeighborsMsg" class="small"></div>
-    </section>
-
-    <!-- ==== STEPS: ANTI-DOZENS ==== -->
-    <section class="card">
-      <h3>Steps — Anti-Dozens</h3>
-      <div class="card card-inner">
-        <h4>Steps</h4>
-        <div id="antiDznStepsBox"></div>
-        <div class="row">
-          <button id="btnAddAntiDznStep" class="btn">
-            + Add step
-          </button>
-        </div>
-      </div>
-      <div class="row row-end">
-        <button id="btnCfgAntiDznDefaults" class="btn">
-          Defaults
-        </button>
-        <button id="btnCfgAntiDznSave" class="btn">Save</button>
-      </div>
-      <div id="cfgAntiDznMsg" class="small"></div>
-    </section>
-
-    <!-- ==== NEW: STEPS: ANTI-ROWS ==== -->
-    <section class="card">
-      <h3>Steps — Anti-Rows</h3>
-      <div class="card card-inner">
-        <h4>Steps</h4>
-        <div id="antiRowsStepsBox"></div>
-        <div class="row">
-          <button id="btnAddAntiRowStep" class="btn">
-            + Add step
-          </button>
-        </div>
-      </div>
-      <div class="row row-end">
-        <button id="btnCfgAntiRowDefaults" class="btn">
-          Defaults
-        </button>
-        <button id="btnCfgAntiRowSave" class="btn">Save</button>
-      </div>
-      <div id="cfgAntiRowsMsg" class="small"></div>
-    </section>
-
-    <!-- ==== NEW: STEPS: NUMBERS ==== -->
-    <section class="card">
-      <h3>Steps — Numbers</h3>
-      <div class="card card-inner">
-        <h4>Steps</h4>
-        <div id="numbersStepsBox"></div>
-        <div class="row">
-          <button id="btnAddNumbersStep" class="btn">
-            + Add step
-          </button>
-        </div>
-      </div>
-      <div class="row row-end">
-        <button id="btnCfgNumbersDefaults" class="btn">
-          Defaults
-        </button>
-        <button id="btnCfgNumbersSave" class="btn">Save</button>
-      </div>
-      <div id="cfgNumbersMsg" class="small"></div>
-    </section>
+        <div id="cfgChipsMsg" class="small"></div>
+      </section>
+    </main>
 
     <script src="popup.js"></script>
   </body>
