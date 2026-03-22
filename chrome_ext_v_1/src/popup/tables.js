@@ -14,12 +14,23 @@ import {
   getTrackedTableBetLogs,
   getTrackedTableStatus,
   getTrackedTableMatchedTitle,
+  getTrackedTableLeaderText,
+  getLiveBadge,
+  fmtMoney,
   fmtTime,
   countUniqueLeft,
   normalizeChipValues,
 } from '../shared/tracked-tables.js';
 
-let _booted = false;
+let booted = false;
+let renderTimer = null;
+
+let uiState = {
+  topOpen: new Set(),
+  subOpen: {},
+  scrollTop: {},
+  drafts: {},
+};
 
 function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, (ch) => {
@@ -46,58 +57,6 @@ function csvEscape(value) {
     return `"${s.replace(/"/g, '""')}"`;
   }
   return s;
-}
-
-function safeMoney(value) {
-  if (value == null || value === '') return '—';
-  const n = Number(value);
-  if (!Number.isFinite(n)) return '—';
-  return n.toFixed(2);
-}
-
-function humanBadge(table, state) {
-  if (!table?.enabled) {
-    return { cls: 'live-badge off', text: 'Disabled' };
-  }
-
-  const raw = String(state?.status?.state || state?.state || 'off');
-
-  if (raw === 'ok') {
-    return { cls: 'live-badge ok', text: 'Live' };
-  }
-  if (raw === 'standby') {
-    return { cls: 'live-badge waiting', text: 'Standby' };
-  }
-  if (raw === 'waiting') {
-    return { cls: 'live-badge waiting', text: 'Waiting' };
-  }
-  if (raw === 'error') {
-    return { cls: 'live-badge error', text: 'Error' };
-  }
-  return { cls: 'live-badge off', text: 'Off' };
-}
-
-function humanStatusMessage(table, status, matchedTitle) {
-  if (!table?.enabled) return 'Tracking disabled for this table';
-
-  const raw = String(status?.state || 'off');
-  const msg = String(status?.message || '').trim();
-
-  if (raw === 'ok') {
-    return msg || 'Tracking active';
-  }
-  if (raw === 'standby') {
-    return msg || 'Another tab currently owns tracking';
-  }
-  if (raw === 'waiting') {
-    return matchedTitle
-      ? `Matched title: ${matchedTitle}`
-      : 'No matching page title detected yet';
-  }
-  if (raw === 'error') {
-    return msg || 'Tracker error';
-  }
-  return msg || 'Waiting for matching table';
 }
 
 function downloadText(filename, text) {
@@ -189,12 +148,9 @@ function renderBetRows(logs) {
     .join('');
 }
 
-function renderChipRows(table) {
-  const chips = Array.isArray(table?.customChips)
-    ? table.customChips
-    : [];
-
-  if (!chips.length) {
+function renderChipRowsFromValues(values) {
+  const arr = Array.isArray(values) ? values : [];
+  if (!arr.length) {
     return `
       <div class="tracked-chip-row">
         <input
@@ -216,7 +172,7 @@ function renderChipRows(table) {
     `;
   }
 
-  return chips
+  return arr
     .map(
       (chip) => `
         <div class="tracked-chip-row">
@@ -241,15 +197,143 @@ function renderChipRows(table) {
     .join('');
 }
 
+function getDraft(tableId) {
+  return uiState.drafts?.[tableId] || null;
+}
+
+function captureUiStateFromDom() {
+  const listEl = document.getElementById('trackedTablesList');
+  if (!listEl) return;
+
+  const topOpen = new Set();
+  const subOpen = {};
+  const scrollTop = {};
+  const drafts = { ...uiState.drafts };
+
+  const cards = Array.from(
+    listEl.querySelectorAll('.tracked-table-card'),
+  );
+
+  for (const card of cards) {
+    const tableId = String(card.dataset.tableId || '').trim();
+    if (!tableId) continue;
+
+    if (card.open) topOpen.add(tableId);
+
+    subOpen[tableId] = {};
+    scrollTop[tableId] = scrollTop[tableId] || {};
+
+    const subs = Array.from(
+      card.querySelectorAll('.tracked-subaccordion[data-sub]'),
+    );
+    for (const sub of subs) {
+      const key = String(sub.dataset.sub || '').trim();
+      if (!key) continue;
+
+      subOpen[tableId][key] = !!sub.open;
+
+      const shell = sub.querySelector('.tracked-log-shell');
+      if (shell) {
+        scrollTop[tableId][key] = shell.scrollTop || 0;
+      }
+    }
+
+    const titleInput = card.querySelector('.tracked-title-input');
+    const chipMode = card.querySelector('.tracked-chip-mode');
+    const chipTpl = card.querySelector('.tracked-chip-tpl');
+    const chipInputs = Array.from(
+      card.querySelectorAll('.tracked-chip-input'),
+    );
+
+    drafts[tableId] = {
+      title: titleInput ? titleInput.value : drafts?.[tableId]?.title,
+      chipMode: chipMode
+        ? chipMode.value
+        : drafts?.[tableId]?.chipMode,
+      chipTpl: chipTpl ? chipTpl.value : drafts?.[tableId]?.chipTpl,
+      chipValues: chipInputs.length
+        ? chipInputs.map((inp) => inp.value)
+        : drafts?.[tableId]?.chipValues || [],
+    };
+  }
+
+  uiState = {
+    topOpen,
+    subOpen,
+    scrollTop,
+    drafts,
+  };
+}
+
+function isTopOpen(tableId, storedOpenIds) {
+  if (uiState.topOpen.size) return uiState.topOpen.has(tableId);
+  return storedOpenIds.has(tableId);
+}
+
+function isSubOpen(tableId, key) {
+  return !!uiState.subOpen?.[tableId]?.[key];
+}
+
+function restoreScrollPositions() {
+  const listEl = document.getElementById('trackedTablesList');
+  if (!listEl) return;
+
+  const cards = Array.from(
+    listEl.querySelectorAll('.tracked-table-card'),
+  );
+
+  for (const card of cards) {
+    const tableId = String(card.dataset.tableId || '').trim();
+    if (!tableId) continue;
+
+    const spinShell = card.querySelector(
+      '.tracked-subaccordion[data-sub="spin"] .tracked-log-shell',
+    );
+    const betShell = card.querySelector(
+      '.tracked-subaccordion[data-sub="bet"] .tracked-log-shell',
+    );
+
+    const spinTop = Number(uiState.scrollTop?.[tableId]?.spin ?? 0);
+    const betTop = Number(uiState.scrollTop?.[tableId]?.bet ?? 0);
+
+    if (spinShell) spinShell.scrollTop = spinTop;
+    if (betShell) betShell.scrollTop = betTop;
+  }
+}
+
 function buildTableCard({ table, state, isOpen, isSelected }) {
   const status = getTrackedTableStatus(state);
-  const badge = humanBadge(table, state);
+  const badge = getLiveBadge(status?.state);
   const balance = getTrackedTableBalanceValue(state);
   const matchedTitle = getTrackedTableMatchedTitle(state);
   const spinLogs = getTrackedTableSpinLogs(state);
   const betLogs = getTrackedTableBetLogs(state);
   const uniqueLeft = countUniqueLeft(spinLogs);
-  const statusText = humanStatusMessage(table, status, matchedTitle);
+  const leaderText = getTrackedTableLeaderText(state);
+
+  const draft = getDraft(table.id);
+
+  const titleValue =
+    typeof draft?.title === 'string' ? draft.title : table.title;
+
+  const chipMode =
+    draft?.chipMode === 'custom' || draft?.chipMode === 'global'
+      ? draft.chipMode
+      : table.chipMode === 'custom'
+        ? 'custom'
+        : 'global';
+
+  const chipTpl =
+    typeof draft?.chipTpl === 'string'
+      ? draft.chipTpl
+      : table.customChipTpl || '';
+
+  const chipValues =
+    Array.isArray(draft?.chipValues) && draft.chipValues.length
+      ? draft.chipValues
+      : Array.isArray(table?.customChips)
+        ? table.customChips
+        : [];
 
   return `
     <details
@@ -261,11 +345,19 @@ function buildTableCard({ table, state, isOpen, isSelected }) {
         <div class="tracked-table-summary-main">
           <span class="tracked-table-name">${esc(table.title)}</span>
           <div class="tracked-table-summary-meta">
-            <span class="${badge.cls}">${esc(badge.text)}</span>
+            <span
+              class="${badge.cls}"
+              data-role="live-badge"
+            >${esc(badge.text)}</span>
             ${
               isSelected
-                ? '<span class="focus-badge">Shown in main panel</span>'
+                ? '<span class="focus-badge">FOCUS</span>'
                 : ''
+            }
+            ${
+              table.enabled
+                ? '<span class="mini-flag enabled">ENABLED</span>'
+                : '<span class="mini-flag disabled">DISABLED</span>'
             }
           </div>
         </div>
@@ -288,7 +380,7 @@ function buildTableCard({ table, state, isOpen, isSelected }) {
               class="btn btn-xs ${isSelected ? 'btn-primary' : ''}"
               data-action="focus"
             >
-              ${isSelected ? 'Shown' : 'Show here'}
+              ${isSelected ? 'Focused' : 'Focus'}
             </button>
             <button
               type="button"
@@ -304,7 +396,7 @@ function buildTableCard({ table, state, isOpen, isSelected }) {
           <input
             class="tracked-title-input"
             type="text"
-            value="${esc(table.title)}"
+            value="${esc(titleValue)}"
             placeholder="American Football Auto Roulette"
           />
           <button
@@ -318,28 +410,47 @@ function buildTableCard({ table, state, isOpen, isSelected }) {
 
         <div class="tracked-meta-grid">
           <div class="tracked-meta-item">
-            <span class="tracked-meta-label">Matched page title</span>
-            <span class="tracked-meta-value">${esc(
-              matchedTitle || '—',
-            )}</span>
+            <span class="tracked-meta-label">Matched DOM title</span>
+            <span
+              class="tracked-meta-value"
+              data-role="matched-title"
+            >${esc(matchedTitle || '—')}</span>
           </div>
 
           <div class="tracked-meta-item">
             <span class="tracked-meta-label">Balance</span>
-            <span class="tracked-meta-value">${esc(
-              safeMoney(balance),
-            )}</span>
+            <span
+              class="tracked-meta-value"
+              data-role="balance"
+            >${esc(fmtMoney(balance))}</span>
           </div>
 
-          <div class="tracked-meta-item tracked-meta-item--wide">
-            <span class="tracked-meta-label">Tracker</span>
-            <span class="tracked-meta-value">${esc(statusText)}</span>
+          <div class="tracked-meta-item">
+            <span class="tracked-meta-label">Leader</span>
+            <span
+              class="tracked-meta-value"
+              data-role="leader"
+            >${esc(leaderText)}</span>
+          </div>
+
+          <div class="tracked-meta-item">
+            <span class="tracked-meta-label">Status</span>
+            <span
+              class="tracked-meta-value"
+              data-role="status-message"
+            >${esc(status?.message || '—')}</span>
           </div>
         </div>
 
-        <details class="tracked-subaccordion">
+        <details
+          class="tracked-subaccordion"
+          data-sub="spin"
+          ${isSubOpen(table.id, 'spin') ? 'open' : ''}
+        >
           <summary>
-            Logs (${spinLogs.length}) · missing ${uniqueLeft}
+            <span data-role="spin-summary">
+              Logs (${spinLogs.length}) · missing ${uniqueLeft}
+            </span>
           </summary>
           <div class="tracked-subpanel">
             <div class="table-shell tracked-log-shell">
@@ -350,7 +461,7 @@ function buildTableCard({ table, state, isOpen, isSelected }) {
                     <th>#</th>
                   </tr>
                 </thead>
-                <tbody>${renderSpinRows(spinLogs)}</tbody>
+                <tbody data-role="spin-tbody">${renderSpinRows(spinLogs)}</tbody>
               </table>
             </div>
 
@@ -373,8 +484,16 @@ function buildTableCard({ table, state, isOpen, isSelected }) {
           </div>
         </details>
 
-        <details class="tracked-subaccordion">
-          <summary>Bet Logs (${betLogs.length})</summary>
+        <details
+          class="tracked-subaccordion"
+          data-sub="bet"
+          ${isSubOpen(table.id, 'bet') ? 'open' : ''}
+        >
+          <summary>
+            <span data-role="bet-summary">
+              Bet Logs (${betLogs.length})
+            </span>
+          </summary>
           <div class="tracked-subpanel">
             <div class="table-shell tracked-log-shell">
               <table>
@@ -386,7 +505,7 @@ function buildTableCard({ table, state, isOpen, isSelected }) {
                     <th>Event</th>
                   </tr>
                 </thead>
-                <tbody>${renderBetRows(betLogs)}</tbody>
+                <tbody data-role="bet-tbody">${renderBetRows(betLogs)}</tbody>
               </table>
             </div>
 
@@ -409,21 +528,25 @@ function buildTableCard({ table, state, isOpen, isSelected }) {
           </div>
         </details>
 
-        <details class="tracked-subaccordion">
+        <details
+          class="tracked-subaccordion"
+          data-sub="chips"
+          ${isSubOpen(table.id, 'chips') ? 'open' : ''}
+        >
           <summary>
-            Chips (${table.chipMode === 'custom' ? 'custom' : 'global'})
+            Chips (${chipMode === 'custom' ? 'custom' : 'global'})
           </summary>
           <div class="tracked-subpanel">
             <div class="tracked-chip-mode-row">
               <label class="small">Chip mode</label>
               <select class="tracked-chip-mode">
                 <option value="global" ${
-                  table.chipMode === 'global' ? 'selected' : ''
+                  chipMode === 'global' ? 'selected' : ''
                 }>
                   Global
                 </option>
                 <option value="custom" ${
-                  table.chipMode === 'custom' ? 'selected' : ''
+                  chipMode === 'custom' ? 'selected' : ''
                 }>
                   Custom
                 </option>
@@ -431,19 +554,19 @@ function buildTableCard({ table, state, isOpen, isSelected }) {
             </div>
 
             <div class="tracked-chip-custom ${
-              table.chipMode === 'custom' ? '' : 'is-hidden'
+              chipMode === 'custom' ? '' : 'is-hidden'
             }">
               <div class="tracked-edit-row">
                 <input
                   class="tracked-chip-tpl"
                   type="text"
-                  value="${esc(table.customChipTpl || '')}"
+                  value="${esc(chipTpl)}"
                   placeholder='[data-e2e="chip-{{value}}"]'
                 />
               </div>
 
               <div class="tracked-chip-list">
-                ${renderChipRows(table)}
+                ${renderChipRowsFromValues(chipValues)}
               </div>
 
               <div class="row row-wrap row-end">
@@ -504,6 +627,8 @@ async function renderTrackedTables() {
   const listEl = document.getElementById('trackedTablesList');
   if (!listEl) return;
 
+  captureUiStateFromDom();
+
   const { tables, states, selectedId, openIds } = await getSnapshot();
 
   if (!tables.length) {
@@ -522,11 +647,106 @@ async function renderTrackedTables() {
       buildTableCard({
         table,
         state: getTrackedTableState(states, table.id),
-        isOpen: openIds.has(table.id),
+        isOpen: isTopOpen(table.id, openIds),
         isSelected: selectedId === table.id,
       }),
     )
     .join('');
+
+  restoreScrollPositions();
+}
+
+async function patchTrackedTableStates() {
+  const listEl = document.getElementById('trackedTablesList');
+  if (!listEl) return;
+
+  captureUiStateFromDom();
+
+  const { tables, states } = await getSnapshot();
+  const tableMap = new Map(tables.map((t) => [t.id, t]));
+
+  const cards = Array.from(
+    listEl.querySelectorAll('.tracked-table-card'),
+  );
+
+  // if structure is out of sync, do a full render
+  if (cards.length !== tables.length) {
+    await renderTrackedTables();
+    return;
+  }
+
+  for (const card of cards) {
+    const tableId = String(card.dataset.tableId || '').trim();
+    if (!tableId || !tableMap.has(tableId)) {
+      await renderTrackedTables();
+      return;
+    }
+
+    const state = getTrackedTableState(states, tableId);
+    const status = getTrackedTableStatus(state);
+    const badge = getLiveBadge(status?.state);
+    const balance = getTrackedTableBalanceValue(state);
+    const matchedTitle = getTrackedTableMatchedTitle(state);
+    const leaderText = getTrackedTableLeaderText(state);
+    const spinLogs = getTrackedTableSpinLogs(state);
+    const betLogs = getTrackedTableBetLogs(state);
+    const uniqueLeft = countUniqueLeft(spinLogs);
+
+    const badgeEl = card.querySelector('[data-role="live-badge"]');
+    const matchedEl = card.querySelector(
+      '[data-role="matched-title"]',
+    );
+    const balanceEl = card.querySelector('[data-role="balance"]');
+    const leaderEl = card.querySelector('[data-role="leader"]');
+    const statusEl = card.querySelector(
+      '[data-role="status-message"]',
+    );
+    const spinSummaryEl = card.querySelector(
+      '[data-role="spin-summary"]',
+    );
+    const betSummaryEl = card.querySelector(
+      '[data-role="bet-summary"]',
+    );
+    const spinTbody = card.querySelector('[data-role="spin-tbody"]');
+    const betTbody = card.querySelector('[data-role="bet-tbody"]');
+
+    const spinShell = card.querySelector(
+      '.tracked-subaccordion[data-sub="spin"] .tracked-log-shell',
+    );
+    const betShell = card.querySelector(
+      '.tracked-subaccordion[data-sub="bet"] .tracked-log-shell',
+    );
+
+    const spinTop = spinShell ? spinShell.scrollTop : 0;
+    const betTop = betShell ? betShell.scrollTop : 0;
+
+    if (badgeEl) {
+      badgeEl.className = badge.cls;
+      badgeEl.textContent = badge.text;
+    }
+    if (matchedEl) matchedEl.textContent = matchedTitle || '—';
+    if (balanceEl) balanceEl.textContent = fmtMoney(balance);
+    if (leaderEl) leaderEl.textContent = leaderText;
+    if (statusEl) statusEl.textContent = status?.message || '—';
+    if (spinSummaryEl) {
+      spinSummaryEl.textContent = `Logs (${spinLogs.length}) · missing ${uniqueLeft}`;
+    }
+    if (betSummaryEl) {
+      betSummaryEl.textContent = `Bet Logs (${betLogs.length})`;
+    }
+    if (spinTbody) spinTbody.innerHTML = renderSpinRows(spinLogs);
+    if (betTbody) betTbody.innerHTML = renderBetRows(betLogs);
+
+    if (spinShell) spinShell.scrollTop = spinTop;
+    if (betShell) betShell.scrollTop = betTop;
+  }
+}
+
+function scheduleRender() {
+  clearTimeout(renderTimer);
+  renderTimer = setTimeout(() => {
+    renderTrackedTables().catch(() => {});
+  }, 80);
 }
 
 async function addTrackedTable() {
@@ -542,8 +762,8 @@ async function addTrackedTable() {
   }
 
   const { tables, states, selectedId, openIds } = await getSnapshot();
-
   const norm = normalizeTitle(title);
+
   if (tables.some((item) => item.normTitle === norm)) {
     await setMsg(
       'This table title already exists',
@@ -588,13 +808,14 @@ async function addTrackedTable() {
     },
   };
 
+  const nextOpen = Array.from(new Set([...openIds, id]));
+  uiState.topOpen.add(id);
+
   await sset({
     [TRACKED_TABLES_KEY]: nextTables,
     [TRACKED_TABLE_STATES_KEY]: nextStates,
     [SELECTED_TRACKED_TABLE_KEY]: selectedId || id,
-    [UI_TRACKED_TABLES_OPEN_KEY]: Array.from(
-      new Set([...openIds, id]),
-    ),
+    [UI_TRACKED_TABLES_OPEN_KEY]: nextOpen,
   });
 
   input.value = '';
@@ -613,16 +834,9 @@ function collectChipValues(card) {
 }
 
 async function saveOpenStateFromDom() {
-  const cards = Array.from(
-    document.querySelectorAll('.tracked-table-card'),
-  );
-  const openIds = cards
-    .filter((card) => card.open)
-    .map((card) => card.dataset.tableId)
-    .filter(Boolean);
-
+  captureUiStateFromDom();
   await sset({
-    [UI_TRACKED_TABLES_OPEN_KEY]: openIds,
+    [UI_TRACKED_TABLES_OPEN_KEY]: Array.from(uiState.topOpen),
   });
 }
 
@@ -684,6 +898,26 @@ async function renameTrackedTable(card) {
       nextOpenIds.add(nextId);
     }
 
+    if (uiState.topOpen.has(current.id)) {
+      uiState.topOpen.delete(current.id);
+      uiState.topOpen.add(nextId);
+    }
+
+    if (uiState.subOpen[current.id]) {
+      uiState.subOpen[nextId] = uiState.subOpen[current.id];
+      delete uiState.subOpen[current.id];
+    }
+
+    if (uiState.scrollTop[current.id]) {
+      uiState.scrollTop[nextId] = uiState.scrollTop[current.id];
+      delete uiState.scrollTop[current.id];
+    }
+
+    if (uiState.drafts[current.id]) {
+      uiState.drafts[nextId] = uiState.drafts[current.id];
+      delete uiState.drafts[current.id];
+    }
+
     if (nextSelectedId === current.id) {
       nextSelectedId = nextId;
     }
@@ -725,6 +959,12 @@ async function removeTrackedTable(card) {
   const nextOpenIds = Array.from(openIds).filter(
     (id) => id !== tableId,
   );
+
+  delete uiState.subOpen[tableId];
+  delete uiState.scrollTop[tableId];
+  delete uiState.drafts[tableId];
+  uiState.topOpen.delete(tableId);
+
   const nextSelectedId =
     selectedId === tableId ? nextTables[0]?.id || '' : selectedId;
 
@@ -824,6 +1064,8 @@ async function addChipRow(card) {
       </div>
     `,
   );
+
+  captureUiStateFromDom();
 }
 
 async function saveTableChips(card) {
@@ -849,6 +1091,15 @@ async function saveTableChips(card) {
       : t,
   );
 
+  if (uiState.drafts[tableId]) {
+    uiState.drafts[tableId] = {
+      ...uiState.drafts[tableId],
+      chipMode: mode,
+      chipTpl: tpl,
+      chipValues: chips.map(String),
+    };
+  }
+
   await sset({ [TRACKED_TABLES_KEY]: nextTables });
   await setMsg('Chip settings saved', 'small muted');
 }
@@ -857,12 +1108,29 @@ async function toggleChipMode(card, mode) {
   const tableId = String(card?.dataset?.tableId || '').trim();
   if (!tableId) return;
 
+  const nextMode = mode === 'custom' ? 'custom' : 'global';
+
+  if (!uiState.drafts[tableId]) uiState.drafts[tableId] = {};
+  uiState.drafts[tableId].chipMode = nextMode;
+
+  const customWrap = card.querySelector('.tracked-chip-custom');
+  if (customWrap) {
+    customWrap.classList.toggle('is-hidden', nextMode !== 'custom');
+  }
+
+  const summary = card.querySelector(
+    '.tracked-subaccordion[data-sub="chips"] > summary',
+  );
+  if (summary) {
+    summary.textContent = `Chips (${nextMode === 'custom' ? 'custom' : 'global'})`;
+  }
+
   const { tables } = await getSnapshot();
   const nextTables = tables.map((t) =>
     t.id === tableId
       ? {
           ...t,
-          chipMode: mode === 'custom' ? 'custom' : 'global',
+          chipMode: nextMode,
         }
       : t,
   );
@@ -928,6 +1196,7 @@ async function handleClick(event) {
   if (action === 'remove-chip-row') {
     event.preventDefault();
     btn.closest('.tracked-chip-row')?.remove();
+    captureUiStateFromDom();
     return;
   }
 
@@ -951,10 +1220,44 @@ async function handleChange(event) {
   }
 }
 
+function handleInput(event) {
+  const card = closestTableCard(event.target);
+  if (!card) return;
+
+  const tableId = String(card?.dataset?.tableId || '').trim();
+  if (!tableId) return;
+
+  if (!uiState.drafts[tableId]) uiState.drafts[tableId] = {};
+
+  if (event.target.classList.contains('tracked-title-input')) {
+    uiState.drafts[tableId].title = event.target.value;
+    return;
+  }
+
+  if (event.target.classList.contains('tracked-chip-tpl')) {
+    uiState.drafts[tableId].chipTpl = event.target.value;
+    return;
+  }
+
+  if (event.target.classList.contains('tracked-chip-input')) {
+    uiState.drafts[tableId].chipValues = Array.from(
+      card.querySelectorAll('.tracked-chip-input'),
+    ).map((inp) => inp.value);
+  }
+}
+
 async function handleToggle(event) {
   const details = event.target;
-  if (!details.classList?.contains('tracked-table-card')) return;
-  await saveOpenStateFromDom();
+  if (!(details instanceof HTMLDetailsElement)) return;
+
+  if (details.classList.contains('tracked-table-card')) {
+    await saveOpenStateFromDom();
+    return;
+  }
+
+  if (details.classList.contains('tracked-subaccordion')) {
+    captureUiStateFromDom();
+  }
 }
 
 export async function loadTrackedTablesUI() {
@@ -964,8 +1267,8 @@ export async function loadTrackedTablesUI() {
 
   if (!addBtn || !input || !listEl) return;
 
-  if (!_booted) {
-    _booted = true;
+  if (!booted) {
+    booted = true;
 
     addBtn.addEventListener('click', addTrackedTable);
 
@@ -978,18 +1281,30 @@ export async function loadTrackedTablesUI() {
 
     listEl.addEventListener('click', handleClick);
     listEl.addEventListener('change', handleChange);
+    listEl.addEventListener('input', handleInput);
     listEl.addEventListener('toggle', handleToggle, true);
+    listEl.addEventListener(
+      'scroll',
+      () => captureUiStateFromDom(),
+      true,
+    );
 
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area !== 'local') return;
 
       if (
         changes[TRACKED_TABLES_KEY] ||
-        changes[TRACKED_TABLE_STATES_KEY] ||
         changes[SELECTED_TRACKED_TABLE_KEY] ||
         changes[UI_TRACKED_TABLES_OPEN_KEY]
       ) {
-        renderTrackedTables().catch(() => {});
+        scheduleRender();
+        return;
+      }
+
+      if (changes[TRACKED_TABLE_STATES_KEY]) {
+        patchTrackedTableStates().catch(() => {
+          scheduleRender();
+        });
       }
     });
   }

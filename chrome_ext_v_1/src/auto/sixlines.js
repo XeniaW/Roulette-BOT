@@ -1,11 +1,10 @@
-// src/auto/sixlines.js
 import { entryGateFor } from '../shared/entry-limit.js';
 
 (() => {
   const DEFAULT_CFG = Object.freeze({
-    triggerStreak: 8, // по умолчанию 8
+    triggerStreak: 8,
     autoContinue: false,
-    includeZero: false, // 0 входит в стрик двух шестерок, если включено
+    includeZero: false,
     steps: [
       [{ chip: 1, times: 1 }],
       [{ chip: 1, times: 3 }],
@@ -17,25 +16,22 @@ import { entryGateFor } from '../shared/entry-limit.js';
     ],
   });
 
-  // ✅ Дольше ждём появления окна ставок/кнопок только для six
-  // (решает задержку между спином и открытием ставок на некоторых столах)
   const PLACE_MAX_WAIT_MS = 20000;
+  const TRACKED_TABLE_STATES_KEY = 'trackedTableStates';
+  const EXECS_KEY = 'betExecSixByTable';
+  const MAX_BET_LOGS = 2000;
 
-  // sixIndex: 1..36 -> 0..5, 0 -> -1
   function sixIndex(n) {
-    if (n === 0) return -1; // 0 обрабатываем отдельно через includeZero
+    if (n === 0) return -1;
     if (n < 1 || n > 36) return -1;
     return Math.floor((n - 1) / 6);
   }
 
-  // выбрать оставшиеся 4 шестерки при известной паре
   function otherFour(set2) {
     const used = Array.from(set2);
     return [0, 1, 2, 3, 4, 5].filter((x) => !used.includes(x));
   }
 
-  // Узел кнопки шестерки. НЕКОТОРЫЕ столы используют шаг 2 в id (600,602,...),
-  // другие — подряд (600,601,...). Пробуем оба варианта.
   function getSixNode(idx) {
     const evenId = `#index-${600 + idx * 2}`;
     const seqId = `#index-${600 + idx}`;
@@ -44,13 +40,9 @@ import { entryGateFor } from '../shared/entry-limit.js';
     );
   }
 
-  // Проверка окна по ТЗ:
-  // С хвоста берём подряд числа, где допускаются только нули (если includeZero)
-  // и числа из НЕ БОЛЕЕ ЧЕМ ДВУХ шестерок. Как только встретили третью — стоп.
-  // Требуем, чтобы в окне было РОВНО две шестерки (set.size === 2) и длина окна >= need.
   function checkTriggerTwoSixes(spinLogs, need, includeZero) {
     let cnt = 0;
-    const set = new Set(); // собираем индексы 0..5
+    const set = new Set();
     for (let i = spinLogs.length - 1; i >= 0 && cnt < need; i--) {
       const n = Number(spinLogs[i]?.n);
       if (!Number.isFinite(n)) break;
@@ -58,17 +50,94 @@ import { entryGateFor } from '../shared/entry-limit.js';
         if (includeZero) {
           cnt++;
           continue;
-        } else break;
+        }
+        break;
       }
       const si = sixIndex(n);
       if (si === -1) break;
       if (!set.has(si)) {
-        if (set.size === 2) break; // третья шестерка ломает окно
+        if (set.size === 2) break;
         set.add(si);
       }
       cnt++;
     }
     return cnt >= need && set.size === 2 ? set : null;
+  }
+
+  function emptyExec(enabled = false) {
+    return {
+      enabled: !!enabled,
+      phase: 'idle',
+      target: null,
+      step: 1,
+      armedAt: 0,
+      cooldownSkipped: undefined,
+    };
+  }
+
+  async function getTrackedTableIdForThisTab() {
+    try {
+      const res = await chrome.runtime.sendMessage({
+        type: 'GET_TRACKED_TABLE_FOR_TAB',
+      });
+      const id = String(res?.tableId || '').trim();
+      return res?.matched && id ? id : '';
+    } catch {
+      return '';
+    }
+  }
+
+  async function getTrackedState(tableId) {
+    if (!tableId) return null;
+    const { [TRACKED_TABLE_STATES_KEY]: states = {} } =
+      await BET.sget({
+        [TRACKED_TABLE_STATES_KEY]: {},
+      });
+    return states && typeof states === 'object'
+      ? states[tableId] || null
+      : null;
+  }
+
+  async function getTrackedSpinLogsForThisTab() {
+    const tableId = await getTrackedTableIdForThisTab();
+    if (!tableId) return { tableId: '', spinLogs: [] };
+    const state = await getTrackedState(tableId);
+    return {
+      tableId,
+      spinLogs: Array.isArray(state?.spinLogs)
+        ? state.spinLogs.slice()
+        : [],
+    };
+  }
+
+  async function appendTrackedBetLog(tableId, entry) {
+    if (!tableId) return;
+
+    const { [TRACKED_TABLE_STATES_KEY]: states = {} } =
+      await BET.sget({
+        [TRACKED_TABLE_STATES_KEY]: {},
+      });
+
+    const nextStates =
+      states && typeof states === 'object' ? { ...states } : {};
+    const prevState =
+      nextStates[tableId] && typeof nextStates[tableId] === 'object'
+        ? { ...nextStates[tableId] }
+        : {};
+
+    const betLogs = Array.isArray(prevState.betLogs)
+      ? prevState.betLogs.slice()
+      : [];
+
+    betLogs.push(entry);
+    if (betLogs.length > MAX_BET_LOGS) {
+      betLogs.splice(0, betLogs.length - MAX_BET_LOGS);
+    }
+
+    prevState.betLogs = betLogs;
+    nextStates[tableId] = prevState;
+
+    await BET.sset({ [TRACKED_TABLE_STATES_KEY]: nextStates });
   }
 
   class SixLinesStrategy extends window.MarketBase {
@@ -80,49 +149,168 @@ import { entryGateFor } from '../shared/entry-limit.js';
         statusKey: 'bettingStatusSix',
         execKey: 'betExecSix',
         getIndex: sixIndex,
-        getOthers: otherFour, // для six передаём Set из двух
+        getOthers: otherFour,
         getTargetNode: getSixNode,
         defaultCfg: DEFAULT_CFG,
       });
     }
 
     label(idx) {
-      // 1..6 по UI
       return idx + 1;
+    }
+
+    async getExec() {
+      const tableId = await getTrackedTableIdForThisTab();
+      const {
+        [this.enabledKey]: enabled = false,
+        [EXECS_KEY]: map = {},
+      } = await this.sget({
+        [this.enabledKey]: false,
+        [EXECS_KEY]: {},
+      });
+
+      const base =
+        tableId &&
+        map &&
+        typeof map === 'object' &&
+        map[tableId] &&
+        typeof map[tableId] === 'object'
+          ? map[tableId]
+          : emptyExec(enabled);
+
+      return {
+        ...emptyExec(enabled),
+        ...base,
+        enabled: !!enabled,
+      };
+    }
+
+    async setExec(next, statusMsg = null) {
+      const tableId = await getTrackedTableIdForThisTab();
+      if (!tableId) return;
+
+      const { [EXECS_KEY]: rawMap = {} } = await this.sget({
+        [EXECS_KEY]: {},
+      });
+      const map =
+        rawMap && typeof rawMap === 'object' ? { ...rawMap } : {};
+
+      map[tableId] = {
+        ...emptyExec(!!next?.enabled),
+        ...(next || {}),
+      };
+
+      await this.sset({ [EXECS_KEY]: map });
+
+      if (statusMsg) {
+        BET.setBetStatus(
+          this.statusKey,
+          map[tableId].enabled ? map[tableId].phase : 'off',
+          statusMsg,
+        );
+      }
+    }
+
+    async loadEnabled() {
+      const tableId = await getTrackedTableIdForThisTab();
+      if (!tableId) return;
+
+      const {
+        [this.enabledKey]: enabled = false,
+        [EXECS_KEY]: rawMap = {},
+      } = await this.sget({
+        [this.enabledKey]: false,
+        [EXECS_KEY]: {},
+      });
+
+      const map =
+        rawMap && typeof rawMap === 'object' ? { ...rawMap } : {};
+      const exec = {
+        ...emptyExec(enabled),
+        ...(map[tableId] && typeof map[tableId] === 'object'
+          ? map[tableId]
+          : {}),
+        enabled: !!enabled,
+      };
+
+      if (!enabled) {
+        exec.phase = 'idle';
+        exec.target = null;
+        exec.step = 1;
+        exec.armedAt = 0;
+        exec.cooldownSkipped = undefined;
+        map[tableId] = exec;
+        await this.sset({ [EXECS_KEY]: map });
+        BET.setBetStatus(this.statusKey, 'off', 'Авто-ставки ВЫКЛ');
+        return;
+      }
+
+      map[tableId] = exec;
+      await this.sset({ [EXECS_KEY]: map });
+      BET.setBetStatus(
+        this.statusKey,
+        exec.phase || 'idle',
+        'Авто-ставки ВКЛ',
+      );
+    }
+
+    async logPlaced(step, amount, message) {
+      const tableId = await getTrackedTableIdForThisTab();
+      await appendTrackedBetLog(tableId, {
+        t: Date.now(),
+        type: 'placed',
+        market: 'six',
+        phase: 'armed',
+        message,
+        amount,
+        step,
+      });
     }
 
     async onSpin(n) {
       const exec = await this.getExec();
       if (!exec.enabled) return;
 
-      const { spinLogs = [] } = await this.sget({ spinLogs: [] });
+      const { tableId, spinLogs: trackedLogs } =
+        await getTrackedSpinLogsForThisTab();
+      if (!tableId) return;
+
+      const spinLogs = Array.isArray(trackedLogs)
+        ? trackedLogs.slice()
+        : [];
+
+      if (
+        spinLogs.length === 0 ||
+        Number(spinLogs[spinLogs.length - 1]?.n) !== Number(n)
+      ) {
+        spinLogs.push({ n });
+      }
+
       const ix = this.getIndex(n);
 
-      // --- IDLE: вход по окну "две шестерки"
       if (exec.phase === 'idle') {
         const { triggerStreak, steps, includeZero } =
           await this.loadCfg();
 
-        // проверяем окно: 2 любые шестерки (+ноль при включенном флаге)
         const pairSet = checkTriggerTwoSixes(
           spinLogs,
           triggerStreak,
-          includeZero
+          includeZero,
         );
 
         if (pairSet) {
-          // 🔒 ГЕЙТ ВХОДА ПО ЛИМИТУ
           const gateOk = await entryGateFor(
             'six',
             'autoBettingSixEnabled',
             'bettingStatusSix',
-            { execKey: 'betExecSix' }
+            { execKey: 'betExecSix' },
           );
           if (!gateOk) return;
 
-          const targets = this.getOthers(pairSet); // 4 остальные
+          const targets = this.getOthers(pairSet);
           const next = {
             ...exec,
+            enabled: true,
             phase: 'armed',
             target: targets,
             step: 1,
@@ -133,7 +321,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
             next,
             `ВХОД → шестерки ${targets
               .map((x) => this.label(x))
-              .join(',')} | шаг 1`
+              .join(',')} | шаг 1`,
           );
 
           const ok = await BET.tryPlace({
@@ -142,7 +330,6 @@ import { entryGateFor } from '../shared/entry-limit.js';
             steps,
             getTargetNode: (i) => this.getTargetNode(i),
             mutex: this.mutex,
-            // ✅ увеличили окно ожидания (только six)
             maxWaitMs: PLACE_MAX_WAIT_MS,
           });
 
@@ -151,40 +338,24 @@ import { entryGateFor } from '../shared/entry-limit.js';
             const amount =
               BET.perTargetAmountForStep(1, steps, chips.chipValues) *
               targets.length;
-            try {
-              const { betLogs = [] } = await this.sget({
-                betLogs: [],
-              });
-              betLogs.push({
-                t: Date.now(),
-                type: 'placed',
-                market: 'six',
-                phase: 'armed',
-                message: 'Шаг 1 поставлен',
-                amount,
-                step: 1,
-              });
-              if (betLogs.length > 2000)
-                betLogs.splice(0, betLogs.length - 2000);
-              await this.sset({ betLogs });
-            } catch {}
+            await this.logPlaced(1, amount, 'Шаг 1 поставлен');
           }
 
           BET.setBetStatus(
             'bettingStatusSix',
             ok ? 'armed' : 'error',
-            ok ? 'Шаг 1 поставлен' : 'Не удалось поставить шаг 1'
+            ok ? 'Шаг 1 поставлен' : 'Не удалось поставить шаг 1',
           );
         }
         return;
       }
 
-      // --- ARMED: проверка исхода
       if (exec.phase === 'armed') {
         const win = ix !== -1 && exec.target.includes(ix);
         if (win) {
           const next = {
             ...exec,
+            enabled: true,
             phase: 'idle',
             target: null,
             step: 1,
@@ -193,7 +364,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
           };
           await this.setExec(
             next,
-            `ВЫИГРЫШ на шестерке ${this.label(ix)} → сброс`
+            `ВЫИГРЫШ на шестерке ${this.label(ix)} → сброс`,
           );
           return;
         }
@@ -203,6 +374,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
         if (exec.step >= lastStep) {
           const reset = {
             ...exec,
+            enabled: true,
             phase: 'idle',
             target: null,
             step: 1,
@@ -211,7 +383,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
           };
           await this.setExec(
             reset,
-            `ПРОИГРЫШ на шаге ${lastStep} → сброс`
+            `ПРОИГРЫШ на шаге ${lastStep} → сброс`,
           );
           return;
         }
@@ -221,6 +393,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
           const t = exec.target.slice();
           const next = {
             ...exec,
+            enabled: true,
             phase: 'armed',
             target: t,
             step,
@@ -231,7 +404,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
             next,
             `ПРОИГРЫШ → сразу ставим шаг ${step} на шестерки ${t
               .map((x) => this.label(x))
-              .join(',')}`
+              .join(',')}`,
           );
 
           const ok = await BET.tryPlace({
@@ -240,7 +413,6 @@ import { entryGateFor } from '../shared/entry-limit.js';
             steps,
             getTargetNode: (i) => this.getTargetNode(i),
             mutex: this.mutex,
-            // ✅ увеличили окно ожидания (только six)
             maxWaitMs: PLACE_MAX_WAIT_MS,
           });
 
@@ -250,25 +422,13 @@ import { entryGateFor } from '../shared/entry-limit.js';
               BET.perTargetAmountForStep(
                 step,
                 steps,
-                chips.chipValues
+                chips.chipValues,
               ) * t.length;
-            try {
-              const { betLogs = [] } = await this.sget({
-                betLogs: [],
-              });
-              betLogs.push({
-                t: Date.now(),
-                type: 'placed',
-                market: 'six',
-                phase: 'armed',
-                message: `Шаг ${step} поставлен (auto)`,
-                amount,
-                step,
-              });
-              if (betLogs.length > 2000)
-                betLogs.splice(0, betLogs.length - 2000);
-              await this.sset({ betLogs });
-            } catch {}
+            await this.logPlaced(
+              step,
+              amount,
+              `Шаг ${step} поставлен (auto)`,
+            );
           }
 
           BET.setBetStatus(
@@ -276,34 +436,33 @@ import { entryGateFor } from '../shared/entry-limit.js';
             ok ? 'armed' : 'error',
             ok
               ? `Шаг ${step} поставлен`
-              : `Не удалось поставить шаг ${step}`
+              : `Не удалось поставить шаг ${step}`,
           );
           return;
         }
 
-        // === НОВОЕ ПОВЕДЕНИЕ ДЛЯ autoContinue=false: "через один" ===
         const next = {
           ...exec,
-          phase: 'cooldown', // пропускаем 1 спин
-          step: exec.step + 1, // следующий шаг
+          enabled: true,
+          phase: 'cooldown',
+          step: exec.step + 1,
           armedAt: 0,
-          cooldownSkipped: false, // ещё не отметили пропуск
+          cooldownSkipped: false,
         };
-        // цели не меняем — те же 4 шестерки
         await this.setExec(
           next,
-          `ПРОИГРЫШ → пропускаем 1 спин; следующий шаг ${next.step} через один`
+          `ПРОИГРЫШ → пропускаем 1 спин; следующий шаг ${next.step} через один`,
         );
         return;
       }
 
-      // --- COOLDOWN: пропустить ровно один спин и СРАЗУ ставить (в этом же вызове)
       if (exec.phase === 'cooldown') {
         const { steps } = await this.loadCfg();
         const lastStep = Math.max(1, steps.length);
         if (exec.step > lastStep) {
           const reset = {
             ...exec,
+            enabled: true,
             phase: 'idle',
             target: null,
             step: 1,
@@ -312,22 +471,27 @@ import { entryGateFor } from '../shared/entry-limit.js';
           };
           await this.setExec(
             reset,
-            `Сброс: превышен лимит шагов (${lastStep}) в cooldown`
+            `Сброс: превышен лимит шагов (${lastStep}) в cooldown`,
           );
           return;
         }
 
         if (!exec.cooldownSkipped) {
           const step = exec.step;
-          const mid = { ...exec, cooldownSkipped: true };
+          const mid = {
+            ...exec,
+            enabled: true,
+            cooldownSkipped: true,
+          };
           await this.setExec(
             mid,
-            `Cooldown: пропустили 1 спин; ставим шаг ${step} (через один)`
+            `Cooldown: пропустили 1 спин; ставим шаг ${step} (через один)`,
           );
 
           const t = (exec.target || []).slice();
           const next = {
             ...mid,
+            enabled: true,
             phase: 'armed',
             target: t,
             step,
@@ -338,7 +502,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
             next,
             `ГОТОВ (через один) шаг ${step} на шестерки ${t
               .map((x) => this.label(x))
-              .join(',')}`
+              .join(',')}`,
           );
 
           const ok = await BET.tryPlace({
@@ -347,7 +511,6 @@ import { entryGateFor } from '../shared/entry-limit.js';
             steps,
             getTargetNode: (i) => this.getTargetNode(i),
             mutex: this.mutex,
-            // ✅ увеличили окно ожидания (только six)
             maxWaitMs: PLACE_MAX_WAIT_MS,
           });
 
@@ -357,25 +520,13 @@ import { entryGateFor } from '../shared/entry-limit.js';
               BET.perTargetAmountForStep(
                 step,
                 steps,
-                chips.chipValues
+                chips.chipValues,
               ) * t.length;
-            try {
-              const { betLogs = [] } = await this.sget({
-                betLogs: [],
-              });
-              betLogs.push({
-                t: Date.now(),
-                type: 'placed',
-                market: 'six',
-                phase: 'armed',
-                message: `Шаг ${step} поставлен (через один)`,
-                amount,
-                step,
-              });
-              if (betLogs.length > 2000)
-                betLogs.splice(0, betLogs.length - 2000);
-              await this.sset({ betLogs });
-            } catch {}
+            await this.logPlaced(
+              step,
+              amount,
+              `Шаг ${step} поставлен (через один)`,
+            );
           }
 
           BET.setBetStatus(
@@ -383,16 +534,16 @@ import { entryGateFor } from '../shared/entry-limit.js';
             ok ? 'armed' : 'error',
             ok
               ? `Шаг ${step} поставлен`
-              : `Не удалось поставить шаг ${step}`
+              : `Не удалось поставить шаг ${step}`,
           );
           return;
         }
 
-        // Если неожиданно сюда попали уже после отметки пропуска — восстановим armed и поставим
         const step = exec.step;
         const t = (exec.target || []).slice();
         const rec = {
           ...exec,
+          enabled: true,
           phase: 'armed',
           target: t,
           step,
@@ -403,7 +554,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
           rec,
           `ГОТОВ (восстановление) шаг ${step} на шестерки ${t
             .map((x) => this.label(x))
-            .join(',')}`
+            .join(',')}`,
         );
 
         const ok = await BET.tryPlace({
@@ -412,21 +563,30 @@ import { entryGateFor } from '../shared/entry-limit.js';
           steps,
           getTargetNode: (i) => this.getTargetNode(i),
           mutex: this.mutex,
-          // ✅ увеличили окно ожидания (только six)
           maxWaitMs: PLACE_MAX_WAIT_MS,
         });
+
+        if (ok) {
+          const chips = await BET.loadGlobalChips();
+          const amount =
+            BET.perTargetAmountForStep(
+              step,
+              steps,
+              chips.chipValues,
+            ) * t.length;
+          await this.logPlaced(step, amount, `Шаг ${step} поставлен`);
+        }
 
         BET.setBetStatus(
           'bettingStatusSix',
           ok ? 'armed' : 'error',
           ok
             ? `Шаг ${step} поставлен`
-            : `Не удалось поставить шаг ${step}`
+            : `Не удалось поставить шаг ${step}`,
         );
         return;
       }
 
-      // --- WAITING (оставлено для обратной совместимости; новой логикой не используется)
       if (exec.phase === 'waiting') {
         if (ix !== -1 && exec.target?.includes(ix)) {
           const step = exec.step;
@@ -434,6 +594,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
           const { steps } = await this.loadCfg();
           const next = {
             ...exec,
+            enabled: true,
             phase: 'armed',
             target: t.slice(),
             step,
@@ -444,7 +605,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
             next,
             `ГОТОВ шаг ${step} на шестерки ${t
               .map((x) => this.label(x))
-              .join(',')}`
+              .join(',')}`,
           );
 
           const ok = await BET.tryPlace({
@@ -453,7 +614,6 @@ import { entryGateFor } from '../shared/entry-limit.js';
             steps,
             getTargetNode: (i) => this.getTargetNode(i),
             mutex: this.mutex,
-            // ✅ увеличили окно ожидания (только six)
             maxWaitMs: PLACE_MAX_WAIT_MS,
           });
 
@@ -463,25 +623,13 @@ import { entryGateFor } from '../shared/entry-limit.js';
               BET.perTargetAmountForStep(
                 step,
                 steps,
-                chips.chipValues
+                chips.chipValues,
               ) * t.length;
-            try {
-              const { betLogs = [] } = await this.sget({
-                betLogs: [],
-              });
-              betLogs.push({
-                t: Date.now(),
-                type: 'placed',
-                market: 'six',
-                phase: 'armed',
-                message: `Шаг ${step} поставлен`,
-                amount,
-                step,
-              });
-              if (betLogs.length > 2000)
-                betLogs.splice(0, betLogs.length - 2000);
-              await this.sset({ betLogs });
-            } catch {}
+            await this.logPlaced(
+              step,
+              amount,
+              `Шаг ${step} поставлен`,
+            );
           }
 
           BET.setBetStatus(
@@ -489,7 +637,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
             ok ? 'armed' : 'error',
             ok
               ? `Шаг ${step} поставлен`
-              : `Не удалось поставить шаг ${step}`
+              : `Не удалось поставить шаг ${step}`,
           );
         }
       }
@@ -498,15 +646,36 @@ import { entryGateFor } from '../shared/entry-limit.js';
     attachStorageListener() {
       chrome.storage.onChanged.addListener(async (ch, area) => {
         if (area !== 'local') return;
-        if (this.enabledKey in ch) this.loadEnabled();
-        if (ch.spinLogs) {
-          const { oldValue = [], newValue = [] } = ch.spinLogs;
-          if (
-            Array.isArray(newValue) &&
-            newValue.length > oldValue.length
-          ) {
-            const added = newValue.slice(oldValue.length);
-            for (const e of added) await this.onSpin(e.n);
+
+        if (this.enabledKey in ch) {
+          await this.loadEnabled();
+        }
+
+        if (ch[TRACKED_TABLE_STATES_KEY]) {
+          const tableId = await getTrackedTableIdForThisTab();
+          if (!tableId) return;
+
+          const oldStates =
+            ch[TRACKED_TABLE_STATES_KEY].oldValue || {};
+          const newStates =
+            ch[TRACKED_TABLE_STATES_KEY].newValue || {};
+
+          const oldLogs = Array.isArray(
+            oldStates?.[tableId]?.spinLogs,
+          )
+            ? oldStates[tableId].spinLogs
+            : [];
+          const newLogs = Array.isArray(
+            newStates?.[tableId]?.spinLogs,
+          )
+            ? newStates[tableId].spinLogs
+            : [];
+
+          if (newLogs.length > oldLogs.length) {
+            const added = newLogs.slice(oldLogs.length);
+            for (const e of added) {
+              await this.onSpin(e.n);
+            }
           }
         }
       });
@@ -517,12 +686,13 @@ import { entryGateFor } from '../shared/entry-limit.js';
   if (
     document.readyState === 'complete' ||
     document.readyState === 'interactive'
-  )
+  ) {
     window.__STRAT_SIX__.init();
-  else
+  } else {
     window.addEventListener(
       'DOMContentLoaded',
       () => window.__STRAT_SIX__.init(),
-      { once: true }
+      { once: true },
     );
+  }
 })();

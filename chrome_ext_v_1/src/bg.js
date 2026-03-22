@@ -1,9 +1,11 @@
-// bg.js — tracked tables + tab-level lease + per-table state mirror
+// src/bg.js
+// tracked tables + tab-level lease + per-table state mirror
 (() => {
   if (
     typeof chrome === 'undefined' ||
     !chrome.runtime?.id ||
     !chrome.runtime?.onInstalled ||
+    !chrome.runtime?.onStartup ||
     !chrome.runtime?.onMessage ||
     !chrome.storage?.local
   ) {
@@ -129,11 +131,13 @@
   function cleanupExpiredLeases(raw) {
     const now = Date.now();
     const next = { ...sanitizeLeases(raw) };
+
     for (const [tableId, lease] of Object.entries(next)) {
       if (!lease || Number(lease.expiresAt) < now) {
         delete next[tableId];
       }
     }
+
     return next;
   }
 
@@ -228,8 +232,9 @@
   }
 
   function calcAntiDozensFromLogsTail(logs, includeZero) {
-    if (!Array.isArray(logs) || !logs.length)
+    if (!Array.isArray(logs) || !logs.length) {
       return { count: 0, idx: null };
+    }
 
     const miss = [0, 0, 0];
     const found = [false, false, false];
@@ -690,9 +695,11 @@
       states[tableId],
       table?.title || '',
     );
+
     state.matchedTitle = String(
       msg?.matchedTitle ?? state.matchedTitle ?? '',
     ).trim();
+
     state.status = {
       state: String(msg?.state || 'off'),
       message: String(msg?.message || ''),
@@ -750,6 +757,7 @@
       value: Number.isFinite(value) ? value : null,
       t: Date.now(),
     };
+
     state.matchedTitle = String(
       msg?.matchedTitle ?? state.matchedTitle ?? '',
     ).trim();
@@ -819,12 +827,14 @@
     state.matchedTitle = String(
       msg?.matchedTitle ?? state.matchedTitle ?? '',
     ).trim();
+
     state.leader = {
       tabId: lease.tabId,
       frameId: lease.frameId,
       href: lease.href,
       at: lease.at,
     };
+
     state.status = {
       state: 'ok',
       message: 'Tracking active',

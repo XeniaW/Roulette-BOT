@@ -1,4 +1,3 @@
-// content.js — title outside iframe, spins/balance inside iframe, reconnect + lobby re-enter
 (() => {
   if (
     typeof chrome === 'undefined' ||
@@ -8,6 +7,14 @@
   ) {
     return;
   }
+
+  const IS_TOP = (() => {
+    try {
+      return window.top === window;
+    } catch {
+      return true;
+    }
+  })();
 
   const TITLE_SEL = '[data-test-el="casino-control-bar__title"]';
   const CONTAINER_ATTR = 'previous-spins-stack';
@@ -20,10 +27,11 @@
 
   const BALANCE_STOP_CFG_KEY = 'abBalanceStopConfig';
   const BALANCE_STOP_STATE_KEY = 'abBalanceStopState';
+  const TRACKED_TABLE_STATES_KEY = 'trackedTableStates';
 
   const FIND_TICK_MS = 700;
   const RECONCILE_TICK_MS = 1200;
-  const HEARTBEAT_MS = 2500;
+  const HEARTBEAT_MS = 1200;
   const BALANCE_MS = 1800;
   const RECONNECT_MS = 2000;
   const REENTER_MS = 3000;
@@ -114,6 +122,7 @@
   let patchingBetLogs = false;
   let lastGenericClick = 0;
   let lastReenterClick = 0;
+  let hadTrackingHere = false;
 
   let tracked = {
     matched: false,
@@ -401,7 +410,6 @@
 
   async function refreshBalanceAndRead(opts = { waitMs: 400 }) {
     const waitMs = Math.max(0, Number(opts?.waitMs ?? 400));
-
     const started = Date.now();
     let val = await readBalanceValue();
 
@@ -520,6 +528,7 @@
     }, RECONCILE_TICK_MS);
 
     running = true;
+    hadTrackingHere = true;
     await pushTrackedStatus('ok', 'Tracking active');
     await refreshBalanceAndRead({ waitMs: 500 });
   }
@@ -582,11 +591,12 @@
   async function syncTrackedContext() {
     const localTitle = getCurrentTableTitle();
 
-    if (localTitle) {
+    if (IS_TOP && localTitle) {
       const res = await sendBg({
-        type: tracked.matched
-          ? 'TRACKED_TABLE_HEARTBEAT'
-          : 'TRACKED_TABLE_HELLO',
+        type:
+          tracked.matched && tracked.ownsLease
+            ? 'TRACKED_TABLE_HEARTBEAT'
+            : 'TRACKED_TABLE_HELLO',
         title: localTitle,
         href: location.href,
       });
@@ -599,7 +609,6 @@
           role: String(res.role || 'leader'),
           ownsLease: true,
         };
-        lastStatusSig = '';
         return;
       }
     }
@@ -611,7 +620,7 @@
         tableId: String(byTab.tableId || '').trim(),
         title: localTitle || String(byTab.title || ''),
         role: 'leader',
-        ownsLease: false,
+        ownsLease: IS_TOP,
       };
       return;
     }
@@ -627,7 +636,6 @@
 
   function findReconnectButtons() {
     const candidates = [];
-
     const btns = Array.from(
       document.querySelectorAll('button, [role="button"]'),
     );
@@ -648,12 +656,15 @@
         b.textContent || b.getAttribute?.('aria-label') || '',
       );
       if (!text) continue;
+
       if (
         /reconnect|подключиться|continue|продолжить|i am here|i'm here|i am still here|still here|я здесь|я всё ещё здесь/i.test(
           text,
         )
       ) {
-        if (isVisible(b) && !b.disabled) candidates.push(b);
+        if (isVisible(b) && !b.disabled) {
+          candidates.push(b);
+        }
       }
     }
 
@@ -691,18 +702,18 @@
       '[role="button"]',
     ];
 
-    const visited = new Set();
+    const seen = new Set();
+
     for (const selector of selectors) {
       const nodes = queryAllDeep(selector);
       for (const node of nodes) {
-        if (!node || visited.has(node)) continue;
-        visited.add(node);
+        if (!node || seen.has(node)) continue;
+        seen.add(node);
 
         const text = normalizeText(
           node.textContent || '',
         ).toLowerCase();
-        if (!text) continue;
-        if (!text.includes(normTitle)) continue;
+        if (!text || !text.includes(normTitle)) continue;
         if (!isVisible(node)) continue;
 
         const clickable =
@@ -710,9 +721,7 @@
             'a,button,[role="button"],.lobby-table-in,.lobby-table-inner',
           ) || node;
 
-        if (clickable && isVisible(clickable)) {
-          return clickable;
-        }
+        if (clickable && isVisible(clickable)) return clickable;
       }
     }
 
@@ -720,6 +729,7 @@
   }
 
   function tryLobbyReenter() {
+    if (!IS_TOP) return;
     if (!tracked.title) return;
     if (findOneDeep(TITLE_SEL)) return;
 
@@ -750,24 +760,32 @@
       return;
     }
 
-    if (
-      !document.querySelector(CONTAINER_SEL) &&
-      !findOneDeep(CONTAINER_SEL)
-    ) {
-      await pushTrackedStatus(
-        'waiting',
-        'Matched table, waiting for spin history container',
-      );
+    let box = document.querySelector(CONTAINER_SEL);
+    if (!box) {
+      const all = queryAllDeep(CONTAINER_SEL);
+      if (all.length) box = all[0];
     }
 
-    await maybeStartTrackingInThisFrame();
-    await refreshBalanceAndRead({ waitMs: 250 });
+    if (box) {
+      await maybeStartTrackingInThisFrame();
+      await refreshBalanceAndRead({ waitMs: 250 });
+      return;
+    }
+
+    if (hadTrackingHere) {
+      hadTrackingHere = false;
+      stopObserving();
+      await pushTrackedStatus(
+        'waiting',
+        'Waiting for roulette frame',
+      );
+    }
   }
 
   function onUnload() {
     destroyed = true;
 
-    if (tracked.ownsLease && tracked.tableId) {
+    if (IS_TOP && tracked.ownsLease && tracked.tableId) {
       sendBg({
         type: 'TRACKED_TABLE_RELEASE',
         tableId: tracked.tableId,
@@ -785,6 +803,16 @@
     balanceTimer = null;
     reconnectTimer = null;
     reenterTimer = null;
+  }
+
+  function getBetLogsFromStateMap(map, tableId) {
+    if (!map || typeof map !== 'object') return [];
+    const state =
+      map[tableId] && typeof map[tableId] === 'object'
+        ? map[tableId]
+        : null;
+    const logs = Array.isArray(state?.betLogs) ? state.betLogs : [];
+    return logs;
   }
 
   if (chrome.runtime?.onMessage?.addListener) {
@@ -815,6 +843,74 @@
         try {
           await refreshBalanceAndRead({ waitMs: 200 });
         } catch {}
+      }
+
+      if (
+        ch[TRACKED_TABLE_STATES_KEY] &&
+        !patchingBetLogs &&
+        tracked.tableId
+      ) {
+        const oldStates =
+          ch[TRACKED_TABLE_STATES_KEY].oldValue &&
+          typeof ch[TRACKED_TABLE_STATES_KEY].oldValue === 'object'
+            ? ch[TRACKED_TABLE_STATES_KEY].oldValue
+            : {};
+        const newStates =
+          ch[TRACKED_TABLE_STATES_KEY].newValue &&
+          typeof ch[TRACKED_TABLE_STATES_KEY].newValue === 'object'
+            ? ch[TRACKED_TABLE_STATES_KEY].newValue
+            : {};
+
+        const oldArr = getBetLogsFromStateMap(
+          oldStates,
+          tracked.tableId,
+        );
+        const newArr = getBetLogsFromStateMap(
+          newStates,
+          tracked.tableId,
+        );
+
+        if (newArr.length > oldArr.length) {
+          const added = newArr.slice(oldArr.length);
+          const needPatch = added.some((e) => e && e.balance == null);
+
+          if (needPatch) {
+            const bal = await refreshBalanceAndRead({ waitMs: 400 });
+
+            if (Number.isFinite(bal)) {
+              const currentState =
+                newStates[tracked.tableId] &&
+                typeof newStates[tracked.tableId] === 'object'
+                  ? { ...newStates[tracked.tableId] }
+                  : {};
+
+              const patchedBetLogs = newArr.map((e, idx) => {
+                if (idx < oldArr.length) return e;
+                if (e && e.balance == null) {
+                  return { ...e, balance: bal };
+                }
+                return e;
+              });
+
+              const patchedStates = {
+                ...newStates,
+                [tracked.tableId]: {
+                  ...currentState,
+                  betLogs: patchedBetLogs,
+                },
+              };
+
+              try {
+                patchingBetLogs = true;
+                await safeSet({
+                  [TRACKED_TABLE_STATES_KEY]: patchedStates,
+                });
+              } finally {
+                patchingBetLogs = false;
+              }
+            }
+          }
+        }
       }
 
       if (!ch.betLogs || patchingBetLogs) return;

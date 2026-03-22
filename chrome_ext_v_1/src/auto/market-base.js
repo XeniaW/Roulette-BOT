@@ -1,4 +1,3 @@
-// src/auto/market-base.js
 (() => {
   class MarketBase {
     constructor(opts) {
@@ -20,8 +19,80 @@
     async sget(defs) {
       return BET.sget(defs);
     }
+
     async sset(obj) {
       return BET.sset(obj);
+    }
+
+    async getTrackedContext() {
+      if (typeof BET.getTrackedContext === 'function') {
+        return BET.getTrackedContext();
+      }
+      return { tableId: '', selectedId: '' };
+    }
+
+    async getTableId() {
+      const ctx = await this.getTrackedContext();
+      return String(ctx?.tableId || '').trim();
+    }
+
+    async getRuntimeState() {
+      const {
+        spinLogs = [],
+        currentBalance = { value: null, t: 0 },
+        streakState = null,
+        trackerStatus = { state: 'off', message: '' },
+      } = await this.sget({
+        spinLogs: [],
+        currentBalance: { value: null, t: 0 },
+        streakState: null,
+        trackerStatus: { state: 'off', message: '' },
+      });
+
+      return {
+        spinLogs: Array.isArray(spinLogs) ? spinLogs : [],
+        currentBalance:
+          currentBalance && typeof currentBalance === 'object'
+            ? currentBalance
+            : { value: null, t: 0 },
+        streakState:
+          streakState && typeof streakState === 'object'
+            ? streakState
+            : null,
+        trackerStatus:
+          trackerStatus && typeof trackerStatus === 'object'
+            ? trackerStatus
+            : { state: 'off', message: '' },
+      };
+    }
+
+    async getSpinLogs() {
+      const { spinLogs = [] } = await this.sget({ spinLogs: [] });
+      return Array.isArray(spinLogs) ? spinLogs : [];
+    }
+
+    async getCurrentBalance() {
+      const { currentBalance = { value: null, t: 0 } } =
+        await this.sget({
+          currentBalance: { value: null, t: 0 },
+        });
+      return currentBalance;
+    }
+
+    async appendBetLog(entry) {
+      if (typeof BET.appendBetLog === 'function') {
+        return BET.appendBetLog(entry);
+      }
+
+      try {
+        const { betLogs = [] } = await this.sget({ betLogs: [] });
+        const next = Array.isArray(betLogs) ? betLogs.slice() : [];
+        next.push(entry);
+        if (next.length > 2000) {
+          next.splice(0, next.length - 2000);
+        }
+        await this.sset({ betLogs: next });
+      } catch {}
     }
 
     // ---- per-market config
@@ -31,9 +102,9 @@
         2,
         Math.floor(
           Number(
-            src.triggerStreak ?? this.defaultCfg.triggerStreak ?? 2
-          )
-        )
+            src.triggerStreak ?? this.defaultCfg.triggerStreak ?? 2,
+          ),
+        ),
       );
       const autoContinue = !!(
         src.autoContinue ??
@@ -59,8 +130,8 @@
             }))
             .filter(
               (it) =>
-                Number.isFinite(it.chip) && Number.isFinite(it.times)
-            )
+                Number.isFinite(it.chip) && Number.isFinite(it.times),
+            ),
         )
         .filter((st) => st.length);
       if (!steps.length)
@@ -74,6 +145,7 @@
         await this.sget({ [this.cfgKey]: this.defaultCfg });
       return this.sanitizeCfg(cfg);
     }
+
     async saveCfg(cfg) {
       const clean = this.sanitizeCfg(cfg);
       await this.sset({ [this.cfgKey]: clean });
@@ -95,21 +167,26 @@
         }
       );
     }
+
     async setExec(next, statusMsg = null) {
       await this.sset({ [this.execKey]: next });
-      if (statusMsg)
+      if (statusMsg) {
         BET.setBetStatus(
           this.statusKey,
           next.enabled ? next.phase : 'off',
-          statusMsg
+          statusMsg,
         );
+      }
     }
+
     async loadEnabled() {
       const { [this.enabledKey]: enabled = false } = await this.sget({
         [this.enabledKey]: false,
       });
+
       const exec = await this.getExec();
       exec.enabled = !!enabled;
+
       if (!exec.enabled) {
         exec.phase = 'idle';
         exec.target = null;
@@ -124,6 +201,7 @@
     label(idx) {
       return idx + 1;
     }
+
     attachStorageListener() {
       /* override in strategies */
     }
@@ -141,7 +219,7 @@
         () => {
           this.destroyed = true;
         },
-        { once: true }
+        { once: true },
       );
     }
   }

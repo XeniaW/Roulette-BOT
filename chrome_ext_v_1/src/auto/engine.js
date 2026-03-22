@@ -9,6 +9,9 @@
     chipValues: [0.1, 0.5, 1, 5],
   });
 
+  // ---- TRACKED TABLES CONFIG ----
+  const TRACKED_TABLES_KEY = 'trackedTables';
+
   class Mutex {
     constructor() {
       this._p = Promise.resolve();
@@ -26,7 +29,7 @@
     }
   }
 
-  // ✅ один mutex на ВСЕ рынки/ставки (одна активная фишка на стол)
+  // один mutex на все рынки/ставки в текущем документе
   const GLOBAL_BET_MUTEX = (window.__GLOBAL_BET_MUTEX__ ||=
     new Mutex());
 
@@ -37,51 +40,123 @@
       return defs || {};
     }
   }
+
   async function sset(obj) {
     try {
       await chrome.storage.local.set(obj);
     } catch {}
   }
 
+  async function sendBg(msg) {
+    try {
+      if (!chrome?.runtime?.id || !chrome?.runtime?.sendMessage) {
+        return null;
+      }
+      return await chrome.runtime.sendMessage(msg);
+    } catch {
+      return null;
+    }
+  }
+
   function sanitizeChips(raw) {
     const src = raw || {};
+
     const tpl =
       typeof src.chipSelectorTemplate === 'string' &&
       src.chipSelectorTemplate.includes('{{value}}')
         ? src.chipSelectorTemplate
         : DEFAULT_CHIPS.chipSelectorTemplate;
+
     let chipValues = Array.isArray(src.chipValues)
       ? src.chipValues
           .map(Number)
           .filter((v) => Number.isFinite(v) && v > 0)
       : [];
-    if (!chipValues.length)
+
+    if (!chipValues.length) {
       chipValues = [...DEFAULT_CHIPS.chipValues];
-    return { chipSelectorTemplate: tpl, chipValues };
+    }
+
+    return {
+      chipSelectorTemplate: tpl,
+      chipValues,
+    };
   }
 
-  async function loadGlobalChips() {
+  async function loadGlobalOnlyChips() {
     const { [GLOBAL_CHIPS_KEY]: cfg = DEFAULT_CHIPS } = await sget({
       [GLOBAL_CHIPS_KEY]: DEFAULT_CHIPS,
     });
     return sanitizeChips(cfg);
   }
+
+  async function getTrackedTableForThisTab() {
+    const res = await sendBg({ type: 'GET_TRACKED_TABLE_FOR_TAB' });
+    if (!res?.matched || !res?.tableId) return null;
+    return {
+      tableId: String(res.tableId || '').trim(),
+      role: String(res.role || ''),
+      title: String(res.title || '').trim(),
+    };
+  }
+
+  async function loadTrackedTableCustomChips() {
+    const tabCtx = await getTrackedTableForThisTab();
+    if (!tabCtx?.tableId) return null;
+
+    const { [TRACKED_TABLES_KEY]: rawTables = [] } = await sget({
+      [TRACKED_TABLES_KEY]: [],
+    });
+
+    const tables = Array.isArray(rawTables) ? rawTables : [];
+    const table = tables.find(
+      (item) => String(item?.id || '').trim() === tabCtx.tableId,
+    );
+
+    if (!table) return null;
+    if (table.chipMode !== 'custom') return null;
+
+    const tpl = String(table.customChipTpl || '').trim();
+    const vals = Array.isArray(table.customChips)
+      ? table.customChips
+      : [];
+
+    const clean = sanitizeChips({
+      chipSelectorTemplate: tpl || DEFAULT_CHIPS.chipSelectorTemplate,
+      chipValues: vals,
+    });
+
+    if (!clean.chipValues.length) return null;
+    return clean;
+  }
+
+  async function loadGlobalChips() {
+    // для обратной совместимости имя оставлено тем же,
+    // но теперь это "effective chips" для текущего tab/table
+    const trackedCustom = await loadTrackedTableCustomChips();
+    if (trackedCustom) return trackedCustom;
+    return loadGlobalOnlyChips();
+  }
+
   async function saveGlobalChips(cfg) {
     const clean = sanitizeChips(cfg);
     await sset({ [GLOBAL_CHIPS_KEY]: clean });
     return clean;
   }
 
-  // ---- DOM helpers ----
   function isEnabled(el) {
     if (!el) return false;
     const ds = el.getAttribute?.('data-disabled');
     if (ds === 'true') return false;
     const st = window.getComputedStyle(el);
     return (
-      st && st.pointerEvents !== 'none' && st.visibility !== 'hidden'
+      st &&
+      st.pointerEvents !== 'none' &&
+      st.visibility !== 'hidden' &&
+      st.display !== 'none'
     );
   }
+
   async function clickElement(el) {
     try {
       el.dispatchEvent(
@@ -89,7 +164,7 @@
           bubbles: true,
           cancelable: true,
           view: window,
-        })
+        }),
       );
     } catch {
       try {
@@ -99,13 +174,14 @@
     await new Promise((r) => setTimeout(r, 30));
   }
 
-  // ✅ подтверждение выбора фишки, чтобы не кликать "в воздух"
   async function ensureChipSelected(chipEl) {
     if (!chipEl) return false;
 
-    // если UI уже отмечает выбранность
     const isSel = () =>
-      chipEl.getAttribute('data-selected') === 'true';
+      chipEl.getAttribute('data-selected') === 'true' ||
+      chipEl.getAttribute('aria-pressed') === 'true' ||
+      chipEl.classList?.contains('selected') ||
+      chipEl.classList?.contains('active');
 
     if (isSel()) return true;
 
@@ -113,27 +189,41 @@
     await new Promise((r) => setTimeout(r, 60));
     if (isSel()) return true;
 
-    // один ретрай
     await clickElement(chipEl);
     await new Promise((r) => setTimeout(r, 120));
-    return isSel() || true; // если нет data-selected, просто не блокируемся
+
+    // некоторые столы никак не маркируют выбранную фишку
+    return isSel() || true;
   }
 
   function selectorsFromTemplate(chipValues, template) {
     const out = [];
+
     for (const v of chipValues) {
       const variants = new Set();
+
       variants.add(String(v));
+
       if (!Number.isInteger(v)) {
         variants.add(v.toString());
         variants.add(v.toFixed(1));
         variants.add(v.toFixed(2));
         variants.add(v.toFixed(3));
+
+        // иногда атрибуты бывают без ведущего нуля / с лишними нулями
+        const s1 = v.toFixed(1).replace(/\.0+$/, '');
+        const s2 = v.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+        const s3 = v.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
+        variants.add(s1);
+        variants.add(s2);
+        variants.add(s3);
       } else {
         variants.add(String(Math.trunc(v)));
       }
-      let el = null,
-        selUsed = null;
+
+      let el = null;
+      let selUsed = null;
+
       for (const vv of variants) {
         const sel = template.replace('{{value}}', vv);
         const node = document.querySelector(sel);
@@ -143,35 +233,39 @@
           break;
         }
       }
-      out.push({ node: el, sel: selUsed });
+
+      out.push({ node: el, sel: selUsed, value: v });
     }
+
     return out;
   }
 
   function planForStep(step, steps, chipCount) {
     const idx = Math.max(0, Math.min(steps.length - 1, step - 1));
     const plan = steps[idx] || [{ chip: 1, times: 1 }];
+
     return plan.map((it) => ({
       i: Math.max(0, Math.min(chipCount - 1, (it.chip | 0) - 1)),
       times: Math.max(1, it.times | 0),
     }));
   }
+
   function perTargetAmountForStep(step, steps, chipValues) {
     const plan = planForStep(step, steps, chipValues.length);
     return plan.reduce(
-      (s, c) =>
-        s + Number(chipValues[c.i] ?? 0) * Number(c.times ?? 0),
-      0
+      (sum, c) =>
+        sum + Number(chipValues[c.i] ?? 0) * Number(c.times ?? 0),
+      0,
     );
   }
 
   async function appendBetLog(entry) {
     try {
       const { betLogs = [] } = await sget({ betLogs: [] });
-      betLogs.push(entry);
-      if (betLogs.length > 2000)
-        betLogs.splice(0, betLogs.length - 2000);
-      await sset({ betLogs });
+      const arr = Array.isArray(betLogs) ? betLogs : [];
+      arr.push(entry);
+      if (arr.length > 2000) arr.splice(0, arr.length - 2000);
+      await sset({ betLogs: arr });
     } catch {}
   }
 
@@ -183,9 +277,11 @@
       at: Date.now(),
       origin: location.origin,
     };
+
     try {
       chrome.storage.local.set(obj);
     } catch {}
+
     appendBetLog({
       t: Date.now(),
       type: 'event',
@@ -200,8 +296,7 @@
     targets,
     steps,
     getTargetNode,
-    mutex, // локальный, можно оставить
-
+    mutex,
     maxWaitMs,
     retryMs,
   }) {
@@ -222,10 +317,11 @@
 
     const placeOnce = async () => {
       while (Date.now() < deadline) {
-        const chipNodes = selectorsFromTemplate(
+        const chipRefs = selectorsFromTemplate(
           chips.chipValues,
-          chips.chipSelectorTemplate
-        ).map((x) => x.node);
+          chips.chipSelectorTemplate,
+        );
+        const chipNodes = chipRefs.map((x) => x.node);
 
         const okChips = plan.every((c) => isEnabled(chipNodes[c.i]));
         const tNodes = targets.map((t) => getTargetNode(t));
@@ -248,13 +344,14 @@
 
         await new Promise((r) => setTimeout(r, tick));
       }
+
       return false;
     };
 
-    // ✅ СНАЧАЛА глобальный замок (между рынками), потом локальный (если есть)
     return GLOBAL_BET_MUTEX.run(() => {
-      if (mutex && typeof mutex.run === 'function')
+      if (mutex && typeof mutex.run === 'function') {
         return mutex.run(placeOnce);
+      }
       return placeOnce();
     });
   }
@@ -266,7 +363,15 @@
     setBetStatus,
     tryPlace,
     perTargetAmountForStep,
+
+    // effective chips for current table/tab
     loadGlobalChips,
+
+    // explicit global-only access if needed later
+    loadGlobalOnlyChips,
+    loadTrackedTableCustomChips,
+    getTrackedTableForThisTab,
+
     saveGlobalChips,
     sanitizeChips,
     DEFAULT_CHIPS,

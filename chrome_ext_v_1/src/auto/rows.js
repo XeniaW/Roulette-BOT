@@ -1,5 +1,5 @@
-// src/auto/rows.js
 import { entryGateFor } from '../shared/entry-limit.js';
+
 (() => {
   const DEFAULT_CFG = Object.freeze({
     triggerStreak: 2,
@@ -16,16 +16,15 @@ import { entryGateFor } from '../shared/entry-limit.js';
     ],
   });
 
-  // ✅ увеличенное окно ожидания ставок ТОЛЬКО для rows
   const PLACE_MAX_WAIT_MS = 20000;
 
-  // ЖЁСТКАЯ карта селекторов рядов:
+  const TRACKED_TABLE_STATES_KEY = 'trackedTableStates';
+  const SELECTED_TRACKED_TABLE_KEY = 'selectedTrackedTableId';
+  const EXEC_MAP_KEY = 'betExecRowsByTable';
+
   // idx 0 -> ряд 1 (3..36), idx 1 -> ряд 2 (2..35), idx 2 -> ряд 3 (1..34)
   const ROW_SEL = ['#index-700', '#index-701', '#index-702'];
 
-  // ряд 1 (top): n % 3 === 0 -> idx 0
-  // ряд 2 (mid): n % 3 === 2 -> idx 1
-  // ряд 3 (bot): n % 3 === 1 -> idx 2
   function rowIndex(n) {
     if (n === 0) return -1;
     const r = n % 3;
@@ -47,22 +46,109 @@ import { entryGateFor } from '../shared/entry-limit.js';
         '[rows] Не найден узел ряда idx=',
         idx,
         'sel=',
-        sel
+        sel,
       );
     return node;
   }
 
-  // Стрик одного ряда с конца. 0 засчитываем ТОЛЬКО как продолжение уже найденного ряда.
+  function defaultExec(enabled = false) {
+    return {
+      enabled: !!enabled,
+      phase: 'idle',
+      target: null,
+      step: 1,
+      armedAt: 0,
+      triggerRow: null,
+      cooldownSkipped: undefined,
+    };
+  }
+
+  async function getCurrentTrackedTableId() {
+    try {
+      const res = await chrome.runtime.sendMessage({
+        type: 'GET_TRACKED_TABLE_FOR_TAB',
+      });
+      if (res?.matched && res?.tableId) {
+        return String(res.tableId).trim();
+      }
+    } catch {}
+
+    try {
+      const { [SELECTED_TRACKED_TABLE_KEY]: selectedId = '' } =
+        await BET.sget({
+          [SELECTED_TRACKED_TABLE_KEY]: '',
+        });
+      return String(selectedId || '').trim();
+    } catch {
+      return '';
+    }
+  }
+
+  async function getTrackedStates() {
+    const { [TRACKED_TABLE_STATES_KEY]: states = {} } =
+      await BET.sget({
+        [TRACKED_TABLE_STATES_KEY]: {},
+      });
+    return states && typeof states === 'object' ? states : {};
+  }
+
+  async function getTableState(tableId) {
+    if (!tableId) return null;
+    const states = await getTrackedStates();
+    const state =
+      states && typeof states[tableId] === 'object'
+        ? states[tableId]
+        : null;
+    return state;
+  }
+
+  async function getTableSpinLogs(tableId) {
+    const state = await getTableState(tableId);
+    return Array.isArray(state?.spinLogs)
+      ? state.spinLogs.slice()
+      : [];
+  }
+
+  async function appendTableBetLog(tableId, entry) {
+    if (!tableId) return;
+
+    const states = await getTrackedStates();
+    const prev =
+      states && typeof states[tableId] === 'object'
+        ? states[tableId]
+        : {};
+
+    const nextBetLogs = Array.isArray(prev.betLogs)
+      ? prev.betLogs.slice()
+      : [];
+
+    nextBetLogs.push(entry);
+    if (nextBetLogs.length > 2000) {
+      nextBetLogs.splice(0, nextBetLogs.length - 2000);
+    }
+
+    states[tableId] = {
+      ...prev,
+      betLogs: nextBetLogs,
+    };
+
+    await BET.sset({
+      [TRACKED_TABLE_STATES_KEY]: states,
+    });
+  }
+
   function checkTriggerSameRow(
     spinLogs,
     need,
     includeZero,
-    getIndex
+    getIndex,
   ) {
     let cnt = 0;
     let ref = null;
+
     for (let i = spinLogs.length - 1; i >= 0 && cnt < need; i--) {
       const n = spinLogs[i]?.n;
+
       if (n === 0) {
         if (includeZero && ref != null) {
           cnt++;
@@ -70,12 +156,14 @@ import { entryGateFor } from '../shared/entry-limit.js';
         }
         break;
       }
+
       const ri = getIndex(n);
       if (ri === -1) break;
       if (ref == null) ref = ri;
       if (ri !== ref) break;
       cnt++;
     }
+
     return cnt >= need && ref != null ? ref : null;
   }
 
@@ -98,13 +186,106 @@ import { entryGateFor } from '../shared/entry-limit.js';
       return idx === 0 ? 'ряд 1' : idx === 1 ? 'ряд 2' : 'ряд 3';
     }
 
-    // Единая постановка шага; цели — всегда 2 ряда-противника triggerRow
-    async placeStep(step, exec, steps) {
+    canActInThisFrame() {
+      return !!(
+        document.querySelector(ROW_SEL[0]) ||
+        document.querySelector(ROW_SEL[1]) ||
+        document.querySelector(ROW_SEL[2])
+      );
+    }
+
+    async getExecForTable(tableId) {
+      if (!tableId) return defaultExec(false);
+
+      const {
+        [EXEC_MAP_KEY]: rawMap = {},
+        [this.enabledKey]: enabled = false,
+      } = await this.sget({
+        [EXEC_MAP_KEY]: {},
+        [this.enabledKey]: false,
+      });
+
+      const map = rawMap && typeof rawMap === 'object' ? rawMap : {};
+
+      const exec =
+        map[tableId] && typeof map[tableId] === 'object'
+          ? {
+              ...defaultExec(!!enabled),
+              ...map[tableId],
+              enabled: !!enabled,
+            }
+          : defaultExec(!!enabled);
+
+      return exec;
+    }
+
+    async setExecForTable(tableId, next, statusMsg = null) {
+      if (!tableId) return;
+
+      const { [EXEC_MAP_KEY]: rawMap = {} } = await this.sget({
+        [EXEC_MAP_KEY]: {},
+      });
+
+      const map =
+        rawMap && typeof rawMap === 'object' ? { ...rawMap } : {};
+
+      map[tableId] = {
+        ...defaultExec(!!next?.enabled),
+        ...(next || {}),
+      };
+
+      await this.sset({ [EXEC_MAP_KEY]: map });
+
+      if (statusMsg) {
+        BET.setBetStatus(
+          this.statusKey,
+          map[tableId].enabled ? map[tableId].phase : 'off',
+          statusMsg,
+        );
+      }
+    }
+
+    async getExec(tableId = null) {
+      const id = tableId || (await getCurrentTrackedTableId());
+      return this.getExecForTable(id);
+    }
+
+    async setExec(next, statusMsg = null, tableId = null) {
+      const id = tableId || (await getCurrentTrackedTableId());
+      return this.setExecForTable(id, next, statusMsg);
+    }
+
+    async loadEnabled() {
+      const tableId = await getCurrentTrackedTableId();
+      if (!tableId) return;
+
+      const { [this.enabledKey]: enabled = false } = await this.sget({
+        [this.enabledKey]: false,
+      });
+
+      const exec = await this.getExecForTable(tableId);
+      exec.enabled = !!enabled;
+
+      if (!exec.enabled) {
+        exec.phase = 'idle';
+        exec.target = null;
+        exec.step = 1;
+        exec.armedAt = 0;
+        exec.triggerRow = null;
+        exec.cooldownSkipped = undefined;
+        await this.setExecForTable(tableId, exec, 'Авто-ставки ВЫКЛ');
+      } else {
+        await this.setExecForTable(tableId, exec, 'Авто-ставки ВКЛ');
+      }
+    }
+
+    async placeStep(step, exec, steps, tableId) {
       const trigger = exec.triggerRow;
+
       if (!(trigger === 0 || trigger === 1 || trigger === 2)) {
         console.error(
           '[rows] Некорректный triggerRow при постановке',
-          exec
+          exec,
         );
         return false;
       }
@@ -113,7 +294,6 @@ import { entryGateFor } from '../shared/entry-limit.js';
       const triggerSel = ROW_SEL[trigger];
       const targetsSel = targetsIdx.map((i) => ROW_SEL[i]);
 
-      // Параноидальная защита
       if (targetsSel.includes(triggerSel)) {
         console.error('[rows] Цели содержат триггер! Фиксируем...', {
           trigger,
@@ -122,20 +302,18 @@ import { entryGateFor } from '../shared/entry-limit.js';
         targetsIdx.splice(
           0,
           targetsIdx.length,
-          ...opponentsOf(trigger)
+          ...opponentsOf(trigger),
         );
       }
 
-      exec.target = targetsIdx.slice(); // синхронизируем exec
+      exec.target = targetsIdx.slice();
 
       const ok = await BET.tryPlace({
         step,
-        targets: targetsIdx, // индексы 0..2
+        targets: targetsIdx,
         steps,
         getTargetNode: (i) => getRowNode(i),
         mutex: this.mutex,
-
-        // ✅ увеличили окно ожидания “между спином и ставками”
         maxWaitMs: PLACE_MAX_WAIT_MS,
       });
 
@@ -144,28 +322,24 @@ import { entryGateFor } from '../shared/entry-limit.js';
         const amount =
           BET.perTargetAmountForStep(step, steps, chips.chipValues) *
           targetsIdx.length;
-        try {
-          const { betLogs = [] } = await this.sget({ betLogs: [] });
-          betLogs.push({
-            t: Date.now(),
-            type: 'placed',
-            market: 'rows',
-            phase: 'armed',
-            message: `Шаг ${step} на ${targetsIdx
-              .map((x) => this.label(x))
-              .join(', ')}`,
-            amount,
-            step,
-            debug: {
-              triggerRow: trigger,
-              targets: targetsIdx,
-              targetSel: targetsIdx.map((i) => ROW_SEL[i]),
-            },
-          });
-          if (betLogs.length > 2000)
-            betLogs.splice(0, betLogs.length - 2000);
-          await this.sset({ betLogs });
-        } catch {}
+
+        await appendTableBetLog(tableId, {
+          t: Date.now(),
+          type: 'placed',
+          market: 'rows',
+          phase: 'armed',
+          message: `Шаг ${step} на ${targetsIdx
+            .map((x) => this.label(x))
+            .join(', ')}`,
+          amount,
+          step,
+          debug: {
+            tableId,
+            triggerRow: trigger,
+            targets: targetsIdx,
+            targetSel: targetsIdx.map((i) => ROW_SEL[i]),
+          },
+        });
       }
 
       BET.setBetStatus(
@@ -173,20 +347,23 @@ import { entryGateFor } from '../shared/entry-limit.js';
         ok ? 'armed' : 'error',
         ok
           ? `Шаг ${step} поставлен`
-          : `Не удалось поставить шаг ${step}`
+          : `Не удалось поставить шаг ${step}`,
       );
+
       return ok;
     }
 
-    async onSpin(n) {
-      const exec = await this.getExec();
+    async onSpin(n, tableIdArg = null) {
+      if (!this.canActInThisFrame()) return;
+
+      const tableId =
+        tableIdArg || (await getCurrentTrackedTableId());
+      if (!tableId) return;
+
+      const exec = await this.getExecForTable(tableId);
       if (!exec.enabled) return;
 
-      // Берём логи и гарантируем текущий спин (фикс рассинхры)
-      const s = await this.sget({ spinLogs: [] });
-      const spinLogs = Array.isArray(s.spinLogs)
-        ? s.spinLogs.slice()
-        : [];
+      const spinLogs = await getTableSpinLogs(tableId);
       if (
         spinLogs.length === 0 ||
         spinLogs[spinLogs.length - 1]?.n !== n
@@ -196,7 +373,6 @@ import { entryGateFor } from '../shared/entry-limit.js';
 
       const ix = this.getIndex(n);
 
-      // --- IDLE: вход по стрику
       if (exec.phase === 'idle') {
         const { triggerStreak, steps, includeZero } =
           await this.loadCfg();
@@ -205,15 +381,15 @@ import { entryGateFor } from '../shared/entry-limit.js';
           spinLogs,
           triggerStreak,
           includeZero,
-          this.getIndex
+          this.getIndex,
         );
+
         if (ref != null) {
-          // 🔒 ГЕЙТ ВХОДА
           const gateOk = await entryGateFor(
             'rows',
             'autoBettingRowsEnabled',
             'bettingStatusRows',
-            { execKey: 'betExecRows' }
+            { execKey: 'betExecRows' },
           );
           if (!gateOk) return;
 
@@ -226,18 +402,25 @@ import { entryGateFor } from '../shared/entry-limit.js';
             armedAt: Date.now(),
             cooldownSkipped: undefined,
           };
-          await this.setExec(
+
+          await this.setExecForTable(
+            tableId,
             next,
             `ВХОД → против ${this.label(ref)} | цели: ${next.target
               .map((x) => this.label(x))
-              .join(', ')} | шаг 1`
+              .join(', ')} | шаг 1`,
           );
-          await this.placeStep(1, next, (await this.loadCfg()).steps);
+
+          await this.placeStep(
+            1,
+            { ...next },
+            (await this.loadCfg()).steps,
+            tableId,
+          );
         }
         return;
       }
 
-      // --- ARMED: проверка исхода текущего шага
       if (exec.phase === 'armed') {
         const opp = opponentsOf(exec.triggerRow ?? -99);
         const win = ix !== -1 && opp.includes(ix);
@@ -252,15 +435,17 @@ import { entryGateFor } from '../shared/entry-limit.js';
             armedAt: 0,
             cooldownSkipped: undefined,
           };
-          await this.setExec(
+          await this.setExecForTable(
+            tableId,
             next,
-            `ВЫИГРЫШ на ${this.label(ix)} → сброс`
+            `ВЫИГРЫШ на ${this.label(ix)} → сброс`,
           );
           return;
         }
 
         const { steps, autoContinue } = await this.loadCfg();
         const lastStep = Math.max(1, steps.length);
+
         if (exec.step >= lastStep) {
           const reset = {
             ...exec,
@@ -271,9 +456,10 @@ import { entryGateFor } from '../shared/entry-limit.js';
             armedAt: 0,
             cooldownSkipped: undefined,
           };
-          await this.setExec(
+          await this.setExecForTable(
+            tableId,
             reset,
-            `ПРОИГРЫШ на шаге ${lastStep} → сброс`
+            `ПРОИГРЫШ на шаге ${lastStep} → сброс`,
           );
           return;
         }
@@ -288,38 +474,42 @@ import { entryGateFor } from '../shared/entry-limit.js';
             cooldownSkipped: undefined,
           };
           next.target = opponentsOf(next.triggerRow);
-          await this.setExec(
+
+          await this.setExecForTable(
+            tableId,
             next,
             `ПРОИГРЫШ → сразу шаг ${step} против ${this.label(
-              next.triggerRow
+              next.triggerRow,
             )} (цели: ${next.target
               .map((x) => this.label(x))
-              .join(', ')})`
+              .join(', ')})`,
           );
-          await this.placeStep(step, next, steps);
+
+          await this.placeStep(step, { ...next }, steps, tableId);
           return;
         }
 
-        // === НОВОЕ ПОВЕДЕНИЕ: "через один" ===
         const next = {
           ...exec,
-          phase: 'cooldown', // пропускаем 1 спин
-          step: exec.step + 1, // следующий шаг
+          phase: 'cooldown',
+          step: exec.step + 1,
           armedAt: 0,
-          cooldownSkipped: false, // ещё не отметили пропуск
+          cooldownSkipped: false,
         };
         next.target = opponentsOf(exec.triggerRow);
-        await this.setExec(
+
+        await this.setExecForTable(
+          tableId,
           next,
-          `ПРОИГРЫШ → пропускаем 1 спин; следующий шаг ${next.step} через один`
+          `ПРОИГРЫШ → пропускаем 1 спин; следующий шаг ${next.step} через один`,
         );
         return;
       }
 
-      // --- COOLDOWN: пропустить ровно один спин и СРАЗУ ставить (в этом же вызове)
       if (exec.phase === 'cooldown') {
         const { steps } = await this.loadCfg();
         const lastStep = Math.max(1, steps.length);
+
         if (exec.step > lastStep) {
           const reset = {
             ...exec,
@@ -330,9 +520,10 @@ import { entryGateFor } from '../shared/entry-limit.js';
             armedAt: 0,
             cooldownSkipped: undefined,
           };
-          await this.setExec(
+          await this.setExecForTable(
+            tableId,
             reset,
-            `Сброс: превышен лимит шагов (${lastStep}) в cooldown`
+            `Сброс: превышен лимит шагов (${lastStep}) в cooldown`,
           );
           return;
         }
@@ -340,9 +531,11 @@ import { entryGateFor } from '../shared/entry-limit.js';
         if (!exec.cooldownSkipped) {
           const step = exec.step;
           const mid = { ...exec, cooldownSkipped: true };
-          await this.setExec(
+
+          await this.setExecForTable(
+            tableId,
             mid,
-            `Cooldown: пропустили 1 спин; ставим шаг ${step} (через один)`
+            `Cooldown: пропустили 1 спин; ставим шаг ${step} (через один)`,
           );
 
           const next = {
@@ -353,16 +546,17 @@ import { entryGateFor } from '../shared/entry-limit.js';
           };
           next.target = opponentsOf(next.triggerRow);
 
-          await this.setExec(
+          await this.setExecForTable(
+            tableId,
             next,
             `ГОТОВ (через один) шаг ${step} против ${this.label(
-              next.triggerRow
+              next.triggerRow,
             )} (цели: ${next.target
               .map((x) => this.label(x))
-              .join(', ')})`
+              .join(', ')})`,
           );
 
-          await this.placeStep(step, next, steps);
+          await this.placeStep(step, { ...next }, steps, tableId);
           return;
         }
 
@@ -374,19 +568,21 @@ import { entryGateFor } from '../shared/entry-limit.js';
           cooldownSkipped: undefined,
         };
         rec.target = opponentsOf(rec.triggerRow);
-        await this.setExec(
+
+        await this.setExecForTable(
+          tableId,
           rec,
           `ГОТОВ (восстановление) шаг ${step} против ${this.label(
-            rec.triggerRow
+            rec.triggerRow,
           )} (цели: ${rec.target
             .map((x) => this.label(x))
-            .join(', ')})`
+            .join(', ')})`,
         );
-        await this.placeStep(step, rec, steps);
+
+        await this.placeStep(step, { ...rec }, steps, tableId);
         return;
       }
 
-      // --- WAITING (оставлено для обратной совместимости; новой логикой не используется)
       if (exec.phase === 'waiting') {
         const opp = opponentsOf(exec.triggerRow ?? -99);
         if (ix !== -1 && opp.includes(ix)) {
@@ -400,15 +596,18 @@ import { entryGateFor } from '../shared/entry-limit.js';
             cooldownSkipped: undefined,
           };
           next.target = opp.slice();
-          await this.setExec(
+
+          await this.setExecForTable(
+            tableId,
             next,
             `ГОТОВ шаг ${step} против ${this.label(
-              exec.triggerRow
+              exec.triggerRow,
             )} (цели: ${next.target
               .map((x) => this.label(x))
-              .join(', ')})`
+              .join(', ')})`,
           );
-          await this.placeStep(step, next, steps);
+
+          await this.placeStep(step, { ...next }, steps, tableId);
         }
       }
     }
@@ -416,15 +615,39 @@ import { entryGateFor } from '../shared/entry-limit.js';
     attachStorageListener() {
       chrome.storage.onChanged.addListener(async (ch, area) => {
         if (area !== 'local') return;
-        if (this.enabledKey in ch) this.loadEnabled();
-        if (ch.spinLogs) {
-          const { oldValue = [], newValue = [] } = ch.spinLogs;
-          if (
-            Array.isArray(newValue) &&
-            newValue.length > oldValue.length
-          ) {
-            const added = newValue.slice(oldValue.length);
-            for (const e of added) await this.onSpin(e.n);
+
+        if (this.enabledKey in ch) {
+          await this.loadEnabled();
+        }
+
+        if (!this.canActInThisFrame()) return;
+        if (!ch[TRACKED_TABLE_STATES_KEY]) return;
+
+        const tableId = await getCurrentTrackedTableId();
+        if (!tableId) return;
+
+        const oldStates =
+          ch[TRACKED_TABLE_STATES_KEY].oldValue &&
+          typeof ch[TRACKED_TABLE_STATES_KEY].oldValue === 'object'
+            ? ch[TRACKED_TABLE_STATES_KEY].oldValue
+            : {};
+        const newStates =
+          ch[TRACKED_TABLE_STATES_KEY].newValue &&
+          typeof ch[TRACKED_TABLE_STATES_KEY].newValue === 'object'
+            ? ch[TRACKED_TABLE_STATES_KEY].newValue
+            : {};
+
+        const oldLogs = Array.isArray(oldStates?.[tableId]?.spinLogs)
+          ? oldStates[tableId].spinLogs
+          : [];
+        const newLogs = Array.isArray(newStates?.[tableId]?.spinLogs)
+          ? newStates[tableId].spinLogs
+          : [];
+
+        if (newLogs.length > oldLogs.length) {
+          const added = newLogs.slice(oldLogs.length);
+          for (const e of added) {
+            await this.onSpin(e.n, tableId);
           }
         }
       });
@@ -432,17 +655,19 @@ import { entryGateFor } from '../shared/entry-limit.js';
   }
 
   window.__STRAT_ROWS__ = new RowsStrategy();
+
   if (
     document.readyState === 'complete' ||
     document.readyState === 'interactive'
-  )
+  ) {
     window.__STRAT_ROWS__.init();
-  else
+  } else {
     window.addEventListener(
       'DOMContentLoaded',
       () => window.__STRAT_ROWS__.init(),
       {
         once: true,
-      }
+      },
     );
+  }
 })();
