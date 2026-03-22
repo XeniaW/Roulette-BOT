@@ -1,4 +1,3 @@
-// src/popup/chips.js
 import { sget, sset } from './utils.js';
 import {
   cfgChipTpl,
@@ -28,12 +27,15 @@ export function sanitizeChips(raw) {
     src.chipSelectorTemplate.includes('{{value}}')
       ? src.chipSelectorTemplate
       : DEFAULT_CHIPS.chipSelectorTemplate;
+
   let chipValues = Array.isArray(src.chipValues)
     ? src.chipValues
         .map(Number)
         .filter((v) => Number.isFinite(v) && v > 0)
     : [];
+
   if (!chipValues.length) chipValues = [...DEFAULT_CHIPS.chipValues];
+
   return { chipSelectorTemplate: tpl, chipValues };
 }
 
@@ -53,7 +55,7 @@ export function makeChipRow(value = '') {
 export function renderChips(box, vals) {
   box.innerHTML = '';
   (vals && vals.length ? vals : ['']).forEach((v) =>
-    box.appendChild(makeChipRow(v))
+    box.appendChild(makeChipRow(v)),
   );
 }
 
@@ -69,12 +71,15 @@ export function getChipsFromUI(box) {
 export async function loadGlobalChipsUI() {
   const { [GLOBAL_CHIPS_KEY]: g = null, abDozensConfig = null } =
     await sget({ [GLOBAL_CHIPS_KEY]: null, abDozensConfig: null });
+
   let use = g;
+
   if (!use && abDozensConfig && abDozensConfig.chipSelectorTemplate) {
     use = sanitizeChips({
       chipSelectorTemplate: abDozensConfig.chipSelectorTemplate,
       chipValues: abDozensConfig.chipValues,
     });
+
     await sset({
       [GLOBAL_CHIPS_KEY]: use,
       abDozensConfig: {
@@ -88,13 +93,14 @@ export async function loadGlobalChipsUI() {
       },
     });
   }
+
   if (!use) use = DEFAULT_CHIPS;
+
   const clean = sanitizeChips(use);
   cfgChipTpl.value = clean.chipSelectorTemplate;
   renderChips(chipsBox, clean.chipValues);
   cfgChipsMsg.textContent = 'Loaded global chips';
 
-  // AUTOSAVE wiring
   wireChipsAutosave();
 }
 
@@ -104,16 +110,20 @@ export async function saveGlobalChipsFromUI() {
     cfgChipsMsg.textContent = 'Template must include {{value}}';
     return;
   }
+
   const chipValues = getChipsFromUI(chipsBox);
   if (!chipValues.length) {
     cfgChipsMsg.textContent = 'Add at least one chip value';
     return;
   }
+
   const clean = sanitizeChips({
     chipSelectorTemplate: tpl,
     chipValues,
   });
+
   await sset({ [GLOBAL_CHIPS_KEY]: clean });
+
   try {
     const { betLogs = [] } = await sget({ betLogs: [] });
     betLogs.push({
@@ -123,28 +133,29 @@ export async function saveGlobalChipsFromUI() {
       message: 'Global chips saved',
       chipsCount: clean.chipValues.length,
     });
-    if (betLogs.length > 2000)
+    if (betLogs.length > 2000) {
       betLogs.splice(0, betLogs.length - 2000);
+    }
     await sset({ betLogs });
   } catch {}
+
   cfgChipsMsg.textContent = 'Saved global chips';
 }
 
-/* ===== AUTOSAVE (template + values) ===== */
 const debouncedSaveChips = debounce(
   () => saveGlobalChipsFromUI(),
-  200
+  200,
 );
 
 function wireChipsAutosave() {
-  // template field
   cfgChipTpl?.addEventListener('input', () => debouncedSaveChips());
 
-  // delegate for value inputs and delete buttons
   chipsBox?.addEventListener('input', (e) => {
-    if (e.target && e.target.classList.contains('chip-val'))
+    if (e.target && e.target.classList.contains('chip-val')) {
       debouncedSaveChips();
+    }
   });
+
   chipsBox?.addEventListener('click', (e) => {
     const btn = e.target?.closest('.btn-del-chip');
     if (!btn) return;
@@ -153,7 +164,6 @@ function wireChipsAutosave() {
     debouncedSaveChips();
   });
 
-  // add chip button
   btnAddChip?.addEventListener('click', () => {
     chipsBox.appendChild(makeChipRow());
     debouncedSaveChips();

@@ -1,112 +1,33 @@
-/* Content script (MV3)
-   Tracks roulette spins displayed under [data-name="previous-spins-stack"].
-   - Logs ONLY the current head number exactly once per spin (including repeats like 17→17)
-   - Shadow-DOM aware for reconnect button scanning
-   - Status is exposed via chrome.storage.local.trackerStatus
-   - Logs are stored in chrome.storage.local.spinLogs (capped)
-   - Robust against "Extension context invalidated" and frame navigations
-*/
-
+// content.js — title outside iframe, spins/balance inside iframe, reconnect + lobby re-enter
 (() => {
-  /* ====================== ОБЩЕЕ ====================== */
+  if (
+    typeof chrome === 'undefined' ||
+    !chrome.runtime?.id ||
+    !chrome.runtime?.sendMessage ||
+    !chrome.storage?.local
+  ) {
+    return;
+  }
+
+  const TITLE_SEL = '[data-test-el="casino-control-bar__title"]';
   const CONTAINER_ATTR = 'previous-spins-stack';
-  const CELL_PREFIX = 'cell-';
   const CONTAINER_SEL = `[data-name="${CONTAINER_ATTR}"]`;
+  const CELL_PREFIX = 'cell-';
   const CELL_SEL = `[data-name^="${CELL_PREFIX}"]`;
-  const MAX_LOGS = 5000;
-
-  const FIND_TICK_MS = 600;
-  const FIND_ERROR_AFTER_MS = 10000;
-  const RECONCILE_TICK_MS = 1200;
-
-  const RECONNECT_SCAN_TICK_MS = 2000;
-  const RECONNECT_CLICK_THROTTLE = 10000;
-
-  let destroyed = false;
-  let running = false;
-  let observer = null;
-  let containerNode = null;
-  let waitPollTimer = null;
-  let errorTimer = null;
-  let reconcileTimer = null;
-  let reconnectTimer = null;
-  let balanceGuardTimer = null;
-  let lastReconnectClick = 0;
-
-  let lastSnapshot = [];
-  let _isPatchingBetLogs = false;
-
-  try {
-    window.__SPINS_LOGGER__ = 'alive';
-  } catch {}
-
-  const ctxValid = () =>
-    !!(typeof chrome !== 'undefined' && chrome?.runtime?.id) &&
-    !destroyed;
-
-  async function safeGet(defs) {
-    if (!ctxValid()) return defs || {};
-    try {
-      return await chrome.storage.local.get(defs || {});
-    } catch {
-      return defs || {};
-    }
-  }
-
-  async function safeSet(obj) {
-    if (!ctxValid()) return;
-    try {
-      await chrome.storage.local.set(obj);
-    } catch {}
-  }
-
-  function setStatus(state, message = '', origin = location.origin) {
-    safeSet({
-      trackerStatus: { state, message, origin, at: Date.now() },
-    });
-  }
-
-  function isElementVisible(el) {
-    const rect = el.getBoundingClientRect?.();
-    if (!rect) return false;
-    return (
-      rect.width > 0 &&
-      rect.height > 0 &&
-      getComputedStyle(el).visibility !== 'hidden'
-    );
-  }
-
-  function queryAllDeep(root, selector) {
-    const out = [];
-    try {
-      root.querySelectorAll(selector)?.forEach((n) => out.push(n));
-    } catch {}
-
-    const nodes = root.querySelectorAll
-      ? root.querySelectorAll('*')
-      : [];
-    for (const n of nodes) {
-      if (n.shadowRoot) {
-        try {
-          n.shadowRoot
-            .querySelectorAll(selector)
-            ?.forEach((m) => out.push(m));
-        } catch {}
-      }
-    }
-    return out;
-  }
-
-  /* ====================== БАЛАНС ====================== */
-  const BALANCE_BTN_SEL =
-    'button.balance__refresh.balance-refresh, button[aria-label="Update balance"], button[data-e2e="balance-refresh"]';
 
   const BALANCE_VAL_SEL =
-    '[data-e2e="balance"] [data-e2e="balance-value"], .style_balanceWrapper__1dya9zx0 [data-e2e="balance-value"], span.account-select-toggle__value';
+    '[data-e2e="balance"] [data-e2e="balance-value"], .style_balanceWrapper__1dya9zx0 [data-e2e="balance-value"], span.account-select-toggle__value, .balance-layout .balance-amount';
 
   const BALANCE_STOP_CFG_KEY = 'abBalanceStopConfig';
   const BALANCE_STOP_STATE_KEY = 'abBalanceStopState';
-  const BALANCE_RECHECK_MS = 1500;
+
+  const FIND_TICK_MS = 700;
+  const RECONCILE_TICK_MS = 1200;
+  const HEARTBEAT_MS = 2500;
+  const BALANCE_MS = 1800;
+  const RECONNECT_MS = 2000;
+  const REENTER_MS = 3000;
+  const CLICK_THROTTLE_MS = 8000;
 
   const BALANCE_STOP_DEFAULTS = Object.freeze({
     stopOnMin: false,
@@ -178,11 +99,112 @@
     },
   ];
 
+  let destroyed = false;
+  let running = false;
+  let observer = null;
+  let containerNode = null;
+  let waitTimer = null;
+  let reconcileTimer = null;
+  let heartbeatTimer = null;
+  let balanceTimer = null;
+  let reconnectTimer = null;
+  let reenterTimer = null;
+  let lastSnapshot = [];
+  let lastStatusSig = '';
+  let patchingBetLogs = false;
+  let lastGenericClick = 0;
+  let lastReenterClick = 0;
+
+  let tracked = {
+    matched: false,
+    tableId: '',
+    title: '',
+    role: 'off',
+    ownsLease: false,
+  };
+
+  function ctxValid() {
+    return !!chrome?.runtime?.id && !destroyed;
+  }
+
+  async function safeGet(defaults) {
+    if (!ctxValid()) return defaults || {};
+    try {
+      return await chrome.storage.local.get(defaults || {});
+    } catch {
+      return defaults || {};
+    }
+  }
+
+  async function safeSet(obj) {
+    if (!ctxValid()) return;
+    try {
+      await chrome.storage.local.set(obj);
+    } catch {}
+  }
+
+  async function sendBg(msg) {
+    if (!ctxValid()) return null;
+    try {
+      return await chrome.runtime.sendMessage(msg);
+    } catch {
+      return null;
+    }
+  }
+
+  function delay(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  function normalizeText(value) {
+    return String(value ?? '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
   function findOneDeep(selector) {
     const direct = document.querySelector(selector);
     if (direct) return direct;
-    const all = queryAllDeep(document, selector);
-    return all.length ? all[0] : null;
+
+    const all = document.querySelectorAll('*');
+    for (const node of all) {
+      if (!node.shadowRoot) continue;
+      try {
+        const found = node.shadowRoot.querySelector(selector);
+        if (found) return found;
+      } catch {}
+    }
+    return null;
+  }
+
+  function queryAllDeep(selector) {
+    const out = [];
+    try {
+      document
+        .querySelectorAll(selector)
+        ?.forEach((n) => out.push(n));
+    } catch {}
+
+    const all = document.querySelectorAll('*');
+    for (const node of all) {
+      if (!node.shadowRoot) continue;
+      try {
+        node.shadowRoot
+          .querySelectorAll(selector)
+          ?.forEach((n) => out.push(n));
+      } catch {}
+    }
+    return out;
+  }
+
+  function isVisible(el) {
+    const rect = el?.getBoundingClientRect?.();
+    if (!rect) return false;
+    return (
+      rect.width > 0 &&
+      rect.height > 0 &&
+      getComputedStyle(el).visibility !== 'hidden'
+    );
   }
 
   function clickElement(el) {
@@ -202,6 +224,29 @@
     }
   }
 
+  function getCurrentTableTitle() {
+    const root = findOneDeep(TITLE_SEL);
+    if (!root) return '';
+
+    const parts = [];
+    for (const node of root.childNodes || []) {
+      const txt = normalizeText(node.textContent || '');
+      if (!txt) continue;
+      if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(txt)) continue;
+      parts.push(txt);
+    }
+
+    const joined = normalizeText(parts.join(' '));
+    if (joined) return joined;
+
+    return normalizeText(
+      String(root.textContent || '').replace(
+        /\b\d{1,2}:\d{2}(:\d{2})?\b/g,
+        ' ',
+      ),
+    );
+  }
+
   function parseBalanceText(txt) {
     if (!txt) return null;
     const clean = String(txt)
@@ -211,14 +256,11 @@
     return Number.isFinite(val) ? val : null;
   }
 
-  function delay(ms) {
-    return new Promise((res) => setTimeout(res, ms));
-  }
-
   async function readBalanceValue() {
     const wrap =
       findOneDeep('[data-e2e="balance"]') ||
-      findOneDeep('.style_balanceWrapper__1dya9zx0');
+      findOneDeep('.style_balanceWrapper__1dya9zx0') ||
+      findOneDeep('.balance-layout');
 
     if (wrap) {
       const raw = wrap.getAttribute?.('data-true-value');
@@ -233,7 +275,7 @@
       findOneDeep(BALANCE_VAL_SEL);
 
     if (span) {
-      const txt = (span.textContent || '').trim();
+      const txt = normalizeText(span.textContent || '');
       const v = parseBalanceText(txt);
       if (v != null) return v;
     }
@@ -243,7 +285,6 @@
 
   function sanitizeBalanceStopCfg(raw) {
     const cfg = raw || {};
-
     let minBalance = Number(cfg.minBalance);
     let maxBalance = Number(cfg.maxBalance);
 
@@ -262,13 +303,11 @@
     };
   }
 
-  async function appendBetLog(entry) {
+  async function appendGlobalBetLog(entry) {
     const { betLogs = [] } = await safeGet({ betLogs: [] });
     const logs = Array.isArray(betLogs) ? betLogs : [];
     logs.push(entry);
-    if (logs.length > 2000) {
-      logs.splice(0, logs.length - 2000);
-    }
+    if (logs.length > 2000) logs.splice(0, logs.length - 2000);
     await safeSet({ betLogs: logs });
   }
 
@@ -308,7 +347,7 @@
 
     await safeSet(patch);
 
-    await appendBetLog({
+    await appendGlobalBetLog({
       t: now,
       type: 'guard-stop',
       market: 'global',
@@ -333,110 +372,59 @@
     const cfg = sanitizeBalanceStopCfg(rawCfg);
 
     let reason = null;
-    if (cfg.stopOnMin && balance <= cfg.minBalance) {
-      reason = 'min';
-    } else if (cfg.stopOnMax && balance >= cfg.maxBalance) {
+    if (cfg.stopOnMin && balance <= cfg.minBalance) reason = 'min';
+    else if (cfg.stopOnMax && balance >= cfg.maxBalance)
       reason = 'max';
-    }
 
     if (!reason) return;
-
-    if (stopState?.triggered && stopState.reason === reason) {
-      return;
-    }
+    if (stopState?.triggered && stopState.reason === reason) return;
 
     await stopAllMarketsByBalance(reason, balance, cfg);
   }
 
-  async function refreshBalanceAndRead(
-    opts = { refresh: false, waitMs: 400 },
-  ) {
+  async function pushTrackedStatus(state, message = '') {
+    if (!tracked.tableId) return;
+
+    const sig = `${tracked.tableId}::${state}::${message}`;
+    if (sig === lastStatusSig) return;
+    lastStatusSig = sig;
+
+    await sendBg({
+      type: 'TRACKED_TABLE_SET_STATUS',
+      tableId: tracked.tableId,
+      matchedTitle: tracked.title,
+      href: location.href,
+      state,
+      message,
+    });
+  }
+
+  async function refreshBalanceAndRead(opts = { waitMs: 400 }) {
     const waitMs = Math.max(0, Number(opts?.waitMs ?? 400));
 
     const started = Date.now();
     let val = await readBalanceValue();
+
     while (val == null && Date.now() - started < waitMs) {
       await delay(100);
       val = await readBalanceValue();
     }
 
-    if (val != null) {
-      await safeSet({
-        currentBalance: { value: val, t: Date.now() },
+    if (Number.isFinite(val) && tracked.tableId) {
+      await sendBg({
+        type: 'TRACKED_TABLE_SET_BALANCE',
+        tableId: tracked.tableId,
+        matchedTitle: tracked.title,
+        href: location.href,
+        value: val,
       });
+
       await evaluateBalanceStop(val);
     }
 
     return val;
   }
 
-  chrome.runtime.onMessage.addListener(
-    (msg, _sender, sendResponse) => {
-      if (!msg || typeof msg !== 'object') return;
-
-      if (
-        msg.type === 'READ_BALANCE' ||
-        msg.type === 'REFRESH_BALANCE'
-      ) {
-        refreshBalanceAndRead({
-          refresh: msg.type === 'REFRESH_BALANCE',
-        })
-          .then((v) => sendResponse({ ok: true, balance: v }))
-          .catch((e) =>
-            sendResponse({ ok: false, error: String(e) }),
-          );
-        return true;
-      }
-    },
-  );
-
-  chrome.storage.onChanged.addListener(async (ch, area) => {
-    if (area !== 'local') return;
-
-    if (ch[BALANCE_STOP_CFG_KEY]) {
-      try {
-        await refreshBalanceAndRead({
-          refresh: false,
-          waitMs: 200,
-        });
-      } catch {}
-    }
-
-    if (!ch.betLogs || _isPatchingBetLogs) return;
-
-    const oldArr = Array.isArray(ch.betLogs.oldValue)
-      ? ch.betLogs.oldValue
-      : [];
-    const newArr = Array.isArray(ch.betLogs.newValue)
-      ? ch.betLogs.newValue
-      : [];
-
-    if (newArr.length <= oldArr.length) return;
-
-    const added = newArr.slice(oldArr.length);
-    const needPatch = added.some((e) => e && e.balance == null);
-    if (!needPatch) return;
-
-    const bal = await refreshBalanceAndRead({
-      refresh: false,
-      waitMs: 400,
-    });
-
-    const patched = newArr.map((e, idx) => {
-      if (idx < oldArr.length) return e;
-      if (e && e.balance == null) return { ...e, balance: bal };
-      return e;
-    });
-
-    try {
-      _isPatchingBetLogs = true;
-      await safeSet({ betLogs: patched });
-    } finally {
-      _isPatchingBetLogs = false;
-    }
-  });
-
-  /* ====================== СПИНЫ ====================== */
   function extractNumberFromCell(el) {
     const dn = el.getAttribute?.('data-name');
     if (dn && dn.startsWith(CELL_PREFIX)) {
@@ -444,7 +432,7 @@
       if (Number.isFinite(num)) return num;
     }
 
-    const t = Number((el.textContent || '').trim());
+    const t = Number(normalizeText(el.textContent || ''));
     return Number.isFinite(t) ? t : null;
   }
 
@@ -455,32 +443,30 @@
       const n = extractNumberFromCell(el);
       if (Number.isFinite(n)) arr.push(n);
     }
-    return arr; // newest-first
+    return arr;
   }
 
-  async function appendLogs(numbersArrayOldestFirst) {
-    if (!numbersArrayOldestFirst?.length) return;
+  async function appendTrackedSpins(numbersArrayOldestFirst) {
+    if (!tracked.tableId || !numbersArrayOldestFirst?.length) return;
 
-    const { spinLogs = [] } = await safeGet({ spinLogs: [] });
-    const logs = Array.isArray(spinLogs) ? spinLogs : [];
+    const now = Date.now();
+    const spins = numbersArrayOldestFirst.map((n) => ({
+      n,
+      t: now,
+      t_iso: new Date(now).toISOString(),
+    }));
 
-    for (const n of numbersArrayOldestFirst) {
-      logs.push({
-        n,
-        t: Date.now(),
-        t_iso: new Date().toISOString(),
-      });
-    }
-
-    if (logs.length > MAX_LOGS) {
-      logs.splice(0, logs.length - MAX_LOGS);
-    }
-
-    await safeSet({ spinLogs: logs });
+    await sendBg({
+      type: 'TRACKED_TABLE_APPEND_SPINS',
+      tableId: tracked.tableId,
+      matchedTitle: tracked.title,
+      href: location.href,
+      spins,
+    });
   }
 
   function handleMutations() {
-    if (!containerNode) return;
+    if (!containerNode || !tracked.tableId) return;
 
     const curr = readCurrentListFrom(containerNode);
     if (!curr.length) {
@@ -490,14 +476,11 @@
 
     const head = curr[0];
     const prev = lastSnapshot;
-
     let shouldLog = false;
 
-    if (!prev.length) {
-      shouldLog = false;
-    } else if (head !== prev[0]) {
-      shouldLog = true;
-    } else {
+    if (!prev.length) shouldLog = false;
+    else if (head !== prev[0]) shouldLog = true;
+    else {
       const prevSecond = prev[1];
       const currSecond = curr[1];
       if (currSecond === head && prevSecond !== head) {
@@ -506,14 +489,15 @@
     }
 
     if (shouldLog) {
-      appendLogs([head]);
+      appendTrackedSpins([head]).catch(() => {});
     }
 
     lastSnapshot = curr;
   }
 
-  function startObserving(containerEl) {
+  async function startObserving(containerEl) {
     stopObserving();
+
     containerNode = containerEl;
     lastSnapshot = readCurrentListFrom(containerNode);
 
@@ -536,7 +520,8 @@
     }, RECONCILE_TICK_MS);
 
     running = true;
-    setStatus('ok', 'Трекинг активен');
+    await pushTrackedStatus('ok', 'Tracking active');
+    await refreshBalanceAndRead({ waitMs: 500 });
   }
 
   function stopObserving() {
@@ -552,187 +537,343 @@
       reconcileTimer = null;
     }
 
+    if (waitTimer) {
+      clearTimeout(waitTimer);
+      waitTimer = null;
+    }
+
     containerNode = null;
     running = false;
   }
 
-  function clearWaiters() {
-    if (waitPollTimer) {
-      clearTimeout(waitPollTimer);
-      waitPollTimer = null;
-    }
-    if (errorTimer) {
-      clearTimeout(errorTimer);
-      errorTimer = null;
-    }
-  }
-
   function waitForContainerLoop() {
+    if (!tracked.tableId) return;
+
     let box = document.querySelector(CONTAINER_SEL);
     if (!box) {
-      const deepMatches = queryAllDeep(document, CONTAINER_SEL);
-      if (deepMatches.length) box = deepMatches[0];
+      const all = queryAllDeep(CONTAINER_SEL);
+      if (all.length) box = all[0];
     }
 
     if (box) {
-      clearWaiters();
-      startObserving(box);
+      startObserving(box).catch(() => {});
       return;
     }
 
-    waitPollTimer = setTimeout(waitForContainerLoop, FIND_TICK_MS);
+    waitTimer = setTimeout(waitForContainerLoop, FIND_TICK_MS);
   }
 
-  async function tryStart() {
+  async function maybeStartTrackingInThisFrame() {
     const { trackingEnabled = false } = await safeGet({
       trackingEnabled: false,
     });
 
-    if (!trackingEnabled) {
-      setStatus('off', 'Трекинг выключен');
+    if (!trackingEnabled || !tracked.tableId) {
       stopObserving();
       return;
     }
 
     if (running && containerNode?.isConnected) return;
-
-    setStatus('waiting', 'Ожидаем контейнер со спинами…');
-    clearWaiters();
-
-    errorTimer = setTimeout(() => {
-      setStatus(
-        'error',
-        'Не найден контейнер/классы спинов на странице',
-      );
-    }, FIND_ERROR_AFTER_MS);
+    if (waitTimer) return;
 
     waitForContainerLoop();
   }
 
-  function findReconnectCandidates(root = document) {
-    const found = [];
+  async function syncTrackedContext() {
+    const localTitle = getCurrentTableTitle();
 
-    const spans = root.querySelectorAll('[data-e2e^="btn-label-"]');
-    for (const span of spans) {
-      const text = (span.textContent || '').trim();
-      if (/reconnect/i.test(text) || /подключиться/i.test(text)) {
-        const btn = span.closest('button');
-        if (btn && isElementVisible(btn) && !btn.disabled) {
-          found.push(btn);
-        }
+    if (localTitle) {
+      const res = await sendBg({
+        type: tracked.matched
+          ? 'TRACKED_TABLE_HEARTBEAT'
+          : 'TRACKED_TABLE_HELLO',
+        title: localTitle,
+        href: location.href,
+      });
+
+      if (res?.matched) {
+        tracked = {
+          matched: true,
+          tableId: String(res.tableId || '').trim(),
+          title: localTitle,
+          role: String(res.role || 'leader'),
+          ownsLease: true,
+        };
+        lastStatusSig = '';
+        return;
       }
     }
 
-    const btns = root.querySelectorAll('button');
+    const byTab = await sendBg({ type: 'GET_TRACKED_TABLE_FOR_TAB' });
+    if (byTab?.matched) {
+      tracked = {
+        matched: true,
+        tableId: String(byTab.tableId || '').trim(),
+        title: localTitle || String(byTab.title || ''),
+        role: 'leader',
+        ownsLease: false,
+      };
+      return;
+    }
+
+    tracked = {
+      matched: false,
+      tableId: '',
+      title: localTitle || '',
+      role: 'off',
+      ownsLease: false,
+    };
+  }
+
+  function findReconnectButtons() {
+    const candidates = [];
+
+    const btns = Array.from(
+      document.querySelectorAll('button, [role="button"]'),
+    );
+    const roots = Array.from(document.querySelectorAll('*'))
+      .filter((n) => n.shadowRoot)
+      .map((n) => n.shadowRoot);
+
+    for (const root of roots) {
+      try {
+        root
+          .querySelectorAll('button, [role="button"]')
+          .forEach((b) => btns.push(b));
+      } catch {}
+    }
+
     for (const b of btns) {
-      const text = (b.textContent || '').trim();
+      const text = normalizeText(
+        b.textContent || b.getAttribute?.('aria-label') || '',
+      );
+      if (!text) continue;
       if (
-        (/reconnect/i.test(text) || /подключиться/i.test(text)) &&
-        isElementVisible(b) &&
-        !b.disabled
+        /reconnect|подключиться|continue|продолжить|i am here|i'm here|i am still here|still here|я здесь|я всё ещё здесь/i.test(
+          text,
+        )
       ) {
-        found.push(b);
+        if (isVisible(b) && !b.disabled) candidates.push(b);
       }
     }
 
-    return found;
+    return candidates;
   }
 
   function scanAndReconnect() {
     const now = Date.now();
-    if (now - lastReconnectClick < RECONNECT_CLICK_THROTTLE) return;
+    if (now - lastGenericClick < CLICK_THROTTLE_MS) return;
 
-    let candidates = findReconnectCandidates(document);
-    const hosts = document.querySelectorAll('*');
-
-    for (const h of hosts) {
-      if (!h.shadowRoot) continue;
-      try {
-        const inner = findReconnectCandidates(h.shadowRoot);
-        if (inner.length) candidates = candidates.concat(inner);
-      } catch {}
-    }
-
+    const candidates = findReconnectButtons();
     if (candidates.length) {
-      lastReconnectClick = now;
+      lastGenericClick = now;
       clickElement(candidates[0]);
     }
   }
 
-  function startReconnectLoop() {
-    if (reconnectTimer) clearInterval(reconnectTimer);
-    reconnectTimer = setInterval(
-      scanAndReconnect,
-      RECONNECT_SCAN_TICK_MS,
-    );
-  }
+  function findLobbyEntryByTitle(title) {
+    if (!title) return null;
+    const normTitle = normalizeText(title).toLowerCase();
+    if (!normTitle) return null;
 
-  function stopReconnectLoop() {
-    if (reconnectTimer) {
-      clearInterval(reconnectTimer);
-      reconnectTimer = null;
-    }
-  }
+    const selectors = [
+      '.lobby-table-in',
+      '.lobby-table-inner',
+      '.lobby-table-info',
+      '.lobby-table-name',
+      '.lobby-table-title',
+      '[class*="lobby-table"]',
+      '[class*="table-card"]',
+      '[class*="game-card"]',
+      '[class*="casino-card"]',
+      'a',
+      'button',
+      '[role="button"]',
+    ];
 
-  function onSettingsChanged(changes, area) {
-    if (area !== 'local') return;
+    const visited = new Set();
+    for (const selector of selectors) {
+      const nodes = queryAllDeep(selector);
+      for (const node of nodes) {
+        if (!node || visited.has(node)) continue;
+        visited.add(node);
 
-    if ('trackingEnabled' in changes) {
-      const enabled = !!changes.trackingEnabled.newValue;
+        const text = normalizeText(
+          node.textContent || '',
+        ).toLowerCase();
+        if (!text) continue;
+        if (!text.includes(normTitle)) continue;
+        if (!isVisible(node)) continue;
 
-      if (!enabled) {
-        stopObserving();
-        clearWaiters();
-        setStatus('off', 'Трекинг выключен');
-      } else {
-        tryStart();
+        const clickable =
+          node.closest?.(
+            'a,button,[role="button"],.lobby-table-in,.lobby-table-inner',
+          ) || node;
+
+        if (clickable && isVisible(clickable)) {
+          return clickable;
+        }
       }
     }
+
+    return null;
+  }
+
+  function tryLobbyReenter() {
+    if (!tracked.title) return;
+    if (findOneDeep(TITLE_SEL)) return;
+
+    const now = Date.now();
+    if (now - lastReenterClick < CLICK_THROTTLE_MS) return;
+
+    const entry = findLobbyEntryByTitle(tracked.title);
+    if (entry) {
+      lastReenterClick = now;
+      clickElement(entry);
+    }
+  }
+
+  async function cycle() {
+    await syncTrackedContext();
+
+    const { trackingEnabled = false } = await safeGet({
+      trackingEnabled: false,
+    });
+
+    if (!trackingEnabled) {
+      stopObserving();
+      return;
+    }
+
+    if (!tracked.tableId) {
+      stopObserving();
+      return;
+    }
+
+    if (
+      !document.querySelector(CONTAINER_SEL) &&
+      !findOneDeep(CONTAINER_SEL)
+    ) {
+      await pushTrackedStatus(
+        'waiting',
+        'Matched table, waiting for spin history container',
+      );
+    }
+
+    await maybeStartTrackingInThisFrame();
+    await refreshBalanceAndRead({ waitMs: 250 });
   }
 
   function onUnload() {
     destroyed = true;
-    stopObserving();
-    stopReconnectLoop();
-    clearWaiters();
 
-    if (balanceGuardTimer) {
-      clearInterval(balanceGuardTimer);
-      balanceGuardTimer = null;
+    if (tracked.ownsLease && tracked.tableId) {
+      sendBg({
+        type: 'TRACKED_TABLE_RELEASE',
+        tableId: tracked.tableId,
+      }).catch(() => {});
     }
+
+    stopObserving();
+
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
+    if (balanceTimer) clearInterval(balanceTimer);
+    if (reconnectTimer) clearInterval(reconnectTimer);
+    if (reenterTimer) clearInterval(reenterTimer);
+
+    heartbeatTimer = null;
+    balanceTimer = null;
+    reconnectTimer = null;
+    reenterTimer = null;
   }
 
-  async function init() {
-    startReconnectLoop();
+  if (chrome.runtime?.onMessage?.addListener) {
+    chrome.runtime.onMessage.addListener(
+      (msg, _sender, sendResponse) => {
+        if (!msg || typeof msg !== 'object') return;
 
-    try {
-      await refreshBalanceAndRead({ refresh: false, waitMs: 600 });
-    } catch {}
+        if (
+          msg.type === 'READ_BALANCE' ||
+          msg.type === 'REFRESH_BALANCE'
+        ) {
+          refreshBalanceAndRead({ waitMs: 400 })
+            .then((v) => sendResponse({ ok: true, balance: v }))
+            .catch((e) =>
+              sendResponse({ ok: false, error: String(e) }),
+            );
+          return true;
+        }
+      },
+    );
+  }
 
-    if (balanceGuardTimer) clearInterval(balanceGuardTimer);
-    balanceGuardTimer = setInterval(() => {
-      refreshBalanceAndRead({ refresh: false, waitMs: 300 }).catch(
-        () => {},
-      );
-    }, BALANCE_RECHECK_MS);
+  if (chrome.storage?.onChanged?.addListener) {
+    chrome.storage.onChanged.addListener(async (ch, area) => {
+      if (area !== 'local') return;
 
-    if (
-      document.readyState === 'complete' ||
-      document.readyState === 'interactive'
-    ) {
-      tryStart();
-    } else {
-      window.addEventListener('DOMContentLoaded', tryStart, {
-        once: true,
+      if (ch[BALANCE_STOP_CFG_KEY]) {
+        try {
+          await refreshBalanceAndRead({ waitMs: 200 });
+        } catch {}
+      }
+
+      if (!ch.betLogs || patchingBetLogs) return;
+
+      const oldArr = Array.isArray(ch.betLogs.oldValue)
+        ? ch.betLogs.oldValue
+        : [];
+      const newArr = Array.isArray(ch.betLogs.newValue)
+        ? ch.betLogs.newValue
+        : [];
+      if (newArr.length <= oldArr.length) return;
+
+      const added = newArr.slice(oldArr.length);
+      const needPatch = added.some((e) => e && e.balance == null);
+      if (!needPatch) return;
+
+      const bal = await refreshBalanceAndRead({ waitMs: 400 });
+
+      const patched = newArr.map((e, idx) => {
+        if (idx < oldArr.length) return e;
+        if (e && e.balance == null && Number.isFinite(bal)) {
+          return { ...e, balance: bal };
+        }
+        return e;
       });
-    }
 
-    chrome.storage.onChanged.addListener(onSettingsChanged);
-    window.addEventListener('pagehide', onUnload, { once: true });
-    window.addEventListener('beforeunload', onUnload, {
-      once: true,
+      try {
+        patchingBetLogs = true;
+        await safeSet({ betLogs: patched });
+      } finally {
+        patchingBetLogs = false;
+      }
     });
   }
 
-  init();
+  async function init() {
+    await cycle();
+
+    heartbeatTimer = setInterval(() => {
+      cycle().catch(() => {});
+    }, HEARTBEAT_MS);
+
+    balanceTimer = setInterval(() => {
+      if (tracked.tableId) {
+        refreshBalanceAndRead({ waitMs: 250 }).catch(() => {});
+      }
+    }, BALANCE_MS);
+
+    reconnectTimer = setInterval(() => {
+      scanAndReconnect();
+    }, RECONNECT_MS);
+
+    reenterTimer = setInterval(() => {
+      tryLobbyReenter();
+    }, REENTER_MS);
+
+    window.addEventListener('pagehide', onUnload, { once: true });
+    window.addEventListener('beforeunload', onUnload, { once: true });
+  }
+
+  init().catch(() => {});
 })();

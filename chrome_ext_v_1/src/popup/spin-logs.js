@@ -1,6 +1,10 @@
-// src/popup/spin-logs.js
 import { sget, sset } from './utils.js';
 import { tbody, count, uniqueLeft } from './dom.js';
+import {
+  TRACKED_TABLE_STATES_KEY,
+  SELECTED_TRACKED_TABLE_KEY,
+  sanitizeTrackedTableStates,
+} from '../shared/tracked-tables.js';
 
 function pad2(n) {
   return String(n).padStart(2, '0');
@@ -18,6 +22,18 @@ function toNum(v) {
   return Number.isFinite(x) ? x : null;
 }
 
+function defaultStreak() {
+  return {
+    dozens: { count: 0, idx: null },
+    rows: { count: 0, idx: null },
+    combo: { count: 0, d: null, r: null },
+    lowhigh: { count: 0, idx: null },
+    evenodd: { count: 0, idx: null },
+    colors: { count: 0, idx: null },
+    antidozens: { count: 0, idx: null },
+  };
+}
+
 function calcUniqueLeft(logs) {
   const seen = new Set();
   for (const it of logs || []) {
@@ -31,8 +47,9 @@ function calcUniqueLeft(logs) {
 
 function renderCounters(logs) {
   if (count) count.textContent = String((logs || []).length);
-  if (uniqueLeft)
+  if (uniqueLeft) {
     uniqueLeft.textContent = String(calcUniqueLeft(logs || []));
+  }
 }
 
 function rowHtml(item) {
@@ -41,11 +58,39 @@ function rowHtml(item) {
   return `<tr><td class="mono">${t}</td><td class="mono">${n}</td></tr>`;
 }
 
+async function getFocusedSpinLogsSnapshot() {
+  const {
+    [TRACKED_TABLE_STATES_KEY]: rawStates = {},
+    [SELECTED_TRACKED_TABLE_KEY]: rawSelectedId = '',
+    spinLogs = [],
+  } = await sget({
+    [TRACKED_TABLE_STATES_KEY]: {},
+    [SELECTED_TRACKED_TABLE_KEY]: '',
+    spinLogs: [],
+  });
+
+  const states = sanitizeTrackedTableStates(rawStates);
+  const selectedId = String(rawSelectedId || '').trim();
+  const selectedState =
+    selectedId && states[selectedId] ? states[selectedId] : null;
+
+  const logs = Array.isArray(selectedState?.spinLogs)
+    ? selectedState.spinLogs
+    : Array.isArray(spinLogs)
+      ? spinLogs
+      : [];
+
+  return {
+    selectedId,
+    states,
+    logs,
+  };
+}
+
 // ===== API =====
 
 export function loadLogs(onLoaded) {
-  sget({ spinLogs: [] }).then(({ spinLogs }) => {
-    const logs = Array.isArray(spinLogs) ? spinLogs : [];
+  getFocusedSpinLogsSnapshot().then(({ logs }) => {
     if (typeof onLoaded === 'function') onLoaded(logs);
   });
 }
@@ -54,15 +99,10 @@ export function renderAll(logs) {
   const arr = Array.isArray(logs) ? logs : [];
   if (!tbody) return;
 
-  // последними вниз
   tbody.innerHTML = arr.map(rowHtml).join('');
   renderCounters(arr);
 }
 
-/**
- * appendNew: добавляет только новые строки (для live.js),
- * не перерисовывая всю таблицу
- */
 export function appendNew(delta, fullLogsForCounters) {
   if (!tbody) return;
 
@@ -72,30 +112,46 @@ export function appendNew(delta, fullLogsForCounters) {
     tbody.insertAdjacentHTML('beforeend', html);
   }
 
-  // counters считаем по полному массиву, если он передан
   const base = Array.isArray(fullLogsForCounters)
     ? fullLogsForCounters
     : null;
 
   if (base) renderCounters(base);
-  else {
-    // fallback: считаем по таблице как по длине, уникальные не вытащим
-    // поэтому лучше всегда передавать полный logs массив
-    if (count)
-      count.textContent = String(
-        (count.textContent | 0) + arr.length,
-      );
+  else if (count) {
+    count.textContent = String(
+      (Number(count.textContent || '0') || 0) + arr.length,
+    );
   }
 }
 
 export async function clearLogs() {
-  await sset({ spinLogs: [] });
+  const { selectedId, states } = await getFocusedSpinLogsSnapshot();
+
+  if (!selectedId || !states[selectedId]) {
+    await sset({ spinLogs: [] });
+    renderAll([]);
+    return;
+  }
+
+  const nextStates = { ...states };
+  nextStates[selectedId] = {
+    ...nextStates[selectedId],
+    spinLogs: [],
+    streakState: defaultStreak(),
+  };
+
+  await sset({
+    [TRACKED_TABLE_STATES_KEY]: nextStates,
+    spinLogs: [],
+    streakState: defaultStreak(),
+  });
+
   renderAll([]);
 }
 
 export async function exportCSV() {
-  const { spinLogs = [] } = await sget({ spinLogs: [] });
-  const arr = Array.isArray(spinLogs) ? spinLogs : [];
+  const { selectedId, logs } = await getFocusedSpinLogsSnapshot();
+  const arr = Array.isArray(logs) ? logs : [];
 
   const lines = ['time,number'];
   for (const it of arr) {
@@ -110,7 +166,9 @@ export async function exportCSV() {
 
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'spin-logs.csv';
+  a.download = selectedId
+    ? `${selectedId}-spin-logs.csv`
+    : 'spin-logs.csv';
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -119,7 +177,6 @@ export async function exportCSV() {
 }
 
 function calcGapsAll(logs) {
-  // 0..36 всегда
   const lastIdx = new Array(37).fill(-1);
   const arr = Array.isArray(logs) ? logs : [];
 
@@ -151,7 +208,6 @@ export function formatTopNearTrigger(
   const gaps = calcGapsAll(logs);
   const maxGap = gaps.reduce((m, x) => Math.max(m, x.gap), 0);
 
-  // ещё слишком рано: ничего не показываем
   if (maxGap < nearFrom) return '';
 
   const near = gaps

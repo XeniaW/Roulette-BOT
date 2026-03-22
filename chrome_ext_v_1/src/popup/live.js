@@ -1,5 +1,4 @@
-// src/popup/live.js
-import { renderStatus } from './status.js';
+import { loadStatus } from './status.js';
 import {
   appendNew,
   renderAll,
@@ -12,41 +11,30 @@ import {
   sanitizeNeighbors,
   sanitizeNumbers,
 } from './markets.js';
+import {
+  TRACKED_TABLES_KEY,
+  TRACKED_TABLE_STATES_KEY,
+  SELECTED_TRACKED_TABLE_KEY,
+} from '../shared/tracked-tables.js';
 
 import {
   betStatusDozens,
   betStatusRows,
   betStatusSix,
   betStatusThrees,
-
-  // NEW: anti-dozens
   betStatusAntiDozens,
-
-  // NEW: anti-rows
   betStatusAntiRows,
-
-  // NEW (halves)
   betStatusLowHigh,
   betStatusEvenOdd,
   betStatusColors,
-
-  // NEW (sectors)
   betStatusSectors,
-
-  // neighbors
   betStatusNeighbors,
   dznStepsBox,
   rowStepsBox,
   sixStepsBox,
   threesStepsBox,
-
-  // NEW: anti-dozens
   antiDznStepsBox,
-
-  // NEW: anti-rows
   antiRowsStepsBox,
-
-  // NEW
   lowhighStepsBox,
   evenoddStepsBox,
   colorsStepsBox,
@@ -55,14 +43,8 @@ import {
   rowsStreakInp,
   sixStreakInp,
   threesStreakInp,
-
-  // NEW: anti-dozens
   antidozensStreakInp,
-
-  // NEW: anti-rows
   antirowsStreakInp,
-
-  // NEW
   lowhighStreakInp,
   evenoddStreakInp,
   colorsStreakInp,
@@ -71,14 +53,8 @@ import {
   rowsAutoCk,
   sixAutoCk,
   threesAutoCk,
-
-  // NEW: anti-dozens
   antidozensAutoCk,
-
-  // NEW: anti-rows
   antirowsAutoCk,
-
-  // NEW
   lowhighAutoCk,
   evenoddAutoCk,
   colorsAutoCk,
@@ -87,20 +63,12 @@ import {
   rowsZeroCk,
   sixZeroCk,
   threesZeroCk,
-
-  // NEW: anti-dozens
   antidozensZeroCk,
-
-  // NEW: anti-rows
   antirowsZeroCk,
-
-  // NEW
   lowhighZeroCk,
   evenoddZeroCk,
   colorsZeroCk,
   sectorsZeroCk,
-
-  // === NEW: numbers ===
   betStatusNumbers,
   numbersStepsBox,
   numbersGapInp,
@@ -133,7 +101,6 @@ function setOnIfEnabled(el, enabled, stObj) {
   if (enabled && !hasMeaningful) el.textContent = `[ON]`;
 }
 
-// держим последний полный массив спинов, чтобы не дергать storage
 let lastSpinLogs = [];
 
 function updateNumbersNearUI(spinLogsArr) {
@@ -153,7 +120,6 @@ chrome.storage.onChanged.addListener((ch, area) => {
   if (area !== 'local') return;
 
   try {
-    // === 1) СНАЧАЛА ОБНОВЛЯЕМ СПИН-ЛОГИ (критично для realtime) ===
     if (ch.spinLogs) {
       const { oldValue = [], newValue = [] } = ch.spinLogs;
       const arr = Array.isArray(newValue) ? newValue : [];
@@ -165,22 +131,24 @@ chrome.storage.onChanged.addListener((ch, area) => {
         Array.isArray(newValue) &&
         newValue.length > oldValue.length
       ) {
-        appendNew(newValue.slice(oldValue.length), arr); // важно: full logs для counters
+        appendNew(newValue.slice(oldValue.length), arr);
       } else {
         renderAll(arr);
       }
 
       updateDotsFromState();
-      updateNumbersNearUI(arr); // топ-5 near trigger
+      updateNumbersNearUI(arr);
     }
 
-    // === 2) Остальные апдейты — максимально безопасно ===
-    if (ch.trackingEnabled) {
-      const tgl = document.getElementById('toggleTrack');
-      if (tgl) tgl.checked = !!ch.trackingEnabled.newValue;
+    if (
+      ch.trackingEnabled ||
+      ch.trackerStatus ||
+      ch[TRACKED_TABLES_KEY] ||
+      ch[TRACKED_TABLE_STATES_KEY] ||
+      ch[SELECTED_TRACKED_TABLE_KEY]
+    ) {
+      loadStatus().catch(() => {});
     }
-
-    if (ch.trackerStatus) renderStatus(ch.trackerStatus.newValue);
 
     if (ch.betLogs) {
       const { oldValue = [], newValue = [] } = ch.betLogs;
@@ -196,7 +164,6 @@ chrome.storage.onChanged.addListener((ch, area) => {
 
     if (ch.domains) loadDomains();
 
-    // statuses from strategies
     if (ch.bettingStatusDozens)
       setStatusText(betStatusDozens, ch.bettingStatusDozens.newValue);
     if (ch.bettingStatusAntiDozens)
@@ -240,14 +207,12 @@ chrome.storage.onChanged.addListener((ch, area) => {
         ch.bettingStatusNeighbors.newValue,
       );
 
-    // NEW: numbers status
     if (ch.bettingStatusNumbers)
       setStatusText(
         betStatusNumbers,
         ch.bettingStatusNumbers.newValue,
       );
 
-    // show [ON] right after toggle on (before first status)
     if (ch.autoBettingLowHighEnabled) {
       const en = !!ch.autoBettingLowHighEnabled.newValue;
       const st =
@@ -280,7 +245,6 @@ chrome.storage.onChanged.addListener((ch, area) => {
       setOnIfEnabled(betStatusNumbers, en, st);
     }
 
-    // configs sync
     if (ch.abDozensConfig) {
       const cfg = sanitizeMkt(ch.abDozensConfig.newValue);
       if (dozensStreakInp) dozensStreakInp.value = cfg.triggerStreak;
@@ -378,30 +342,24 @@ chrome.storage.onChanged.addListener((ch, area) => {
       updateDotsFromState();
     }
 
-    // NEW: numbers config (gap-based)
     if (ch.abNumbersConfig) {
       const cfg = sanitizeNumbers(ch.abNumbersConfig.newValue);
       if (numbersGapInp) numbersGapInp.value = cfg.triggerGap;
       if (numbersAutoCk) numbersAutoCk.checked = !!cfg.autoContinue;
       if (numbersStepsBox) renderSteps(numbersStepsBox, cfg.steps);
-
-      // near-trigger обновляем сразу после изменения gap
       updateNumbersNearUI(lastSpinLogs);
     }
 
-    // neighbors config (steps only)
     if (ch.abNeighborsConfig) {
       const cfg = sanitizeNeighbors(ch.abNeighborsConfig.newValue);
       void cfg;
     }
 
-    // streaks
     if (ch.streakState) {
       setCurrStreakState(ch.streakState.newValue);
       updateDotsFromState();
     }
 
-    // системные сигналы от стратегий
     handleStorageChangeForStreaks(ch, area);
   } catch (e) {
     console.warn('[live:onChanged] suppressed error', e);

@@ -6,6 +6,11 @@ import { loadMarketUI } from './popup/markets.js';
 import { loadToggle } from './popup/toggle.js';
 import { loadGlobalChipsUI } from './popup/chips.js';
 import { wireInitHandlers } from './popup/init.js';
+import { loadTrackedTablesUI } from './popup/tables.js';
+import {
+  TRACKED_TABLE_STATES_KEY,
+  SELECTED_TRACKED_TABLE_KEY,
+} from './shared/tracked-tables.js';
 import './popup/live.js';
 
 // streaks
@@ -56,9 +61,40 @@ function sanitizeBalanceStopCfg(raw) {
 }
 
 function fmtMoney(v) {
+  if (v == null || v === '') return '—';
   const n = Number(v);
   if (!Number.isFinite(n)) return '—';
   return n.toFixed(2);
+}
+
+function getSelectedTrackedTableSnapshot({
+  trackedTableStates,
+  selectedTrackedTableId,
+}) {
+  const map =
+    trackedTableStates &&
+    typeof trackedTableStates === 'object' &&
+    !Array.isArray(trackedTableStates)
+      ? trackedTableStates
+      : {};
+
+  const selectedId = String(selectedTrackedTableId || '').trim();
+  const tableState = selectedId ? map[selectedId] : null;
+
+  const streakState =
+    tableState?.streakState &&
+    typeof tableState.streakState === 'object'
+      ? tableState.streakState
+      : null;
+
+  const spinLogs = Array.isArray(tableState?.spinLogs)
+    ? tableState.spinLogs
+    : [];
+
+  return {
+    streakState,
+    spinLogs,
+  };
 }
 
 function renderBalanceStopLive({
@@ -219,35 +255,68 @@ async function loadBalanceStopUI() {
   });
 }
 
+async function syncFocusedTrackedTableToDots() {
+  const { sget } = await getUtils();
+
+  const DEFAULT_STREAK = {
+    dozens: { count: 0, idx: null },
+    rows: { count: 0, idx: null },
+  };
+
+  const {
+    [TRACKED_TABLE_STATES_KEY]: trackedTableStates = {},
+    [SELECTED_TRACKED_TABLE_KEY]: selectedTrackedTableId = '',
+    streakState = DEFAULT_STREAK,
+    spinLogs = [],
+  } = await sget({
+    [TRACKED_TABLE_STATES_KEY]: {},
+    [SELECTED_TRACKED_TABLE_KEY]: '',
+    streakState: DEFAULT_STREAK,
+    spinLogs: [],
+  });
+
+  const selectedSnapshot = getSelectedTrackedTableSnapshot({
+    trackedTableStates,
+    selectedTrackedTableId,
+  });
+
+  const nextStreak = selectedSnapshot.streakState || streakState;
+  const nextLogs = selectedSnapshot.spinLogs.length
+    ? selectedSnapshot.spinLogs
+    : Array.isArray(spinLogs)
+      ? spinLogs
+      : [];
+
+  setCurrStreakState(nextStreak || DEFAULT_STREAK);
+  setLatestSpins(nextLogs);
+  updateDotsFromState();
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   await loadGlobalChipsUI();
 
-  // статус/домены/логи
+  // статус / compat legacy
   loadStatus();
   loadDomains();
 
+  // hidden compat legacy blocks
   loadLogs((logs) => {
-    setLatestSpins(Array.isArray(logs) ? logs : []);
     renderAll(logs);
-    updateDotsFromState();
   });
-
   loadBetLogs(renderBetAll);
+
+  // tracked tables
+  await loadTrackedTablesUI();
 
   // рынки
   await loadMarketUI('dozens');
   await loadMarketUI('rows');
   await loadMarketUI('six');
   await loadMarketUI('threes');
-
-  // дополнительные рынки половин
   await loadMarketUI('lowhigh');
   await loadMarketUI('evenodd');
   await loadMarketUI('colors');
-
-  // sectors
   await loadMarketUI('sectors');
-
   await loadMarketUI('neighbors');
   await loadMarketUI('antidozens');
   await loadMarketUI('antirows');
@@ -259,40 +328,24 @@ document.addEventListener('DOMContentLoaded', async () => {
   // balance stop UI
   await loadBalanceStopUI();
 
-  // первичная подгрузка streakState + спины из стораджа
-  const { sget } = await getUtils();
-  const DEFAULT_STREAK = {
-    dozens: { count: 0, idx: null },
-    rows: { count: 0, idx: null },
-  };
-  const { streakState = DEFAULT_STREAK, spinLogs = [] } = await sget({
-    streakState: DEFAULT_STREAK,
-    spinLogs: [],
-  });
-  setCurrStreakState(streakState || DEFAULT_STREAK);
-  setLatestSpins(Array.isArray(spinLogs) ? spinLogs : []);
-  updateDotsFromState();
+  // focused table drives dots
+  await syncFocusedTrackedTableToDots();
 
   // кнопки/хэндлеры
   wireInitHandlers();
 
-  // ==== Живые обновления для лампочек ====
   chrome.storage.onChanged.addListener((ch, area) => {
     if (area !== 'local') return;
 
-    if (ch.spinLogs) {
-      const next = Array.isArray(ch.spinLogs.newValue)
-        ? ch.spinLogs.newValue
-        : [];
-      setLatestSpins(next);
-      updateDotsFromState();
-    }
-
     handleStorageChangeForStreaks(ch, area);
 
-    if (ch.streakState) {
-      setCurrStreakState(ch.streakState.newValue || DEFAULT_STREAK);
-      updateDotsFromState();
+    if (
+      ch[TRACKED_TABLE_STATES_KEY] ||
+      ch[SELECTED_TRACKED_TABLE_KEY] ||
+      ch.spinLogs ||
+      ch.streakState
+    ) {
+      syncFocusedTrackedTableToDots().catch(() => {});
     }
   });
 });

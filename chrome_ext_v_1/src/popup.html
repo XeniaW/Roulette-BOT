@@ -1,4 +1,3 @@
-<!-- popup.html -->
 <!doctype html>
 <html>
   <head>
@@ -27,51 +26,32 @@
     <main class="layout">
       <section class="card section-card">
         <div class="section-head">
-          <h3>Domains</h3>
-        </div>
-
-        <div class="row row-wrap">
-          <input
-            id="inpPattern"
-            placeholder="https://example.com/*"
-          />
-          <button id="btnAddPattern" class="btn">Add</button>
-          <button id="btnAddCurrent" class="btn">
-            Add current tab
-          </button>
-        </div>
-
-        <ul id="domList"></ul>
-      </section>
-
-      <section class="card section-card">
-        <div class="section-head">
-          <h3>
-            Logs <small>(<span id="count">0</span>)</small>
-          </h3>
-          <div class="small muted stat-chip">
-            Уникальные числа: <span id="uniqueLeft">37</span>
+          <h3>Tracked Tables</h3>
+          <div class="small muted">
+            Exact title match. Focused table drives dots.
           </div>
         </div>
 
-        <div id="list" class="table-shell">
-          <table>
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>#</th>
-              </tr>
-            </thead>
-            <tbody id="tbody"></tbody>
-          </table>
+        <div class="subcard">
+          <div class="tracked-add-row">
+            <input
+              id="trackedTableTitleInput"
+              type="text"
+              placeholder="American Football Auto Roulette"
+            />
+            <button
+              id="btnAddTrackedTable"
+              class="btn btn-primary"
+              type="button"
+            >
+              + Add table
+            </button>
+          </div>
+
+          <div id="trackedTablesMsg" class="small muted"></div>
         </div>
 
-        <div class="row row-wrap row-end">
-          <button id="btnExport" class="btn">Export CSV</button>
-          <button id="btnClear" class="btn btn-danger-soft">
-            Clear
-          </button>
-        </div>
+        <div id="trackedTablesList" class="tracked-tables-list"></div>
       </section>
 
       <section class="subcard">
@@ -123,35 +103,6 @@
 
           <div id="balanceStopMsg" class="small muted"></div>
           <div id="balanceStopLive" class="small muted"></div>
-        </div>
-      </section>
-
-      <section class="card section-card">
-        <div class="section-head">
-          <h3>
-            Bet Logs <small>(<span id="betCount">0</span>)</small>
-          </h3>
-        </div>
-
-        <div id="betList" class="table-shell">
-          <table>
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>Amount</th>
-                <th>Balance</th>
-                <th>Event</th>
-              </tr>
-            </thead>
-            <tbody id="betTbody"></tbody>
-          </table>
-        </div>
-
-        <div class="row row-wrap row-end">
-          <button id="btnBetExport" class="btn">Export CSV</button>
-          <button id="btnBetClear" class="btn btn-danger-soft">
-            Clear
-          </button>
         </div>
       </section>
 
@@ -1006,8 +957,61 @@
 
         <div id="cfgChipsMsg" class="small"></div>
       </section>
+
+      <!-- hidden compat blocks for old popup modules -->
+      <section class="compat-hidden" aria-hidden="true">
+        <div class="row row-wrap">
+          <input
+            id="inpPattern"
+            placeholder="https://example.com/*"
+          />
+          <button id="btnAddPattern" class="btn">Add</button>
+          <button id="btnAddCurrent" class="btn">
+            Add current tab
+          </button>
+        </div>
+        <ul id="domList"></ul>
+
+        <div id="list" class="table-shell">
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>#</th>
+              </tr>
+            </thead>
+            <tbody id="tbody"></tbody>
+          </table>
+        </div>
+        <div class="row row-wrap row-end">
+          <button id="btnExport" class="btn">Export CSV</button>
+          <button id="btnClear" class="btn btn-danger-soft">
+            Clear
+          </button>
+        </div>
+
+        <div id="betList" class="table-shell">
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Amount</th>
+                <th>Balance</th>
+                <th>Event</th>
+              </tr>
+            </thead>
+            <tbody id="betTbody"></tbody>
+          </table>
+        </div>
+        <div class="row row-wrap row-end">
+          <button id="btnBetExport" class="btn">Export CSV</button>
+          <button id="btnBetClear" class="btn btn-danger-soft">
+            Clear
+          </button>
+        </div>
+      </section>
     </main>
 
-    <script src="popup.js"></script>
+    <script type="module" src="popup.js"></script>
   </body>
 </html>

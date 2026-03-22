@@ -1,4 +1,3 @@
-/* popup.css */
 :root {
   --bg: #0b1020;
   --panel: #121a2b;
@@ -187,8 +186,10 @@ textarea {
 input[type='text'],
 input[type='number'],
 input:not([type]),
+select,
 #inpPattern,
-#cfgChipTpl {
+#cfgChipTpl,
+#trackedTableTitleInput {
   width: 100%;
   min-width: 0;
   padding: 10px 12px;
@@ -207,7 +208,8 @@ input::placeholder {
   color: #74809d;
 }
 
-input:focus {
+input:focus,
+select:focus {
   border-color: rgba(103, 232, 249, 0.55);
   box-shadow: 0 0 0 3px rgba(103, 232, 249, 0.12);
   background: rgba(8, 14, 28, 0.96);
@@ -291,6 +293,12 @@ input[type='checkbox'] {
     rgba(239, 68, 68, 0.06)
   );
   color: #ffd6d6;
+}
+
+.btn-xs {
+  min-height: 32px;
+  padding: 7px 10px;
+  font-size: 12px;
 }
 
 .status-pill,
@@ -452,15 +460,22 @@ ul li + li {
   border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.steps-accordion {
-  margin-top: 12px;
+.steps-accordion,
+.tracked-subaccordion,
+.tracked-table-card {
   border-radius: 14px;
   border: 1px solid var(--border);
   background: rgba(8, 12, 22, 0.5);
   overflow: hidden;
 }
 
-.steps-accordion summary {
+.steps-accordion {
+  margin-top: 12px;
+}
+
+.steps-accordion summary,
+.tracked-subaccordion summary,
+.tracked-table-summary {
   list-style: none;
   cursor: pointer;
   user-select: none;
@@ -472,21 +487,28 @@ ul li + li {
   justify-content: space-between;
 }
 
-.steps-accordion summary::-webkit-details-marker {
+.steps-accordion summary::-webkit-details-marker,
+.tracked-subaccordion summary::-webkit-details-marker,
+.tracked-table-summary::-webkit-details-marker {
   display: none;
 }
 
-.steps-accordion summary::after {
+.steps-accordion summary::after,
+.tracked-subaccordion summary::after,
+.tracked-table-summary::after {
   content: '▾';
   color: var(--accent);
   transition: transform 0.16s ease;
 }
 
-.steps-accordion[open] summary::after {
+.steps-accordion[open] summary::after,
+.tracked-subaccordion[open] summary::after,
+.tracked-table-card[open] > .tracked-table-summary::after {
   transform: rotate(180deg);
 }
 
-.steps-panel {
+.steps-panel,
+.tracked-subpanel {
   padding: 0 14px 14px;
   display: flex;
   flex-direction: column;
@@ -556,11 +578,6 @@ ul li + li {
   box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.14);
 }
 
-/* narrow helper */
-#inpPattern {
-  flex: 1 1 220px;
-}
-
 #cfgChipTpl {
   flex: 1 1 220px;
 }
@@ -568,6 +585,7 @@ ul li + li {
 button {
   min-height: 38px;
 }
+
 .guard-grid {
   display: flex;
   flex-direction: column;
@@ -581,8 +599,227 @@ button {
   color: var(--text-soft);
 }
 
-#balMin,
-#balMax {
-  width: 110px;
-  flex: 0 0 auto;
+.error-text {
+  color: #ff8a8a;
+}
+
+.compat-hidden {
+  display: none !important;
+}
+
+/* tracked tables */
+.tracked-add-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
+.tracked-tables-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tracked-empty {
+  padding: 18px 14px;
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.tracked-table-card {
+  background: linear-gradient(
+    180deg,
+    rgba(17, 26, 43, 0.98),
+    rgba(11, 17, 29, 0.98)
+  );
+}
+
+.tracked-table-summary-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: calc(100% - 24px);
+}
+
+.tracked-table-name {
+  color: var(--text);
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.tracked-table-summary-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.tracked-table-body {
+  padding: 0 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.tracked-table-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tracked-table-toolbar-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tracked-edit-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
+.tracked-meta-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.tracked-meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.tracked-meta-label {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.tracked-meta-value {
+  color: var(--text);
+  font-size: 12px;
+  word-break: break-word;
+}
+
+.live-badge,
+.focus-badge,
+.mini-flag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+}
+
+.live-badge.ok {
+  background: rgba(34, 197, 94, 0.16);
+  color: #bbf7d0;
+  border: 1px solid rgba(34, 197, 94, 0.22);
+}
+
+.live-badge.waiting {
+  background: rgba(245, 158, 11, 0.16);
+  color: #fde68a;
+  border: 1px solid rgba(245, 158, 11, 0.22);
+}
+
+.live-badge.standby {
+  background: rgba(139, 92, 246, 0.16);
+  color: #ddd6fe;
+  border: 1px solid rgba(139, 92, 246, 0.22);
+}
+
+.live-badge.error {
+  background: rgba(239, 68, 68, 0.16);
+  color: #fecaca;
+  border: 1px solid rgba(239, 68, 68, 0.22);
+}
+
+.live-badge.off {
+  background: rgba(148, 163, 184, 0.14);
+  color: #cbd5e1;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.focus-badge {
+  background: rgba(103, 232, 249, 0.16);
+  color: #cffafe;
+  border: 1px solid rgba(103, 232, 249, 0.22);
+}
+
+.mini-flag.enabled {
+  background: rgba(34, 197, 94, 0.12);
+  color: #bbf7d0;
+  border: 1px solid rgba(34, 197, 94, 0.18);
+}
+
+.mini-flag.disabled {
+  background: rgba(148, 163, 184, 0.12);
+  color: #cbd5e1;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.tracked-log-shell {
+  max-height: 180px;
+}
+
+.tracked-chip-mode-row {
+  display: grid;
+  grid-template-columns: 80px 1fr;
+  gap: 8px;
+  align-items: center;
+}
+
+.tracked-chip-custom.is-hidden {
+  display: none;
+}
+
+.tracked-chip-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tracked-chip-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
+.tracked-chip-input {
+  width: 100%;
+}
+
+@media (max-width: 430px) {
+  .tracked-meta-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .tracked-edit-row,
+  .tracked-add-row {
+    grid-template-columns: 1fr;
+  }
+
+  .tracked-table-summary-main {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .tracked-table-summary-meta {
+    justify-content: flex-start;
+  }
 }

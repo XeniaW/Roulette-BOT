@@ -1,7 +1,5 @@
-// src/popup/markets.js
 import { sget, sset } from './utils.js';
 import {
-  // streak inputs
   dozensStreakInp,
   rowsStreakInp,
   sixStreakInp,
@@ -10,14 +8,8 @@ import {
   evenoddStreakInp,
   colorsStreakInp,
   sectorsStreakInp,
-
-  // NEW anti-dozens
   antidozensStreakInp,
-
-  // NEW anti-rows
   antirowsStreakInp,
-
-  // checkboxes (auto-continue)
   dozensAutoCk,
   rowsAutoCk,
   sixAutoCk,
@@ -26,14 +18,8 @@ import {
   evenoddAutoCk,
   colorsAutoCk,
   sectorsAutoCk,
-
-  // NEW anti-dozens
   antidozensAutoCk,
-
-  // NEW anti-rows
   antirowsAutoCk,
-
-  // checkboxes (include zero)
   dozensZeroCk,
   rowsZeroCk,
   sixZeroCk,
@@ -42,14 +28,8 @@ import {
   evenoddZeroCk,
   colorsZeroCk,
   sectorsZeroCk,
-
-  // NEW anti-dozens
   antidozensZeroCk,
-
-  // NEW anti-rows
   antirowsZeroCk,
-
-  // toggles
   autoBetToggleDozens,
   autoBetToggleRows,
   autoBetToggleSix,
@@ -58,14 +38,8 @@ import {
   autoBetToggleEvenOdd,
   autoBetToggleColors,
   autoBetToggleSectors,
-
-  // NEW anti-dozens
   autoBetToggleAntiDozens,
-
-  // NEW anti-rows
   autoBetToggleAntiRows,
-
-  // steps boxes
   dznStepsBox,
   rowStepsBox,
   sixStepsBox,
@@ -74,14 +48,8 @@ import {
   evenoddStepsBox,
   colorsStepsBox,
   sectorsStepsBox,
-
-  // NEW anti-dozens
   antiDznStepsBox,
-
-  // NEW anti-rows
   antiRowsStepsBox,
-
-  // cfg messages
   cfgDznMsg,
   cfgRowMsg,
   cfgSixMsg,
@@ -90,14 +58,8 @@ import {
   cfgEvenOddMsg,
   cfgColorsMsg,
   cfgSectorsMsg,
-
-  // NEW anti-dozens
   cfgAntiDznMsg,
-
-  // NEW anti-rows
   cfgAntiRowsMsg,
-
-  // bet status output spans
   betStatusDozens,
   betStatusRows,
   betStatusSix,
@@ -106,20 +68,12 @@ import {
   betStatusEvenOdd,
   betStatusColors,
   betStatusSectors,
-
-  // NEW anti-dozens
   betStatusAntiDozens,
-
-  // NEW anti-rows
   betStatusAntiRows,
-
-  // neighbors
   autoBetToggleNeighbors,
   betStatusNeighbors,
   neighborsStepsBox,
   cfgNeighborsMsg,
-
-  // === NEW: numbers ===
   numbersGapInp,
   numbersMaxTargetsInp,
   numbersAutoCk,
@@ -133,7 +87,6 @@ import { renderSteps, getStepsFromUI } from './steps-ui.js';
 import { DEFAULT_CHIPS, GLOBAL_CHIPS_KEY } from './chips.js';
 import { resetStreakDots, updateDotsFromState } from './streaks.js';
 
-// === CFG keys (storage) ===
 export const CFG_DZN_KEY = 'abDozensConfig';
 export const CFG_ANTI_DZN_KEY = 'abAntiDozensConfig';
 export const CFG_ROW_KEY = 'abRowsConfig';
@@ -144,14 +97,9 @@ export const CFG_EVENODD_KEY = 'abEvenOddConfig';
 export const CFG_COLORS_KEY = 'abColorsConfig';
 export const CFG_SECTORS_KEY = 'abSectorsConfig';
 export const CFG_NEIGHBORS_KEY = 'abNeighborsConfig';
-
-// NEW: anti-rows
 export const CFG_ANTI_ROWS_KEY = 'abAntiRowsConfig';
-
-// NEW: numbers
 export const CFG_NUMBERS_KEY = 'abNumbersConfig';
 
-// === Default configs ===
 export const DEFAULT_MKT = Object.freeze({
   triggerStreak: 2,
   autoContinue: false,
@@ -179,8 +127,6 @@ export const DEFAULT_NEIGHBORS = Object.freeze({
   ],
 });
 
-// NEW: numbers defaults (gap-based)
-// 0 ВСЕГДА входит, поэтому includeZero вообще не существует в numbers
 export const DEFAULT_NUMBERS = Object.freeze({
   triggerGap: 120,
   maxTargets: 1,
@@ -200,17 +146,18 @@ export function sanitizeNeighbors(raw) {
       st.map((it) => ({
         chip: Math.max(1, Math.floor(Number(it?.chip ?? 1))),
         times: Math.max(1, Math.floor(Number(it?.times ?? 1))),
-      }))
+      })),
     )
     .map((st) =>
       st.filter(
-        (it) => Number.isFinite(it.chip) && Number.isFinite(it.times)
-      )
+        (it) => Number.isFinite(it.chip) && Number.isFinite(it.times),
+      ),
     )
     .filter((st) => st.length);
 
-  if (!steps.length)
+  if (!steps.length) {
     steps = JSON.parse(JSON.stringify(DEFAULT_NEIGHBORS.steps));
+  }
   return { steps };
 }
 
@@ -218,7 +165,9 @@ export function sanitizeMkt(raw) {
   const src = raw || {};
   const triggerStreak = Math.max(
     2,
-    Math.floor(Number(src.triggerStreak ?? DEFAULT_MKT.triggerStreak))
+    Math.floor(
+      Number(src.triggerStreak ?? DEFAULT_MKT.triggerStreak),
+    ),
   );
   const autoContinue = !!(
     src.autoContinue ?? DEFAULT_MKT.autoContinue
@@ -235,31 +184,31 @@ export function sanitizeMkt(raw) {
       st.map((it) => ({
         chip: Math.max(1, Math.floor(Number(it?.chip ?? 1))),
         times: Math.max(1, Math.floor(Number(it?.times ?? 1))),
-      }))
+      })),
     )
     .map((st) =>
       st.filter(
-        (it) => Number.isFinite(it.chip) && Number.isFinite(it.times)
-      )
+        (it) => Number.isFinite(it.chip) && Number.isFinite(it.times),
+      ),
     )
     .filter((st) => st.length);
 
-  if (!steps.length)
+  if (!steps.length) {
     steps = JSON.parse(JSON.stringify(DEFAULT_MKT.steps));
+  }
+
   return { triggerStreak, steps, autoContinue, includeZero };
 }
 
-// NEW: numbers sanitize (gap-based, same steps schema)
-// includeZero УДАЛЁН. 0 всегда в numbers.
 export function sanitizeNumbers(raw) {
   const src = raw || {};
   const triggerGap = Math.max(
     1,
-    Math.floor(Number(src.triggerGap ?? DEFAULT_NUMBERS.triggerGap))
+    Math.floor(Number(src.triggerGap ?? DEFAULT_NUMBERS.triggerGap)),
   );
   const maxTargets = Math.max(
     1,
-    Math.floor(Number(src.maxTargets ?? DEFAULT_NUMBERS.maxTargets))
+    Math.floor(Number(src.maxTargets ?? DEFAULT_NUMBERS.maxTargets)),
   );
   const autoContinue = !!(
     src.autoContinue ?? DEFAULT_NUMBERS.autoContinue
@@ -275,21 +224,22 @@ export function sanitizeNumbers(raw) {
       st.map((it) => ({
         chip: Math.max(1, Math.floor(Number(it?.chip ?? 1))),
         times: Math.max(1, Math.floor(Number(it?.times ?? 1))),
-      }))
+      })),
     )
     .map((st) =>
       st.filter(
-        (it) => Number.isFinite(it.chip) && Number.isFinite(it.times)
-      )
+        (it) => Number.isFinite(it.chip) && Number.isFinite(it.times),
+      ),
     )
     .filter((st) => st.length);
 
-  if (!steps.length)
+  if (!steps.length) {
     steps = JSON.parse(JSON.stringify(DEFAULT_NUMBERS.steps));
+  }
+
   return { triggerGap, maxTargets, steps, autoContinue };
 }
 
-/** Load/render market UI. NO event listeners here. init.js owns UI wiring. */
 export async function loadMarketUI(market) {
   let cfgKey,
     enKey,
@@ -424,9 +374,9 @@ export async function loadMarketUI(market) {
     cfgKey = CFG_NUMBERS_KEY;
     enKey = 'autoBettingNumbersEnabled';
     statusKey = 'bettingStatusNumbers';
-    streakInp = numbersGapInp; // gap
+    streakInp = numbersGapInp;
     autoCk = numbersAutoCk;
-    zeroCk = null; // НЕТ includeZero
+    zeroCk = null;
     toggle = autoBetToggleNumbers;
     stepsBox = numbersStepsBox;
     msgEl = cfgNumbersMsg;
@@ -443,26 +393,27 @@ export async function loadMarketUI(market) {
   const stat = st[statusKey] || { state: 'off', message: '' };
   if (statusElDest) {
     statusElDest.textContent = `[${String(
-      stat.state || 'off'
+      stat.state || 'off',
     ).toUpperCase()}] ${stat.message || ''}`;
   }
 
   let cfg;
   if (market === 'neighbors') {
     cfg = sanitizeNeighbors(
-      (await sget({ [cfgKey]: DEFAULT_NEIGHBORS }))[cfgKey]
+      (await sget({ [cfgKey]: DEFAULT_NEIGHBORS }))[cfgKey],
     );
   } else if (market === 'numbers') {
     cfg = sanitizeNumbers(
-      (await sget({ [cfgKey]: DEFAULT_NUMBERS }))[cfgKey]
+      (await sget({ [cfgKey]: DEFAULT_NUMBERS }))[cfgKey],
     );
     if (numbersGapInp) numbersGapInp.value = String(cfg.triggerGap);
-    if (numbersMaxTargetsInp)
+    if (numbersMaxTargetsInp) {
       numbersMaxTargetsInp.value = String(cfg.maxTargets);
+    }
     if (numbersAutoCk) numbersAutoCk.checked = !!cfg.autoContinue;
   } else {
     cfg = sanitizeMkt(
-      (await sget({ [cfgKey]: DEFAULT_MKT }))[cfgKey]
+      (await sget({ [cfgKey]: DEFAULT_MKT }))[cfgKey],
     );
     if (streakInp) streakInp.value = String(cfg.triggerStreak);
     if (autoCk) autoCk.checked = !!cfg.autoContinue;
@@ -554,14 +505,15 @@ export async function saveMarketCfgFromUI(market) {
     cfgKey = CFG_NUMBERS_KEY;
     stepsBox = numbersStepsBox;
     msgEl = cfgNumbersMsg;
-    streakInpEl = numbersGapInp; // gap
+    streakInpEl = numbersGapInp;
     autoCkEl = numbersAutoCk;
-    zeroCkEl = null; // НЕТ includeZero
+    zeroCkEl = null;
   } else return;
 
   const { [GLOBAL_CHIPS_KEY]: chips = DEFAULT_CHIPS } = await sget({
     [GLOBAL_CHIPS_KEY]: DEFAULT_CHIPS,
   });
+
   const chipCount = Array.isArray(chips?.chipValues)
     ? chips.chipValues.length
     : DEFAULT_CHIPS.chipValues.length;
@@ -591,11 +543,11 @@ export async function saveMarketCfgFromUI(market) {
   if (market === 'numbers') {
     const gap = Math.max(
       1,
-      Math.floor(Number(streakInpEl?.value || 1))
+      Math.floor(Number(streakInpEl?.value || 1)),
     );
     const maxTargets = Math.max(
       1,
-      Math.floor(Number(numbersMaxTargetsInp?.value || 1))
+      Math.floor(Number(numbersMaxTargetsInp?.value || 1)),
     );
     const autoContinue = !!autoCkEl?.checked;
 
@@ -613,7 +565,7 @@ export async function saveMarketCfgFromUI(market) {
 
   const streak = Math.max(
     2,
-    Math.floor(Number(streakInpEl?.value || 2))
+    Math.floor(Number(streakInpEl?.value || 2)),
   );
   const autoContinue = !!autoCkEl?.checked;
   const includeZero = zeroCkEl == null ? true : !!zeroCkEl.checked;
@@ -629,7 +581,6 @@ export async function saveMarketCfgFromUI(market) {
   if (msgEl) msgEl.textContent = 'Saved.';
 }
 
-/** Reset streak dots only for streak markets */
 export function wireMarketTogglesReset() {
   autoBetToggleDozens?.addEventListener('change', async () => {
     const checked = !!autoBetToggleDozens.checked;
@@ -736,7 +687,6 @@ export function wireMarketTogglesReset() {
     }
   });
 
-  // NEW: numbers (no dots)
   autoBetToggleNumbers?.addEventListener('change', async () => {
     const checked = !!autoBetToggleNumbers.checked;
     await sset({

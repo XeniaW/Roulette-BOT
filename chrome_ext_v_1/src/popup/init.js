@@ -1,4 +1,3 @@
-// src/popup/init.js
 import {
   btnExport,
   btnClear,
@@ -10,11 +9,7 @@ import {
   rowsStreakInp,
   sixStreakInp,
   threesStreakInp,
-
-  // anti-dozens
   antidozensStreakInp,
-
-  // anti-rows
   antirowsStreakInp,
   lowhighStreakInp,
   evenoddStreakInp,
@@ -42,13 +37,9 @@ import {
   colorsStepsBox,
   sectorsStepsBox,
   inpPattern,
-
-  // neighbors
   neighborsStepsBox,
   autoBetToggleNeighbors,
   betStatusNeighbors,
-
-  // === numbers ===
   numbersGapInp,
   numbersMaxTargetsInp,
   numbersStepsBox,
@@ -88,11 +79,11 @@ function debounce(fn, ms = 200) {
 
 function wireAutoSaveForMarket(
   market,
-  { streakInp, autoCk, zeroCk, stepsBox }
+  { streakInp, autoCk, zeroCk, stepsBox },
 ) {
   const debouncedSave = debounce(
     () => saveMarketCfgFromUI(market),
-    200
+    200,
   );
 
   const shouldUpdateDots = market !== 'numbers';
@@ -104,8 +95,9 @@ function wireAutoSaveForMarket(
     });
   }
 
-  if (autoCk)
+  if (autoCk) {
     autoCk.addEventListener('change', () => debouncedSave());
+  }
 
   if (zeroCk) {
     zeroCk.addEventListener('change', () => {
@@ -119,7 +111,7 @@ function wireAutoSaveForMarket(
     stepsBox.addEventListener('input', () => debouncedSave());
     stepsBox.addEventListener('click', (e) => {
       const btn = e.target?.closest(
-        '.btn-del-item,.btn-del-step,.btn-add-item'
+        '.btn-del-item,.btn-del-step,.btn-add-item',
       );
       if (btn) debouncedSave();
     });
@@ -127,7 +119,6 @@ function wireAutoSaveForMarket(
 }
 
 export function wireInitHandlers() {
-  // ===== Add step buttons =====
   document
     .getElementById('btnAddDznStep')
     ?.addEventListener('click', () => addStep(dznStepsBox));
@@ -161,62 +152,59 @@ export function wireInitHandlers() {
   document
     .getElementById('btnAddNeighborsStep')
     ?.addEventListener('click', () => addStep(neighborsStepsBox));
-
-  // numbers
   document
     .getElementById('btnAddNumbersStep')
     ?.addEventListener('click', () => addStep(numbersStepsBox));
 
-  // ===== Defaults buttons =====
   document
     .getElementById('btnCfgDznDefaults')
     ?.addEventListener('click', () =>
-      renderSteps(dznStepsBox, DEFAULT_MKT.steps)
+      renderSteps(dznStepsBox, DEFAULT_MKT.steps),
     );
   document
     .getElementById('btnCfgAntiDznDefaults')
     ?.addEventListener('click', () =>
-      renderSteps(antiDznStepsBox, DEFAULT_MKT.steps)
+      renderSteps(antiDznStepsBox, DEFAULT_MKT.steps),
     );
   document
     .getElementById('btnCfgAntiRowDefaults')
     ?.addEventListener('click', () =>
-      renderSteps(antiRowsStepsBox, DEFAULT_MKT.steps)
+      renderSteps(antiRowsStepsBox, DEFAULT_MKT.steps),
     );
   document
     .getElementById('btnCfgRowDefaults')
     ?.addEventListener('click', () =>
-      renderSteps(rowStepsBox, DEFAULT_MKT.steps)
+      renderSteps(rowStepsBox, DEFAULT_MKT.steps),
     );
   document
     .getElementById('btnCfgSixDefaults')
     ?.addEventListener('click', () =>
-      renderSteps(sixStepsBox, DEFAULT_MKT.steps)
+      renderSteps(sixStepsBox, DEFAULT_MKT.steps),
     );
   document
     .getElementById('btnCfgThreesDefaults')
     ?.addEventListener('click', () =>
-      renderSteps(threesStepsBox, DEFAULT_MKT.steps)
+      renderSteps(threesStepsBox, DEFAULT_MKT.steps),
     );
   document
     .getElementById('btnCfgLowHighDefaults')
     ?.addEventListener('click', () =>
-      renderSteps(lowhighStepsBox, DEFAULT_MKT.steps)
+      renderSteps(lowhighStepsBox, DEFAULT_MKT.steps),
     );
   document
     .getElementById('btnCfgEvenOddDefaults')
     ?.addEventListener('click', () =>
-      renderSteps(evenoddStepsBox, DEFAULT_MKT.steps)
+      renderSteps(evenoddStepsBox, DEFAULT_MKT.steps),
     );
   document
     .getElementById('btnCfgColorsDefaults')
     ?.addEventListener('click', () =>
-      renderSteps(colorsStepsBox, DEFAULT_MKT.steps)
+      renderSteps(colorsStepsBox, DEFAULT_MKT.steps),
     );
   document
     .getElementById('btnCfgSectorsDefaults')
     ?.addEventListener('click', () =>
-      renderSteps(sectorsStepsBox, DEFAULT_MKT.steps)
+      renderSteps(sectorsStepsBox, DEFAULT_MKT.steps),
     );
 
   document
@@ -232,26 +220,24 @@ export function wireInitHandlers() {
       if (msg) msg.textContent = 'Defaults loaded';
     });
 
-  // numbers defaults
   document
     .getElementById('btnCfgNumbersDefaults')
     ?.addEventListener('click', () =>
-      renderSteps(numbersStepsBox, DEFAULT_MKT.steps)
+      renderSteps(numbersStepsBox, DEFAULT_MKT.steps),
     );
 
-  // ===== Save buttons =====
   document
     .getElementById('btnCfgDznSave')
     ?.addEventListener('click', () => saveMarketCfgFromUI('dozens'));
   document
     .getElementById('btnCfgAntiDznSave')
     ?.addEventListener('click', () =>
-      saveMarketCfgFromUI('antidozens')
+      saveMarketCfgFromUI('antidozens'),
     );
   document
     .getElementById('btnCfgAntiRowSave')
     ?.addEventListener('click', () =>
-      saveMarketCfgFromUI('antirows')
+      saveMarketCfgFromUI('antirows'),
     );
   document
     .getElementById('btnCfgRowSave')
@@ -277,23 +263,19 @@ export function wireInitHandlers() {
   document
     .getElementById('btnCfgNeighborsSave')
     ?.addEventListener('click', () =>
-      saveMarketCfgFromUI('neighbors')
+      saveMarketCfgFromUI('neighbors'),
     );
-
-  // numbers save
   document
     .getElementById('btnCfgNumbersSave')
     ?.addEventListener('click', () => saveMarketCfgFromUI('numbers'));
 
-  // ===== Export / clear logs =====
   btnExport?.addEventListener('click', exportCSV);
   btnClear?.addEventListener('click', clearLogs);
   btnBetExport?.addEventListener('click', exportBetCSV);
   btnBetClear?.addEventListener('click', clearBetLogs);
 
-  // ===== Domains =====
   btnAddPattern?.addEventListener('click', () =>
-    addPattern(inpPattern.value)
+    addPattern(inpPattern.value),
   );
   btnAddCurrent?.addEventListener('click', async () => {
     const [tab] = await chrome.tabs.query({
@@ -307,12 +289,10 @@ export function wireInitHandlers() {
     } catch {}
   });
 
-  // ===== Master tracking toggle =====
   document
     .getElementById('toggleTrack')
     ?.addEventListener('change', (e) => setToggle(e.target.checked));
 
-  // ===== Dots updates (только те, у кого есть dots) =====
   dozensStreakInp?.addEventListener('input', updateDotsFromState);
   rowsStreakInp?.addEventListener('input', updateDotsFromState);
   sixStreakInp?.addEventListener('input', updateDotsFromState);
@@ -335,7 +315,6 @@ export function wireInitHandlers() {
   colorsZeroCk?.addEventListener('change', updateDotsFromState);
   sectorsZeroCk?.addEventListener('change', updateDotsFromState);
 
-  // ===== Save all =====
   btnSaveAll?.addEventListener('click', async () => {
     await saveGlobalChipsFromUI();
     await saveMarketCfgFromUI('dozens');
@@ -352,7 +331,6 @@ export function wireInitHandlers() {
     await saveMarketCfgFromUI('numbers');
   });
 
-  // ===== Auto-save wiring =====
   wireAutoSaveForMarket('dozens', {
     streakInp: dozensStreakInp,
     autoCk: document.getElementById('dozensAutoContinue'),
@@ -423,10 +401,8 @@ export function wireInitHandlers() {
     stepsBox: sectorsStepsBox,
   });
 
-  // neighbors: steps only
   wireAutoSaveForMarket('neighbors', { stepsBox: neighborsStepsBox });
 
-  // numbers: gap + maxTargets + autoContinue + steps (без dots и без includeZero)
   wireAutoSaveForMarket('numbers', {
     streakInp: numbersGapInp,
     autoCk: document.getElementById('numbersAutoContinue'),
@@ -434,13 +410,11 @@ export function wireInitHandlers() {
     stepsBox: numbersStepsBox,
   });
 
-  // numbersMaxTargetsInp тоже должен сохраняться
   numbersMaxTargetsInp?.addEventListener(
     'input',
-    debounce(() => saveMarketCfgFromUI('numbers'), 200)
+    debounce(() => saveMarketCfgFromUI('numbers'), 200),
   );
 
-  // neighbors: instant ON/OFF UI
   autoBetToggleNeighbors?.addEventListener('change', async () => {
     const checked = !!autoBetToggleNeighbors.checked;
     try {
@@ -459,17 +433,16 @@ export function wireInitHandlers() {
     }
   });
 
-  // ===== ENTRY LIMIT UI =====
   const maxEntriesInp = document.getElementById('maxEntries');
   const btnSaveMaxEntries = document.getElementById(
-    'btnSaveMaxEntries'
+    'btnSaveMaxEntries',
   );
   const btnResetEntryCounters = document.getElementById(
-    'btnResetEntryCounters'
+    'btnResetEntryCounters',
   );
   const entryLimitMsg = document.getElementById('entryLimitMsg');
   const entryCountersList = document.getElementById(
-    'entryCountersList'
+    'entryCountersList',
   );
 
   async function renderCounters() {
