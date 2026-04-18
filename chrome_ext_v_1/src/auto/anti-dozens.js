@@ -283,17 +283,17 @@ import { entryGateFor } from '../shared/entry-limit.js';
       );
     }
 
-    async onSpin(n) {
+    async onSpin(n, ctx = null) {
       const exec = await this.getExec();
       if (!exec.enabled) return;
 
-      const { tableId, spinLogs: trackedLogs } =
-        await getTrackedSpinLogsForThisTab();
+      const tableId =
+        ctx?.tableId || (await getTrackedTableIdForThisTab());
       if (!tableId) return;
 
-      const spinLogs = Array.isArray(trackedLogs)
-        ? trackedLogs.slice()
-        : [];
+      const spinLogs = Array.isArray(ctx?.spinLogs)
+        ? ctx.spinLogs.slice()
+        : (await getTrackedSpinLogsForThisTab()).spinLogs.slice();
 
       if (
         spinLogs.length === 0 ||
@@ -320,7 +320,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
             'antidozens',
             'autoBettingAntiDozensEnabled',
             'bettingStatusAntiDozens',
-            { execKey: 'betExecAntiDozens' },
+            { execKey: EXECS_KEY },
           );
           if (!gateOk) return;
 
@@ -622,9 +622,12 @@ import { entryGateFor } from '../shared/entry-limit.js';
             : [];
 
           if (newLogs.length > oldLogs.length) {
-            const added = newLogs.slice(oldLogs.length);
-            for (const e of added) {
-              await this.onSpin(e.n);
+            for (let i = oldLogs.length; i < newLogs.length; i++) {
+              const e = newLogs[i];
+              await this.onSpin(e?.n, {
+                tableId,
+                spinLogs: newLogs.slice(0, i + 1),
+              });
             }
           }
         }

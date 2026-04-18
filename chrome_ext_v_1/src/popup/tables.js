@@ -11,7 +11,6 @@ import {
   getTrackedTableState,
   getTrackedTableBalanceValue,
   getTrackedTableSpinLogs,
-  getTrackedTableBetLogs,
   getTrackedTableStatus,
   getTrackedTableMatchedTitle,
   getTrackedTableLeaderText,
@@ -21,6 +20,8 @@ import {
   countUniqueLeft,
   normalizeChipValues,
 } from '../shared/tracked-tables.js';
+
+const TRACKED_TABLE_BET_LOGS_KEY = 'trackedTableBetLogsByTable';
 
 let booted = false;
 let renderTimer = null;
@@ -201,6 +202,46 @@ function getDraft(tableId) {
   return uiState.drafts?.[tableId] || null;
 }
 
+function sanitizeTableBetLogsMap(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return {};
+  }
+
+  const out = {};
+  for (const [tableId, logs] of Object.entries(raw)) {
+    out[String(tableId)] = Array.isArray(logs) ? logs.slice() : [];
+  }
+  return out;
+}
+
+function getTrackedTableBetLogsForCard(
+  state,
+  tableBetLogsMap,
+  tableId,
+) {
+  const fromMap =
+    tableId &&
+    tableBetLogsMap &&
+    typeof tableBetLogsMap === 'object' &&
+    Array.isArray(tableBetLogsMap[tableId])
+      ? tableBetLogsMap[tableId]
+      : null;
+
+  if (Array.isArray(fromMap) && fromMap.length > 0) {
+    return fromMap;
+  }
+
+  if (Array.isArray(state?.betLogs) && state.betLogs.length > 0) {
+    return state.betLogs;
+  }
+
+  if (Array.isArray(fromMap)) {
+    return fromMap;
+  }
+
+  return Array.isArray(state?.betLogs) ? state.betLogs : [];
+}
+
 function captureUiStateFromDom() {
   const listEl = document.getElementById('trackedTablesList');
   if (!listEl) return;
@@ -301,13 +342,23 @@ function restoreScrollPositions() {
   }
 }
 
-function buildTableCard({ table, state, isOpen, isSelected }) {
+function buildTableCard({
+  table,
+  state,
+  tableBetLogsMap,
+  isOpen,
+  isSelected,
+}) {
   const status = getTrackedTableStatus(state);
   const badge = getLiveBadge(status?.state);
   const balance = getTrackedTableBalanceValue(state);
   const matchedTitle = getTrackedTableMatchedTitle(state);
   const spinLogs = getTrackedTableSpinLogs(state);
-  const betLogs = getTrackedTableBetLogs(state);
+  const betLogs = getTrackedTableBetLogsForCard(
+    state,
+    tableBetLogsMap,
+    table.id,
+  );
   const uniqueLeft = countUniqueLeft(spinLogs);
   const leaderText = getTrackedTableLeaderText(state);
 
@@ -329,7 +380,7 @@ function buildTableCard({ table, state, isOpen, isSelected }) {
       : table.customChipTpl || '';
 
   const chipValues =
-    Array.isArray(draft?.chipValues) && draft.chipValues.length
+    Array.isArray(draft?.chipValues) && draft?.chipValues.length
       ? draft.chipValues
       : Array.isArray(table?.customChips)
         ? table.customChips
@@ -597,11 +648,13 @@ async function getSnapshot() {
   const {
     [TRACKED_TABLES_KEY]: rawTables = [],
     [TRACKED_TABLE_STATES_KEY]: rawStates = {},
+    [TRACKED_TABLE_BET_LOGS_KEY]: rawTableBetLogsMap = {},
     [SELECTED_TRACKED_TABLE_KEY]: selectedId = '',
     [UI_TRACKED_TABLES_OPEN_KEY]: openIdsRaw = [],
   } = await sget({
     [TRACKED_TABLES_KEY]: [],
     [TRACKED_TABLE_STATES_KEY]: {},
+    [TRACKED_TABLE_BET_LOGS_KEY]: {},
     [SELECTED_TRACKED_TABLE_KEY]: '',
     [UI_TRACKED_TABLES_OPEN_KEY]: [],
   });
@@ -609,6 +662,7 @@ async function getSnapshot() {
   return {
     tables: sanitizeTrackedTables(rawTables),
     states: sanitizeTrackedTableStates(rawStates),
+    tableBetLogsMap: sanitizeTableBetLogsMap(rawTableBetLogsMap),
     selectedId: String(selectedId || '').trim(),
     openIds: new Set(
       Array.isArray(openIdsRaw) ? openIdsRaw.filter(Boolean) : [],
@@ -629,7 +683,8 @@ async function renderTrackedTables() {
 
   captureUiStateFromDom();
 
-  const { tables, states, selectedId, openIds } = await getSnapshot();
+  const { tables, states, tableBetLogsMap, selectedId, openIds } =
+    await getSnapshot();
 
   if (!tables.length) {
     listEl.innerHTML = `
@@ -647,6 +702,7 @@ async function renderTrackedTables() {
       buildTableCard({
         table,
         state: getTrackedTableState(states, table.id),
+        tableBetLogsMap,
         isOpen: isTopOpen(table.id, openIds),
         isSelected: selectedId === table.id,
       }),
@@ -662,14 +718,13 @@ async function patchTrackedTableStates() {
 
   captureUiStateFromDom();
 
-  const { tables, states } = await getSnapshot();
+  const { tables, states, tableBetLogsMap } = await getSnapshot();
   const tableMap = new Map(tables.map((t) => [t.id, t]));
 
   const cards = Array.from(
     listEl.querySelectorAll('.tracked-table-card'),
   );
 
-  // if structure is out of sync, do a full render
   if (cards.length !== tables.length) {
     await renderTrackedTables();
     return;
@@ -689,7 +744,11 @@ async function patchTrackedTableStates() {
     const matchedTitle = getTrackedTableMatchedTitle(state);
     const leaderText = getTrackedTableLeaderText(state);
     const spinLogs = getTrackedTableSpinLogs(state);
-    const betLogs = getTrackedTableBetLogs(state);
+    const betLogs = getTrackedTableBetLogsForCard(
+      state,
+      tableBetLogsMap,
+      tableId,
+    );
     const uniqueLeft = countUniqueLeft(spinLogs);
 
     const badgeEl = card.querySelector('[data-role="live-badge"]');
@@ -761,7 +820,8 @@ async function addTrackedTable() {
     return;
   }
 
-  const { tables, states, selectedId, openIds } = await getSnapshot();
+  const { tables, states, tableBetLogsMap, selectedId, openIds } =
+    await getSnapshot();
   const norm = normalizeTitle(title);
 
   if (tables.some((item) => item.normTitle === norm)) {
@@ -808,12 +868,18 @@ async function addTrackedTable() {
     },
   };
 
+  const nextTableBetLogsMap = {
+    ...tableBetLogsMap,
+    [id]: [],
+  };
+
   const nextOpen = Array.from(new Set([...openIds, id]));
   uiState.topOpen.add(id);
 
   await sset({
     [TRACKED_TABLES_KEY]: nextTables,
     [TRACKED_TABLE_STATES_KEY]: nextStates,
+    [TRACKED_TABLE_BET_LOGS_KEY]: nextTableBetLogsMap,
     [SELECTED_TRACKED_TABLE_KEY]: selectedId || id,
     [UI_TRACKED_TABLES_OPEN_KEY]: nextOpen,
   });
@@ -854,7 +920,8 @@ async function renameTrackedTable(card) {
     return;
   }
 
-  const { tables, states, selectedId, openIds } = await getSnapshot();
+  const { tables, states, tableBetLogsMap, selectedId, openIds } =
+    await getSnapshot();
 
   const idx = tables.findIndex((t) => t.id === tableId);
   if (idx === -1) return;
@@ -876,6 +943,7 @@ async function renameTrackedTable(card) {
 
   let nextId = current.id;
   const nextStates = { ...states };
+  const nextTableBetLogsMap = { ...tableBetLogsMap };
   const nextOpenIds = new Set(openIds);
   let nextSelectedId = selectedId;
 
@@ -891,6 +959,20 @@ async function renameTrackedTable(card) {
         title: nextTitle,
       };
       delete nextStates[current.id];
+    }
+
+    if (
+      Object.prototype.hasOwnProperty.call(
+        nextTableBetLogsMap,
+        current.id,
+      )
+    ) {
+      nextTableBetLogsMap[nextId] = Array.isArray(
+        nextTableBetLogsMap[current.id],
+      )
+        ? nextTableBetLogsMap[current.id].slice()
+        : [];
+      delete nextTableBetLogsMap[current.id];
     }
 
     if (nextOpenIds.has(current.id)) {
@@ -939,6 +1021,7 @@ async function renameTrackedTable(card) {
   await sset({
     [TRACKED_TABLES_KEY]: nextTables,
     [TRACKED_TABLE_STATES_KEY]: nextStates,
+    [TRACKED_TABLE_BET_LOGS_KEY]: nextTableBetLogsMap,
     [SELECTED_TRACKED_TABLE_KEY]: nextSelectedId,
     [UI_TRACKED_TABLES_OPEN_KEY]: Array.from(nextOpenIds),
   });
@@ -950,11 +1033,15 @@ async function removeTrackedTable(card) {
   const tableId = String(card?.dataset?.tableId || '').trim();
   if (!tableId) return;
 
-  const { tables, states, selectedId, openIds } = await getSnapshot();
+  const { tables, states, tableBetLogsMap, selectedId, openIds } =
+    await getSnapshot();
 
   const nextTables = tables.filter((t) => t.id !== tableId);
   const nextStates = { ...states };
+  const nextTableBetLogsMap = { ...tableBetLogsMap };
+
   delete nextStates[tableId];
+  delete nextTableBetLogsMap[tableId];
 
   const nextOpenIds = Array.from(openIds).filter(
     (id) => id !== tableId,
@@ -971,6 +1058,7 @@ async function removeTrackedTable(card) {
   await sset({
     [TRACKED_TABLES_KEY]: nextTables,
     [TRACKED_TABLE_STATES_KEY]: nextStates,
+    [TRACKED_TABLE_BET_LOGS_KEY]: nextTableBetLogsMap,
     [SELECTED_TRACKED_TABLE_KEY]: nextSelectedId,
     [UI_TRACKED_TABLES_OPEN_KEY]: nextOpenIds,
   });
@@ -1000,25 +1088,46 @@ async function clearTableLogs(card, kind) {
   const tableId = String(card?.dataset?.tableId || '').trim();
   if (!tableId) return;
 
-  const { states } = await getSnapshot();
+  const { states, tableBetLogsMap } = await getSnapshot();
   const state = getTrackedTableState(states, tableId) || {};
+
+  if (kind === 'spin') {
+    const nextStates = {
+      ...states,
+      [tableId]: {
+        ...state,
+        spinLogs: [],
+      },
+    };
+
+    await sset({ [TRACKED_TABLE_STATES_KEY]: nextStates });
+    return;
+  }
 
   const nextStates = {
     ...states,
     [tableId]: {
       ...state,
-      [kind === 'spin' ? 'spinLogs' : 'betLogs']: [],
+      betLogs: [],
     },
   };
 
-  await sset({ [TRACKED_TABLE_STATES_KEY]: nextStates });
+  const nextTableBetLogsMap = {
+    ...tableBetLogsMap,
+    [tableId]: [],
+  };
+
+  await sset({
+    [TRACKED_TABLE_STATES_KEY]: nextStates,
+    [TRACKED_TABLE_BET_LOGS_KEY]: nextTableBetLogsMap,
+  });
 }
 
 async function exportTableLogs(card, kind) {
   const tableId = String(card?.dataset?.tableId || '').trim();
   if (!tableId) return;
 
-  const { tables, states } = await getSnapshot();
+  const { tables, states, tableBetLogsMap } = await getSnapshot();
   const table = tables.find((t) => t.id === tableId);
   const state = getTrackedTableState(states, tableId);
 
@@ -1031,7 +1140,11 @@ async function exportTableLogs(card, kind) {
     return;
   }
 
-  const betLogs = getTrackedTableBetLogs(state);
+  const betLogs = getTrackedTableBetLogsForCard(
+    state,
+    tableBetLogsMap,
+    tableId,
+  );
   downloadText(
     `${table?.id || tableId}-bet-logs.csv`,
     betLogsToCsv(betLogs),
@@ -1301,7 +1414,10 @@ export async function loadTrackedTablesUI() {
         return;
       }
 
-      if (changes[TRACKED_TABLE_STATES_KEY]) {
+      if (
+        changes[TRACKED_TABLE_STATES_KEY] ||
+        changes[TRACKED_TABLE_BET_LOGS_KEY]
+      ) {
         patchTrackedTableStates().catch(() => {
           scheduleRender();
         });

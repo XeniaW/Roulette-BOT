@@ -16,7 +16,10 @@
     }
   })();
 
-  const TITLE_SEL = '[data-test-el="casino-control-bar__title"]';
+  const TITLE_SELECTORS = [
+    '[data-test-el="casino-control-bar__title"]',
+    '.casino-games-stand-game-frame-header__title',
+  ];
   const CONTAINER_ATTR = 'previous-spins-stack';
   const CONTAINER_SEL = `[data-name="${CONTAINER_ATTR}"]`;
   const CELL_PREFIX = 'cell-';
@@ -92,12 +95,12 @@
     },
     {
       enabledKey: 'autoBettingAntiDozensEnabled',
-      execKey: 'betExecAntiDozens',
+      execKey: 'betExecAntiDozensByTable',
       statusKey: 'bettingStatusAntiDozens',
     },
     {
       enabledKey: 'autoBettingAntiRowsEnabled',
-      execKey: 'betExecAntiRows',
+      execKey: 'betExecAntiRowsByTable',
       statusKey: 'bettingStatusAntiRows',
     },
     {
@@ -234,26 +237,21 @@
   }
 
   function getCurrentTableTitle() {
-    const root = findOneDeep(TITLE_SEL);
-    if (!root) return '';
+    for (const sel of TITLE_SELECTORS) {
+      const root = findOneDeep(sel);
+      if (!root) continue;
 
-    const parts = [];
-    for (const node of root.childNodes || []) {
-      const txt = normalizeText(node.textContent || '');
-      if (!txt) continue;
-      if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(txt)) continue;
-      parts.push(txt);
+      const rawText = normalizeText(root.textContent || '');
+      if (!rawText) continue;
+
+      const cleaned = normalizeText(
+        rawText.replace(/\b\d{1,2}:\d{2}(:\d{2})?\b/g, ' '),
+      );
+
+      if (cleaned) return cleaned;
     }
 
-    const joined = normalizeText(parts.join(' '));
-    if (joined) return joined;
-
-    return normalizeText(
-      String(root.textContent || '').replace(
-        /\b\d{1,2}:\d{2}(:\d{2})?\b/g,
-        ' ',
-      ),
-    );
+    return '';
   }
 
   function parseBalanceText(txt) {
@@ -731,7 +729,7 @@
   function tryLobbyReenter() {
     if (!IS_TOP) return;
     if (!tracked.title) return;
-    if (findOneDeep(TITLE_SEL)) return;
+    if (getCurrentTableTitle()) return;
 
     const now = Date.now();
     if (now - lastReenterClick < CLICK_THROTTLE_MS) return;
@@ -742,7 +740,6 @@
       clickElement(entry);
     }
   }
-
   async function cycle() {
     await syncTrackedContext();
 

@@ -1,5 +1,7 @@
 export const TRACKED_TABLES_KEY = 'trackedTables';
 export const TRACKED_TABLE_STATES_KEY = 'trackedTableStates';
+export const TRACKED_TABLE_BET_LOGS_KEY =
+  'trackedTableBetLogsByTable';
 export const SELECTED_TRACKED_TABLE_KEY = 'selectedTrackedTableId';
 export const UI_TRACKED_TABLES_OPEN_KEY = 'uiTrackedTablesOpen';
 
@@ -110,6 +112,18 @@ export function sanitizeTrackedTableStates(raw) {
     : {};
 }
 
+export function sanitizeTrackedTableBetLogsMap(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return {};
+  }
+
+  const out = {};
+  for (const [tableId, logs] of Object.entries(raw)) {
+    out[String(tableId)] = Array.isArray(logs) ? logs.slice() : [];
+  }
+  return out;
+}
+
 export function getTrackedTableState(states, tableId) {
   const map = sanitizeTrackedTableStates(states);
   return map[tableId] || null;
@@ -141,6 +155,24 @@ export function getTrackedTableSpinLogs(state) {
 export function getTrackedTableBetLogs(state) {
   const arr = state?.betLogs;
   return Array.isArray(arr) ? arr : [];
+}
+
+export function getTrackedTableBetLogsById(
+  tableBetLogsMap,
+  tableId,
+  fallbackState = null,
+) {
+  const map = sanitizeTrackedTableBetLogsMap(tableBetLogsMap);
+
+  if (
+    tableId &&
+    Object.prototype.hasOwnProperty.call(map, tableId) &&
+    Array.isArray(map[tableId])
+  ) {
+    return map[tableId];
+  }
+
+  return getTrackedTableBetLogs(fallbackState);
 }
 
 export function getTrackedTableStatus(state) {

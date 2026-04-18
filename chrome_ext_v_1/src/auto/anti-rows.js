@@ -23,6 +23,9 @@ import { entryGateFor } from '../shared/entry-limit.js';
 
   const ROW_SEL = ['#index-700', '#index-701', '#index-702'];
 
+  // ВАЖНО:
+  // Для этого DOM порядок рядов не "1,2,3" по обычному mod mapping.
+  // Оставляем mapping, совместимый с кликабельными индексами.
   function rowIndex(n) {
     if (n === 0) return -1;
     const r = n % 3;
@@ -153,11 +156,24 @@ import { entryGateFor } from '../shared/entry-limit.js';
       if (found[0] && found[1] && found[2]) break;
     }
 
-    let best = 0;
-    if (miss[1] > miss[best]) best = 1;
-    if (miss[2] > miss[best]) best = 2;
+    let best = null;
+    let bestLen = -1;
 
-    return miss[best] >= need ? best : null;
+    for (let r = 0; r < 3; r++) {
+      const len = miss[r];
+      if (len >= need && len > bestLen) {
+        best = r;
+        bestLen = len;
+      }
+    }
+
+    if (best == null) return null;
+
+    for (let r = 0; r < 3; r++) {
+      if (miss[r] === bestLen && miss[r] >= need) return r;
+    }
+
+    return best;
   }
 
   class AntiRowsStrategy extends window.MarketBase {
@@ -286,7 +302,6 @@ import { entryGateFor } from '../shared/entry-limit.js';
       }
 
       const targetsIdx = [targetRow];
-      exec.target = targetsIdx.slice();
 
       const ok = await BET.tryPlace({
         step,
@@ -332,17 +347,17 @@ import { entryGateFor } from '../shared/entry-limit.js';
       return ok;
     }
 
-    async onSpin(n) {
+    async onSpin(n, ctx = null) {
       const exec = await this.getExec();
       if (!exec.enabled) return;
 
-      const { tableId, spinLogs: trackedLogs } =
-        await getTrackedSpinLogsForThisTab();
+      const tableId =
+        ctx?.tableId || (await getTrackedTableIdForThisTab());
       if (!tableId) return;
 
-      const spinLogs = Array.isArray(trackedLogs)
-        ? trackedLogs.slice()
-        : [];
+      const spinLogs = Array.isArray(ctx?.spinLogs)
+        ? ctx.spinLogs.slice()
+        : (await getTrackedSpinLogsForThisTab()).spinLogs.slice();
 
       if (
         spinLogs.length === 0 ||
@@ -354,8 +369,8 @@ import { entryGateFor } from '../shared/entry-limit.js';
       const ix = this.getIndex(n);
 
       if (exec.phase === 'idle') {
-        const { triggerStreak, steps, includeZero } =
-          await this.loadCfg();
+        const { triggerStreak } = await this.loadCfg();
+        const { steps, includeZero } = await this.loadCfg();
 
         const missing = pickMissingRowByTail(
           spinLogs,
@@ -369,7 +384,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
             'antirows',
             'autoBettingAntiRowsEnabled',
             'bettingStatusAntiRows',
-            { execKey: 'betExecAntiRows' },
+            { execKey: EXECS_KEY },
           );
           if (!gateOk) return;
 
@@ -448,11 +463,12 @@ import { entryGateFor } from '../shared/entry-limit.js';
             ...exec,
             enabled: true,
             phase: 'armed',
+            targetRow: exec.targetRow,
+            target: [exec.targetRow],
             step,
             armedAt: Date.now(),
             cooldownSkipped: undefined,
           };
-          next.target = [next.targetRow];
 
           await this.setExec(
             next,
@@ -469,11 +485,12 @@ import { entryGateFor } from '../shared/entry-limit.js';
           ...exec,
           enabled: true,
           phase: 'cooldown',
+          targetRow: exec.targetRow,
+          target: [exec.targetRow],
           step: exec.step + 1,
           armedAt: 0,
           cooldownSkipped: false,
         };
-        next.target = [exec.targetRow];
 
         await this.setExec(
           next,
@@ -521,10 +538,12 @@ import { entryGateFor } from '../shared/entry-limit.js';
             ...mid,
             enabled: true,
             phase: 'armed',
+            targetRow: mid.targetRow,
+            target: [mid.targetRow],
+            step,
             armedAt: Date.now(),
             cooldownSkipped: undefined,
           };
-          next.target = [next.targetRow];
 
           await this.setExec(
             next,
@@ -542,10 +561,12 @@ import { entryGateFor } from '../shared/entry-limit.js';
           ...exec,
           enabled: true,
           phase: 'armed',
+          targetRow: exec.targetRow,
+          target: [exec.targetRow],
+          step,
           armedAt: Date.now(),
           cooldownSkipped: undefined,
         };
-        rec.target = [rec.targetRow];
 
         await this.setExec(
           rec,
@@ -587,9 +608,12 @@ import { entryGateFor } from '../shared/entry-limit.js';
             : [];
 
           if (newLogs.length > oldLogs.length) {
-            const added = newLogs.slice(oldLogs.length);
-            for (const e of added) {
-              await this.onSpin(e.n);
+            for (let i = oldLogs.length; i < newLogs.length; i++) {
+              const e = newLogs[i];
+              await this.onSpin(e?.n, {
+                tableId,
+                spinLogs: newLogs.slice(0, i + 1),
+              });
             }
           }
         }
