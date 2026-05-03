@@ -80,7 +80,7 @@ function pickFocusedLogs({
       : null;
 
   if (Array.isArray(tableLogs) && tableLogs.length > 0) {
-    return tableLogs;
+    return { logs: tableLogs, source: 'table-map' };
   }
 
   const selectedState =
@@ -90,22 +90,22 @@ function pickFocusedLogs({
     Array.isArray(selectedState?.betLogs) &&
     selectedState.betLogs.length > 0
   ) {
-    return selectedState.betLogs;
+    return { logs: selectedState.betLogs, source: 'state' };
   }
 
   if (Array.isArray(globalBetLogs) && globalBetLogs.length > 0) {
-    return globalBetLogs;
+    return { logs: globalBetLogs, source: 'global' };
   }
 
   if (Array.isArray(tableLogs)) {
-    return tableLogs;
+    return { logs: tableLogs, source: 'table-map' };
   }
 
   if (Array.isArray(selectedState?.betLogs)) {
-    return selectedState.betLogs;
+    return { logs: selectedState.betLogs, source: 'state' };
   }
 
-  return [];
+  return { logs: [], source: 'none' };
 }
 
 async function getFocusedBetLogsSnapshot() {
@@ -125,7 +125,7 @@ async function getFocusedBetLogsSnapshot() {
   const selectedId = String(rawSelectedId || '').trim();
   const tableBetLogsMap = sanitizeTableBetLogsMap(rawTableBetLogsMap);
 
-  const logs = pickFocusedLogs({
+  const picked = pickFocusedLogs({
     selectedId,
     tableBetLogsMap,
     states,
@@ -136,7 +136,8 @@ async function getFocusedBetLogsSnapshot() {
     selectedId,
     states,
     tableBetLogsMap,
-    logs: Array.isArray(logs) ? logs : [],
+    logs: Array.isArray(picked?.logs) ? picked.logs : [],
+    source: String(picked?.source || 'none'),
   };
 }
 
@@ -258,7 +259,7 @@ export async function exportBetCSV() {
 }
 
 export async function clearBetLogs() {
-  const { selectedId, states, tableBetLogsMap } =
+  const { selectedId, states, tableBetLogsMap, source } =
     await getFocusedBetLogsSnapshot();
 
   if (!selectedId) {
@@ -285,10 +286,13 @@ export async function clearBetLogs() {
 
   nextTableBetLogsMap[selectedId] = [];
 
-  await sset({
+  const patch = {
     [TRACKED_TABLE_STATES_KEY]: nextStates,
     [TRACKED_TABLE_BET_LOGS_KEY]: nextTableBetLogsMap,
-  });
+  };
+  if (source === 'global') patch.betLogs = [];
+
+  await sset(patch);
 
   renderBetAll([]);
 }

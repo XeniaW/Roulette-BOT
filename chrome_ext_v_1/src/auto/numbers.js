@@ -1,4 +1,4 @@
-// src/auto/numbers.js
+﻿// src/auto/numbers.js
 import { entryGateFor } from '../shared/entry-limit.js';
 
 (() => {
@@ -16,6 +16,9 @@ import { entryGateFor } from '../shared/entry-limit.js';
       ],
     ],
   });
+  const PLACE_MAX_WAIT_MS = 20000;
+  const TRACKED_TABLE_STATES_KEY = 'trackedTableStates';
+  const MAX_BET_LOGS = 2000;
 
   function numId(n) {
     return `index-${100 + Number(n)}`;
@@ -81,6 +84,73 @@ import { entryGateFor } from '../shared/entry-limit.js';
     return { candidates, targets };
   }
 
+  async function getTrackedTableIdForThisTab() {
+    try {
+      const res = await chrome.runtime.sendMessage({
+        type: 'GET_TRACKED_TABLE_FOR_TAB',
+      });
+      const id = String(res?.tableId || '').trim();
+      return res?.matched && id ? id : '';
+    } catch {
+      return '';
+    }
+  }
+
+  async function appendTrackedBetLog(tableId, entry) {
+    if (!tableId) return;
+
+    const { [TRACKED_TABLE_STATES_KEY]: states = {} } =
+      await BET.sget({
+        [TRACKED_TABLE_STATES_KEY]: {},
+      });
+
+    const nextStates =
+      states && typeof states === 'object' ? { ...states } : {};
+    const prevState =
+      nextStates[tableId] && typeof nextStates[tableId] === 'object'
+        ? { ...nextStates[tableId] }
+        : {};
+
+    const betLogs = Array.isArray(prevState.betLogs)
+      ? prevState.betLogs.slice()
+      : [];
+
+    betLogs.push(entry);
+    if (betLogs.length > MAX_BET_LOGS) {
+      betLogs.splice(0, betLogs.length - MAX_BET_LOGS);
+    }
+
+    prevState.betLogs = betLogs;
+    nextStates[tableId] = prevState;
+
+    await BET.sset({ [TRACKED_TABLE_STATES_KEY]: nextStates });
+  }
+
+  async function placeStep(
+    step,
+    targets,
+    steps,
+    mutex,
+    getTargetNode,
+  ) {
+    const ok = await BET.tryPlace({
+      step,
+      targets,
+      steps,
+      getTargetNode: (x) => getTargetNode(x),
+      mutex,
+      maxWaitMs: PLACE_MAX_WAIT_MS,
+    });
+    if (!ok) return { ok: false, amount: 0 };
+
+    const chips = await BET.loadGlobalChips();
+    const amount =
+      BET.perTargetAmountForStep(step, steps, chips.chipValues) *
+      targets.length;
+
+    return { ok: true, amount };
+  }
+
   class NumbersMarket extends window.MarketBase {
     constructor() {
       super({
@@ -116,8 +186,21 @@ import { entryGateFor } from '../shared/entry-limit.js';
     }
 
     setStatus(state, msg) {
-      // НЕ спамим каждый спин. Только события.
       BET.setBetStatus(this.statusKey, state, msg || '');
+    }
+
+    async logPlaced(step, targets, amount, message) {
+      const tableId = await getTrackedTableIdForThisTab();
+      await appendTrackedBetLog(tableId, {
+        t: Date.now(),
+        type: 'placed',
+        market: 'numbers',
+        phase: 'armed',
+        message,
+        amount,
+        step,
+        targets: Array.isArray(targets) ? targets.slice() : [],
+      });
     }
 
     async onSpin(n) {
@@ -158,13 +241,22 @@ import { entryGateFor } from '../shared/entry-limit.js';
           `NUMBERS BET: step 1 | targets ${targets.join(', ')}`
         );
 
-        const ok = await BET.tryPlace({
-          step: 1,
+        const res = await placeStep(
+          1,
           targets,
           steps,
-          getTargetNode: (x) => this.getTargetNode(x),
-          mutex: this.mutex,
-        });
+          this.mutex,
+          (x) => this.getTargetNode(x),
+        );
+        const ok = !!res.ok;
+        if (ok) {
+          await this.logPlaced(
+            1,
+            targets,
+            res.amount,
+            `Step 1 placed | targets ${targets.join(', ')}`,
+          );
+        }
 
         this.setStatus(
           ok ? 'armed' : 'error',
@@ -227,13 +319,22 @@ import { entryGateFor } from '../shared/entry-limit.js';
             `NUMBERS BET: step ${s} | targets ${targets.join(', ')}`
           );
 
-          const ok = await BET.tryPlace({
-            step: s,
+          const res = await placeStep(
+            s,
             targets,
             steps,
-            getTargetNode: (x) => this.getTargetNode(x),
-            mutex: this.mutex,
-          });
+            this.mutex,
+            (x) => this.getTargetNode(x),
+          );
+          const ok = !!res.ok;
+          if (ok) {
+            await this.logPlaced(
+              s,
+              targets,
+              res.amount,
+              `Step ${s} placed | targets ${targets.join(', ')}`,
+            );
+          }
 
           this.setStatus(
             ok ? 'armed' : 'error',
@@ -275,13 +376,22 @@ import { entryGateFor } from '../shared/entry-limit.js';
             `NUMBERS BET: step ${s} | targets ${targets.join(', ')}`
           );
 
-          const ok = await BET.tryPlace({
-            step: s,
+          const res = await placeStep(
+            s,
             targets,
             steps,
-            getTargetNode: (x) => this.getTargetNode(x),
-            mutex: this.mutex,
-          });
+            this.mutex,
+            (x) => this.getTargetNode(x),
+          );
+          const ok = !!res.ok;
+          if (ok) {
+            await this.logPlaced(
+              s,
+              targets,
+              res.amount,
+              `Step ${s} placed | targets ${targets.join(', ')}`,
+            );
+          }
 
           this.setStatus(
             ok ? 'armed' : 'error',

@@ -126,6 +126,7 @@
   let lastGenericClick = 0;
   let lastReenterClick = 0;
   let hadTrackingHere = false;
+  let pendingBalanceStop = null;
 
   let tracked = {
     matched: false,
@@ -269,14 +270,6 @@
       findOneDeep('.style_balanceWrapper__1dya9zx0') ||
       findOneDeep('.balance-layout');
 
-    if (wrap) {
-      const raw = wrap.getAttribute?.('data-true-value');
-      if (raw != null) {
-        const v = parseBalanceText(String(raw));
-        if (v != null) return v;
-      }
-    }
-
     const span =
       (wrap && wrap.querySelector?.('[data-e2e="balance-value"]')) ||
       findOneDeep(BALANCE_VAL_SEL);
@@ -287,7 +280,56 @@
       if (v != null) return v;
     }
 
+    if (wrap) {
+      const raw = wrap.getAttribute?.('data-true-value');
+      if (raw != null) {
+        const v = parseBalanceText(String(raw));
+        if (v != null) return v;
+      }
+    }
+
     return null;
+  }
+
+  function mkExecReset(prevExec) {
+    const keep =
+      prevExec &&
+      typeof prevExec === 'object' &&
+      !Array.isArray(prevExec)
+        ? prevExec
+        : {};
+
+    return {
+      ...keep,
+      enabled: false,
+      phase: 'idle',
+      target: null,
+      step: 1,
+      armedAt: 0,
+    };
+  }
+
+  function isExecMapByTable(execKey, prevValue) {
+    if (String(execKey || '').endsWith('ByTable')) return true;
+    if (
+      !prevValue ||
+      typeof prevValue !== 'object' ||
+      Array.isArray(prevValue)
+    ) {
+      return false;
+    }
+
+    const values = Object.values(prevValue);
+    return (
+      values.length > 0 &&
+      values.every(
+        (v) =>
+          v &&
+          typeof v === 'object' &&
+          !Array.isArray(v) &&
+          ('phase' in v || 'enabled' in v || 'step' in v),
+      )
+    );
   }
 
   function sanitizeBalanceStopCfg(raw) {
@@ -335,15 +377,34 @@
       },
     };
 
+    const execDefaults = {};
+    for (const market of MARKET_STOP_KEYS) {
+      execDefaults[market.execKey] = null;
+    }
+    const execBag = await safeGet(execDefaults);
+
     for (const market of MARKET_STOP_KEYS) {
       patch[market.enabledKey] = false;
-      patch[market.execKey] = {
-        enabled: false,
-        phase: 'idle',
-        target: null,
-        step: 1,
-        armedAt: 0,
-      };
+
+      const prevExec = execBag[market.execKey];
+      if (
+        tracked.tableId &&
+        isExecMapByTable(market.execKey, prevExec)
+      ) {
+        const nextMap =
+          prevExec &&
+          typeof prevExec === 'object' &&
+          !Array.isArray(prevExec)
+            ? { ...prevExec }
+            : {};
+        nextMap[tracked.tableId] = mkExecReset(
+          nextMap[tracked.tableId],
+        );
+        patch[market.execKey] = nextMap;
+      } else {
+        patch[market.execKey] = mkExecReset(prevExec);
+      }
+
       patch[market.statusKey] = {
         state: 'off',
         message,
@@ -383,8 +444,22 @@
     else if (cfg.stopOnMax && balance >= cfg.maxBalance)
       reason = 'max';
 
-    if (!reason) return;
+    if (!reason) {
+      pendingBalanceStop = null;
+      return;
+    }
     if (stopState?.triggered && stopState.reason === reason) return;
+
+    if (pendingBalanceStop?.reason !== reason) {
+      pendingBalanceStop = {
+        reason,
+        balance,
+        at: Date.now(),
+      };
+      return;
+    }
+
+    pendingBalanceStop = null;
 
     await stopAllMarketsByBalance(reason, balance, cfg);
   }
