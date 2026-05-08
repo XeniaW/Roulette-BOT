@@ -81,6 +81,10 @@ import {
   betStatusNumbers,
   numbersStepsBox,
   cfgNumbersMsg,
+  autoBetToggleMissing19,
+  betStatusMissing19,
+  missing19StepsBox,
+  cfgMissing19Msg,
 } from './dom.js';
 
 import { renderSteps, getStepsFromUI } from './steps-ui.js';
@@ -99,6 +103,7 @@ export const CFG_SECTORS_KEY = 'abSectorsConfig';
 export const CFG_NEIGHBORS_KEY = 'abNeighborsConfig';
 export const CFG_ANTI_ROWS_KEY = 'abAntiRowsConfig';
 export const CFG_NUMBERS_KEY = 'abNumbersConfig';
+export const CFG_MISSING19_KEY = 'abMissing19Config';
 
 export const DEFAULT_MKT = Object.freeze({
   triggerStreak: 2,
@@ -131,6 +136,10 @@ export const DEFAULT_NUMBERS = Object.freeze({
   triggerGap: 120,
   maxTargets: 1,
   autoContinue: false,
+  steps: JSON.parse(JSON.stringify(DEFAULT_MKT.steps)),
+});
+
+export const DEFAULT_MISSING19 = Object.freeze({
   steps: JSON.parse(JSON.stringify(DEFAULT_MKT.steps)),
 });
 
@@ -238,6 +247,34 @@ export function sanitizeNumbers(raw) {
   }
 
   return { triggerGap, maxTargets, steps, autoContinue };
+}
+
+export function sanitizeMissing19(raw) {
+  const src = raw || {};
+  let steps = Array.isArray(src.steps)
+    ? src.steps
+    : DEFAULT_MISSING19.steps;
+
+  steps = steps
+    .map((st) => (Array.isArray(st) ? st : []))
+    .map((st) =>
+      st.map((it) => ({
+        chip: Math.max(1, Math.floor(Number(it?.chip ?? 1))),
+        times: Math.max(1, Math.floor(Number(it?.times ?? 1))),
+      })),
+    )
+    .map((st) =>
+      st.filter(
+        (it) => Number.isFinite(it.chip) && Number.isFinite(it.times),
+      ),
+    )
+    .filter((st) => st.length);
+
+  if (!steps.length) {
+    steps = JSON.parse(JSON.stringify(DEFAULT_MISSING19.steps));
+  }
+
+  return { steps };
 }
 
 export async function loadMarketUI(market) {
@@ -381,6 +418,17 @@ export async function loadMarketUI(market) {
     stepsBox = numbersStepsBox;
     msgEl = cfgNumbersMsg;
     statusElDest = betStatusNumbers;
+  } else if (market === 'missing19') {
+    cfgKey = CFG_MISSING19_KEY;
+    enKey = 'autoBettingMissing19Enabled';
+    statusKey = 'bettingStatusMissing19';
+    streakInp = null;
+    autoCk = null;
+    zeroCk = null;
+    toggle = autoBetToggleMissing19;
+    stepsBox = missing19StepsBox;
+    msgEl = cfgMissing19Msg;
+    statusElDest = betStatusMissing19;
   } else return;
 
   const st = await sget({
@@ -411,6 +459,10 @@ export async function loadMarketUI(market) {
       numbersMaxTargetsInp.value = String(cfg.maxTargets);
     }
     if (numbersAutoCk) numbersAutoCk.checked = !!cfg.autoContinue;
+  } else if (market === 'missing19') {
+    cfg = sanitizeMissing19(
+      (await sget({ [cfgKey]: DEFAULT_MISSING19 }))[cfgKey],
+    );
   } else {
     cfg = sanitizeMkt(
       (await sget({ [cfgKey]: DEFAULT_MKT }))[cfgKey],
@@ -508,6 +560,13 @@ export async function saveMarketCfgFromUI(market) {
     streakInpEl = numbersGapInp;
     autoCkEl = numbersAutoCk;
     zeroCkEl = null;
+  } else if (market === 'missing19') {
+    cfgKey = CFG_MISSING19_KEY;
+    stepsBox = missing19StepsBox;
+    msgEl = cfgMissing19Msg;
+    streakInpEl = null;
+    autoCkEl = null;
+    zeroCkEl = null;
   } else return;
 
   const { [GLOBAL_CHIPS_KEY]: chips = DEFAULT_CHIPS } = await sget({
@@ -556,6 +615,16 @@ export async function saveMarketCfgFromUI(market) {
       maxTargets,
       steps,
       autoContinue,
+    });
+
+    await sset({ [cfgKey]: clean });
+    if (msgEl) msgEl.textContent = 'Saved.';
+    return;
+  }
+
+  if (market === 'missing19') {
+    const clean = sanitizeMissing19({
+      steps,
     });
 
     await sset({ [cfgKey]: clean });
@@ -701,6 +770,24 @@ export function wireMarketTogglesReset() {
     if (betStatusNumbers) {
       betStatusNumbers.textContent = checked
         ? '[IDLE] NUMBERS: spin 0 | candidates 37'
+        : '[OFF]';
+    }
+  });
+
+  autoBetToggleMissing19?.addEventListener('change', async () => {
+    const checked = !!autoBetToggleMissing19.checked;
+    await sset({
+      autoBettingMissing19Enabled: checked,
+      bettingStatusMissing19: checked
+        ? {
+            state: 'idle',
+            message: 'MISSING19: collecting 0/19 | repeats 0',
+          }
+        : { state: 'off', message: '' },
+    });
+    if (betStatusMissing19) {
+      betStatusMissing19.textContent = checked
+        ? '[IDLE] MISSING19: collecting 0/19 | repeats 0'
         : '[OFF]';
     }
   });

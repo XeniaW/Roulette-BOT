@@ -11,7 +11,7 @@ import {
   TRACKED_TABLE_STATES_KEY,
   SELECTED_TRACKED_TABLE_KEY,
 } from './shared/tracked-tables.js';
-import './popup/live.js';
+import { updateMissing19InfoUI } from './popup/live.js';
 
 // streaks
 import {
@@ -32,6 +32,7 @@ const BALANCE_STOP_DEFAULTS = Object.freeze({
 });
 
 let _utilsPromise = null;
+let initialSpinLogs = [];
 function getUtils() {
   if (!_utilsPromise) {
     _utilsPromise = import('./popup/utils.js');
@@ -301,7 +302,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // hidden compat legacy blocks
   loadLogs((logs) => {
+    initialSpinLogs = Array.isArray(logs) ? logs : [];
     renderAll(logs);
+    updateMissing19InfoUI(initialSpinLogs);
   });
   loadBetLogs(renderBetAll);
 
@@ -321,6 +324,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadMarketUI('antidozens');
   await loadMarketUI('antirows');
   await loadMarketUI('numbers');
+  await loadMarketUI('missing19');
+  updateMissing19InfoUI(initialSpinLogs);
 
   // главный тумблер
   await loadToggle();

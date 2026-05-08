@@ -1,14 +1,15 @@
 {
   "manifest_version": 3,
   "name": "Spins Logger",
-  "version": "4.17.1",
+  "version": "4.17.6",
   "description": "Logs spins; auto-betting for dozens, rows, combo (dozen+row), sixlines and threes.",
   "permissions": [
     "storage",
     "downloads",
     "scripting",
     "activeTab",
-    "tabs"
+    "tabs",
+    "unlimitedStorage"
   ],
   "host_permissions": [
     "<all_urls>"
@@ -50,7 +51,8 @@
         "auto/neighbors.js",
         "auto/anti-dozens.js",
         "auto/anti-rows.js",
-        "auto/numbers.js"
+        "auto/numbers.js",
+        "auto/missing19.js"
       ],
       "run_at": "document_idle",
       "all_frames": true

@@ -157,20 +157,78 @@
     );
   }
 
-  async function clickElement(el) {
+  function eventPointFor(el) {
     try {
-      el.dispatchEvent(
-        new MouseEvent('click', {
-          bubbles: true,
-          cancelable: true,
-          view: window,
-        }),
-      );
-    } catch {
-      try {
-        el.click?.();
-      } catch {}
-    }
+      const rect = el.getBoundingClientRect?.();
+      if (
+        rect &&
+        Number.isFinite(rect.left) &&
+        Number.isFinite(rect.top) &&
+        rect.width > 0 &&
+        rect.height > 0
+      ) {
+        return {
+          x: rect.left + rect.width / 2,
+          y: rect.top + rect.height / 2,
+        };
+      }
+    } catch {}
+
+    return { x: 0, y: 0 };
+  }
+
+  function dispatchMouseLike(el, type, point) {
+    const isDown = type === 'mousedown' || type === 'pointerdown';
+    const init = {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      view: window,
+      clientX: point.x,
+      clientY: point.y,
+      screenX: point.x,
+      screenY: point.y,
+      button: 0,
+      buttons: isDown ? 1 : 0,
+    };
+
+    try {
+      if (type.startsWith('pointer') && typeof PointerEvent === 'function') {
+        el.dispatchEvent(
+          new PointerEvent(type, {
+            ...init,
+            pointerId: 1,
+            pointerType: 'mouse',
+            isPrimary: true,
+          }),
+        );
+        return;
+      }
+    } catch {}
+
+    try {
+      el.dispatchEvent(new MouseEvent(type, init));
+    } catch {}
+  }
+
+  async function clickElement(el) {
+    if (!el) return;
+    const point = eventPointFor(el);
+
+    dispatchMouseLike(el, 'pointerover', point);
+    dispatchMouseLike(el, 'pointermove', point);
+    dispatchMouseLike(el, 'mouseover', point);
+    dispatchMouseLike(el, 'mousemove', point);
+    dispatchMouseLike(el, 'pointerdown', point);
+    dispatchMouseLike(el, 'mousedown', point);
+    dispatchMouseLike(el, 'pointerup', point);
+    dispatchMouseLike(el, 'mouseup', point);
+    dispatchMouseLike(el, 'click', point);
+
+    try {
+      el.click?.();
+    } catch {}
+
     await new Promise((r) => setTimeout(r, 30));
   }
 

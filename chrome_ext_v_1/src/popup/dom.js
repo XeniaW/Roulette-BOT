@@ -311,3 +311,17 @@ export const cfgNumbersMsg = document.getElementById('cfgNumbersMsg');
 export const uniqueLeft = document.getElementById('uniqueLeft');
 
 export const numbersNear = document.getElementById('numbersNear');
+
+// === Missing 19 ===
+export const autoBetToggleMissing19 = document.getElementById(
+  'autoBetToggleMissing19',
+);
+export const betStatusMissing19 = document.getElementById(
+  'betStatusMissing19',
+);
+export const missing19Info = document.getElementById('missing19Info');
+export const missing19StepsBox = document.getElementById(
+  'missing19StepsBox',
+);
+export const cfgMissing19Msg =
+  document.getElementById('cfgMissing19Msg');

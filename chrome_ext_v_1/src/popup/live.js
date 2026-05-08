@@ -10,6 +10,7 @@ import {
   sanitizeMkt,
   sanitizeNeighbors,
   sanitizeNumbers,
+  sanitizeMissing19,
 } from './markets.js';
 import {
   TRACKED_TABLES_KEY,
@@ -74,6 +75,9 @@ import {
   numbersGapInp,
   numbersAutoCk,
   numbersNear,
+  betStatusMissing19,
+  missing19StepsBox,
+  missing19Info,
 } from './dom.js';
 
 import { renderSteps } from './steps-ui.js';
@@ -102,6 +106,71 @@ function setOnIfEnabled(el, enabled, stObj) {
 }
 
 let lastSpinLogs = [];
+let lastMissing19Exec = null;
+
+async function getFocusedSpinLogsSnapshot() {
+  try {
+    const {
+      [TRACKED_TABLE_STATES_KEY]: rawStates = {},
+      [SELECTED_TRACKED_TABLE_KEY]: rawSelectedId = '',
+      spinLogs = [],
+    } = await chrome.storage.local.get({
+      [TRACKED_TABLE_STATES_KEY]: {},
+      [SELECTED_TRACKED_TABLE_KEY]: '',
+      spinLogs: [],
+    });
+
+    const states =
+      rawStates && typeof rawStates === 'object' ? rawStates : {};
+    const selectedId = String(rawSelectedId || '').trim();
+    const selectedState =
+      selectedId && states[selectedId] ? states[selectedId] : null;
+
+    return Array.isArray(selectedState?.spinLogs)
+      ? selectedState.spinLogs
+      : Array.isArray(spinLogs)
+        ? spinLogs
+        : [];
+  } catch {
+    return [];
+  }
+}
+
+async function getFocusedMissing19ExecSnapshot() {
+  try {
+    const {
+      [SELECTED_TRACKED_TABLE_KEY]: rawSelectedId = '',
+      betExecMissing19ByTable = {},
+    } = await chrome.storage.local.get({
+      [SELECTED_TRACKED_TABLE_KEY]: '',
+      betExecMissing19ByTable: {},
+    });
+
+    const selectedId = String(rawSelectedId || '').trim();
+    const map =
+      betExecMissing19ByTable &&
+      typeof betExecMissing19ByTable === 'object'
+        ? betExecMissing19ByTable
+        : {};
+
+    return selectedId &&
+      map[selectedId] &&
+      typeof map[selectedId] === 'object'
+      ? map[selectedId]
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+async function refreshMarketInfoFromFocusedLogs() {
+  const logs = await getFocusedSpinLogsSnapshot();
+  const exec = await getFocusedMissing19ExecSnapshot();
+  lastSpinLogs = logs;
+  lastMissing19Exec = exec;
+  updateNumbersNearUI(logs);
+  updateMissing19InfoUI(logs, exec);
+}
 
 function updateNumbersNearUI(spinLogsArr) {
   if (!numbersNear) return;
@@ -114,6 +183,46 @@ function updateNumbersNearUI(spinLogsArr) {
 
   const txt = formatTopNearTrigger(spinLogsArr, tg, 5, 0.8);
   numbersNear.textContent = txt || '';
+}
+
+export function updateMissing19InfoUI(spinLogsArr, exec = null) {
+  if (!missing19Info) return;
+
+  const effectiveExec = exec || lastMissing19Exec;
+  const seenArr = Array.isArray(effectiveExec?.seen)
+    ? effectiveExec.seen
+    : [];
+  const seen = new Set();
+
+  for (const raw of seenArr) {
+    const n = Number(raw);
+    if (Number.isInteger(n) && n >= 0 && n <= 36) {
+      seen.add(n);
+    }
+  }
+
+  const unique = seen.size;
+  const repeated = Math.max(
+    0,
+    Math.floor(Number(effectiveExec?.repeatCount || 0)),
+  );
+  const phase = String(effectiveExec?.phase || 'idle');
+  const targets = Array.isArray(effectiveExec?.target)
+    ? effectiveExec.target.length
+    : 37 - unique;
+  const base = `MISSING19 | cycle unique ${unique}/19 | repeats ${repeated}`;
+
+  if (phase === 'armed') {
+    const step = Math.max(1, Math.floor(Number(effectiveExec?.step || 1)));
+    missing19Info.textContent = `${base} | ARMED step ${step} | targets ${targets}`;
+    return;
+  }
+
+  const need = Math.max(0, 19 - unique);
+  missing19Info.textContent =
+    unique >= 19
+      ? `${base} | READY -> targets 18`
+      : `${base} | targets after entry ${37 - unique} | need ${need} unique`;
 }
 
 chrome.storage.onChanged.addListener((ch, area) => {
@@ -138,6 +247,7 @@ chrome.storage.onChanged.addListener((ch, area) => {
 
       updateDotsFromState();
       updateNumbersNearUI(arr);
+      updateMissing19InfoUI(arr);
     }
 
     if (
@@ -145,9 +255,11 @@ chrome.storage.onChanged.addListener((ch, area) => {
       ch.trackerStatus ||
       ch[TRACKED_TABLES_KEY] ||
       ch[TRACKED_TABLE_STATES_KEY] ||
-      ch[SELECTED_TRACKED_TABLE_KEY]
+      ch[SELECTED_TRACKED_TABLE_KEY] ||
+      ch.betExecMissing19ByTable
     ) {
       loadStatus().catch(() => {});
+      refreshMarketInfoFromFocusedLogs().catch(() => {});
     }
 
     if (ch.betLogs) {
@@ -212,6 +324,11 @@ chrome.storage.onChanged.addListener((ch, area) => {
         betStatusNumbers,
         ch.bettingStatusNumbers.newValue,
       );
+    if (ch.bettingStatusMissing19)
+      setStatusText(
+        betStatusMissing19,
+        ch.bettingStatusMissing19.newValue,
+      );
 
     if (ch.autoBettingLowHighEnabled) {
       const en = !!ch.autoBettingLowHighEnabled.newValue;
@@ -243,6 +360,14 @@ chrome.storage.onChanged.addListener((ch, area) => {
           ch.bettingStatusNumbers.newValue) ||
         null;
       setOnIfEnabled(betStatusNumbers, en, st);
+    }
+    if (ch.autoBettingMissing19Enabled) {
+      const en = !!ch.autoBettingMissing19Enabled.newValue;
+      const st =
+        (ch.bettingStatusMissing19 &&
+          ch.bettingStatusMissing19.newValue) ||
+        null;
+      setOnIfEnabled(betStatusMissing19, en, st);
     }
 
     if (ch.abDozensConfig) {
@@ -348,6 +473,12 @@ chrome.storage.onChanged.addListener((ch, area) => {
       if (numbersAutoCk) numbersAutoCk.checked = !!cfg.autoContinue;
       if (numbersStepsBox) renderSteps(numbersStepsBox, cfg.steps);
       updateNumbersNearUI(lastSpinLogs);
+    }
+
+    if (ch.abMissing19Config) {
+      const cfg = sanitizeMissing19(ch.abMissing19Config.newValue);
+      if (missing19StepsBox) renderSteps(missing19StepsBox, cfg.steps);
+      updateMissing19InfoUI(lastSpinLogs);
     }
 
     if (ch.abNeighborsConfig) {

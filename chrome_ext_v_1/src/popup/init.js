@@ -43,6 +43,7 @@ import {
   numbersGapInp,
   numbersMaxTargetsInp,
   numbersStepsBox,
+  missing19StepsBox,
 } from './dom.js';
 
 import { exportCSV, clearLogs } from './spin-logs.js';
@@ -55,6 +56,7 @@ import {
   saveMarketCfgFromUI,
   DEFAULT_MKT,
   DEFAULT_NEIGHBORS,
+  DEFAULT_MISSING19,
   CFG_NEIGHBORS_KEY,
   wireMarketTogglesReset,
 } from './markets.js';
@@ -86,7 +88,7 @@ function wireAutoSaveForMarket(
     200,
   );
 
-  const shouldUpdateDots = market !== 'numbers';
+  const shouldUpdateDots = !['numbers', 'missing19'].includes(market);
 
   if (streakInp) {
     streakInp.addEventListener('input', () => {
@@ -155,6 +157,9 @@ export function wireInitHandlers() {
   document
     .getElementById('btnAddNumbersStep')
     ?.addEventListener('click', () => addStep(numbersStepsBox));
+  document
+    .getElementById('btnAddMissing19Step')
+    ?.addEventListener('click', () => addStep(missing19StepsBox));
 
   document
     .getElementById('btnCfgDznDefaults')
@@ -225,6 +230,11 @@ export function wireInitHandlers() {
     ?.addEventListener('click', () =>
       renderSteps(numbersStepsBox, DEFAULT_MKT.steps),
     );
+  document
+    .getElementById('btnCfgMissing19Defaults')
+    ?.addEventListener('click', () =>
+      renderSteps(missing19StepsBox, DEFAULT_MISSING19.steps),
+    );
 
   document
     .getElementById('btnCfgDznSave')
@@ -268,6 +278,11 @@ export function wireInitHandlers() {
   document
     .getElementById('btnCfgNumbersSave')
     ?.addEventListener('click', () => saveMarketCfgFromUI('numbers'));
+  document
+    .getElementById('btnCfgMissing19Save')
+    ?.addEventListener('click', () =>
+      saveMarketCfgFromUI('missing19'),
+    );
 
   btnExport?.addEventListener('click', exportCSV);
   btnClear?.addEventListener('click', clearLogs);
@@ -329,6 +344,7 @@ export function wireInitHandlers() {
     await saveMarketCfgFromUI('sectors');
     await saveMarketCfgFromUI('neighbors');
     await saveMarketCfgFromUI('numbers');
+    await saveMarketCfgFromUI('missing19');
   });
 
   wireAutoSaveForMarket('dozens', {
@@ -414,6 +430,13 @@ export function wireInitHandlers() {
     'input',
     debounce(() => saveMarketCfgFromUI('numbers'), 200),
   );
+
+  wireAutoSaveForMarket('missing19', {
+    streakInp: null,
+    autoCk: null,
+    zeroCk: null,
+    stepsBox: missing19StepsBox,
+  });
 
   autoBetToggleNeighbors?.addEventListener('change', async () => {
     const checked = !!autoBetToggleNeighbors.checked;

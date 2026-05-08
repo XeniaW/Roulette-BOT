@@ -108,6 +108,11 @@
       execKey: 'betExecNumbers',
       statusKey: 'bettingStatusNumbers',
     },
+    {
+      enabledKey: 'autoBettingMissing19Enabled',
+      execKey: 'betExecMissing19ByTable',
+      statusKey: 'bettingStatusMissing19',
+    },
   ];
 
   let destroyed = false;

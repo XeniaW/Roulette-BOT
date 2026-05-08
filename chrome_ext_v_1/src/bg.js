@@ -18,8 +18,8 @@
   const SELECTED_TRACKED_TABLE_KEY = 'selectedTrackedTableId';
 
   const LEASE_TTL_MS = 15000;
-  const MAX_LOGS = 5000;
-  const MAX_BET_LOGS = 2000;
+  const MAX_LOGS = 10000;
+  const MAX_BET_LOGS = 5000;
 
   let bootPromise = null;
   let refreshingLegacyMirror = false;
