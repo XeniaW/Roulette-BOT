@@ -83,6 +83,9 @@ import {
   cfgNumbersMsg,
   autoBetToggleMissing19,
   betStatusMissing19,
+  missing19TriggerCountInp,
+  missing19MaxDoublesInp,
+  missing19RebetDoubleCk,
   missing19StepsBox,
   cfgMissing19Msg,
 } from './dom.js';
@@ -140,6 +143,9 @@ export const DEFAULT_NUMBERS = Object.freeze({
 });
 
 export const DEFAULT_MISSING19 = Object.freeze({
+  triggerCount: 19,
+  useRebetDouble: true,
+  maxDoubles: 3,
   steps: JSON.parse(JSON.stringify(DEFAULT_MKT.steps)),
 });
 
@@ -251,6 +257,20 @@ export function sanitizeNumbers(raw) {
 
 export function sanitizeMissing19(raw) {
   const src = raw || {};
+  const triggerCount = Math.max(
+    19,
+    Math.floor(
+      Number(src.triggerCount ?? DEFAULT_MISSING19.triggerCount),
+    ),
+  );
+  const maxDoubles = Math.max(
+    0,
+    Math.floor(Number(src.maxDoubles ?? DEFAULT_MISSING19.maxDoubles)),
+  );
+  const useRebetDouble = !!(
+    src.useRebetDouble ?? DEFAULT_MISSING19.useRebetDouble
+  );
+
   let steps = Array.isArray(src.steps)
     ? src.steps
     : DEFAULT_MISSING19.steps;
@@ -274,7 +294,7 @@ export function sanitizeMissing19(raw) {
     steps = JSON.parse(JSON.stringify(DEFAULT_MISSING19.steps));
   }
 
-  return { steps };
+  return { triggerCount, useRebetDouble, maxDoubles, steps };
 }
 
 export async function loadMarketUI(market) {
@@ -463,6 +483,15 @@ export async function loadMarketUI(market) {
     cfg = sanitizeMissing19(
       (await sget({ [cfgKey]: DEFAULT_MISSING19 }))[cfgKey],
     );
+    if (missing19TriggerCountInp) {
+      missing19TriggerCountInp.value = String(cfg.triggerCount);
+    }
+    if (missing19MaxDoublesInp) {
+      missing19MaxDoublesInp.value = String(cfg.maxDoubles);
+    }
+    if (missing19RebetDoubleCk) {
+      missing19RebetDoubleCk.checked = !!cfg.useRebetDouble;
+    }
   } else {
     cfg = sanitizeMkt(
       (await sget({ [cfgKey]: DEFAULT_MKT }))[cfgKey],
@@ -577,7 +606,10 @@ export async function saveMarketCfgFromUI(market) {
     ? chips.chipValues.length
     : DEFAULT_CHIPS.chipValues.length;
 
-  const steps = getStepsFromUI(stepsBox);
+  let steps = getStepsFromUI(stepsBox);
+  if (market === 'missing19' && missing19RebetDoubleCk?.checked) {
+    steps = JSON.parse(JSON.stringify(DEFAULT_MISSING19.steps));
+  }
   if (!steps.length) {
     if (msgEl) msgEl.textContent = 'Add at least one step';
     return;
@@ -623,7 +655,19 @@ export async function saveMarketCfgFromUI(market) {
   }
 
   if (market === 'missing19') {
+    const triggerCount = Math.max(
+      19,
+      Math.floor(Number(missing19TriggerCountInp?.value || 19)),
+    );
+    const maxDoubles = Math.max(
+      0,
+      Math.floor(Number(missing19MaxDoublesInp?.value || 0)),
+    );
+    const useRebetDouble = !!missing19RebetDoubleCk?.checked;
     const clean = sanitizeMissing19({
+      triggerCount,
+      useRebetDouble,
+      maxDoubles,
       steps,
     });
 

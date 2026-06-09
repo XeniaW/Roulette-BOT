@@ -43,6 +43,9 @@ import {
   numbersGapInp,
   numbersMaxTargetsInp,
   numbersStepsBox,
+  missing19TriggerCountInp,
+  missing19MaxDoublesInp,
+  missing19RebetDoubleCk,
   missing19StepsBox,
 } from './dom.js';
 
@@ -232,9 +235,24 @@ export function wireInitHandlers() {
     );
   document
     .getElementById('btnCfgMissing19Defaults')
-    ?.addEventListener('click', () =>
-      renderSteps(missing19StepsBox, DEFAULT_MISSING19.steps),
-    );
+    ?.addEventListener('click', () => {
+      if (missing19TriggerCountInp) {
+        missing19TriggerCountInp.value = String(
+          DEFAULT_MISSING19.triggerCount,
+        );
+      }
+      if (missing19MaxDoublesInp) {
+        missing19MaxDoublesInp.value = String(
+          DEFAULT_MISSING19.maxDoubles,
+        );
+      }
+      if (missing19RebetDoubleCk) {
+        missing19RebetDoubleCk.checked =
+          !!DEFAULT_MISSING19.useRebetDouble;
+      }
+      renderSteps(missing19StepsBox, DEFAULT_MISSING19.steps);
+      saveMarketCfgFromUI('missing19');
+    });
 
   document
     .getElementById('btnCfgDznSave')
@@ -432,11 +450,16 @@ export function wireInitHandlers() {
   );
 
   wireAutoSaveForMarket('missing19', {
-    streakInp: null,
-    autoCk: null,
+    streakInp: missing19TriggerCountInp,
+    autoCk: missing19RebetDoubleCk,
     zeroCk: null,
     stepsBox: missing19StepsBox,
   });
+
+  missing19MaxDoublesInp?.addEventListener(
+    'input',
+    debounce(() => saveMarketCfgFromUI('missing19'), 200),
+  );
 
   autoBetToggleNeighbors?.addEventListener('change', async () => {
     const checked = !!autoBetToggleNeighbors.checked;

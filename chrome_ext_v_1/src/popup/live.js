@@ -76,6 +76,9 @@ import {
   numbersAutoCk,
   numbersNear,
   betStatusMissing19,
+  missing19TriggerCountInp,
+  missing19MaxDoublesInp,
+  missing19RebetDoubleCk,
   missing19StepsBox,
   missing19Info,
 } from './dom.js';
@@ -206,23 +209,64 @@ export function updateMissing19InfoUI(spinLogsArr, exec = null) {
     0,
     Math.floor(Number(effectiveExec?.repeatCount || 0)),
   );
+  const spinCount = Math.max(
+    unique + repeated,
+    Math.floor(Number(effectiveExec?.spinCount || 0)),
+  );
+  const triggerCount = Math.max(
+    19,
+    Math.floor(
+      Number(
+        missing19TriggerCountInp?.value ||
+          effectiveExec?.triggerCount ||
+          19,
+      ),
+    ),
+  );
+  const maxDoubles = Math.max(
+    0,
+    Math.floor(
+      Number(
+        missing19MaxDoublesInp?.value ??
+          effectiveExec?.maxDoubles ??
+          0,
+      ),
+    ),
+  );
+  const useRebetDouble =
+    missing19RebetDoubleCk?.checked ?? !!effectiveExec?.useRebetDouble;
   const phase = String(effectiveExec?.phase || 'idle');
   const targets = Array.isArray(effectiveExec?.target)
     ? effectiveExec.target.length
     : 37 - unique;
-  const base = `MISSING19 | cycle unique ${unique}/19 | repeats ${repeated}`;
+  const base = `MISSING19 | trigger ${triggerCount} | unique ${unique}/19 | repeats ${repeated} | total ${spinCount}/${triggerCount}`;
 
   if (phase === 'armed') {
     const step = Math.max(1, Math.floor(Number(effectiveExec?.step || 1)));
-    missing19Info.textContent = `${base} | ARMED step ${step} | targets ${targets}`;
+    const doubleCount = Math.max(
+      0,
+      Math.floor(Number(effectiveExec?.doubleCount || 0)),
+    );
+    const mode = useRebetDouble
+      ? `rebet/double ${doubleCount}/${maxDoubles}`
+      : `step ${step}`;
+    missing19Info.textContent = `${base} | ARMED ${mode} | targets ${targets}`;
     return;
   }
 
-  const need = Math.max(0, 19 - unique);
-  missing19Info.textContent =
-    unique >= 19
-      ? `${base} | READY -> targets 18`
-      : `${base} | targets after entry ${37 - unique} | need ${need} unique`;
+  if (unique >= 19) {
+    const needSpins = Math.max(0, triggerCount - spinCount);
+    missing19Info.textContent =
+      needSpins > 0
+        ? `${base} | READY | targets 18 | need ${needSpins} spins`
+        : `${base} | READY -> targets 18`;
+    return;
+  }
+
+  const needUnique = Math.max(0, 19 - unique);
+  missing19Info.textContent = `${base} | targets after entry ${
+    37 - unique
+  } | need ${needUnique} unique`;
 }
 
 chrome.storage.onChanged.addListener((ch, area) => {
@@ -477,6 +521,15 @@ chrome.storage.onChanged.addListener((ch, area) => {
 
     if (ch.abMissing19Config) {
       const cfg = sanitizeMissing19(ch.abMissing19Config.newValue);
+      if (missing19TriggerCountInp) {
+        missing19TriggerCountInp.value = cfg.triggerCount;
+      }
+      if (missing19MaxDoublesInp) {
+        missing19MaxDoublesInp.value = cfg.maxDoubles;
+      }
+      if (missing19RebetDoubleCk) {
+        missing19RebetDoubleCk.checked = !!cfg.useRebetDouble;
+      }
       if (missing19StepsBox) renderSteps(missing19StepsBox, cfg.steps);
       updateMissing19InfoUI(lastSpinLogs);
     }

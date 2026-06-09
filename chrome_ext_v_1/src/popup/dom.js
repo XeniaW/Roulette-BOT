@@ -320,6 +320,15 @@ export const betStatusMissing19 = document.getElementById(
   'betStatusMissing19',
 );
 export const missing19Info = document.getElementById('missing19Info');
+export const missing19TriggerCountInp = document.getElementById(
+  'missing19TriggerCount',
+);
+export const missing19MaxDoublesInp = document.getElementById(
+  'missing19MaxDoubles',
+);
+export const missing19RebetDoubleCk = document.getElementById(
+  'missing19RebetDouble',
+);
 export const missing19StepsBox = document.getElementById(
   'missing19StepsBox',
 );

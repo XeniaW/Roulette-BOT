@@ -211,8 +211,9 @@
     } catch {}
   }
 
-  async function clickElement(el) {
+  async function clickElement(el, opts = {}) {
     if (!el) return;
+    const nativeClick = opts.nativeClick !== false;
     const point = eventPointFor(el);
 
     dispatchMouseLike(el, 'pointerover', point);
@@ -225,11 +226,31 @@
     dispatchMouseLike(el, 'mouseup', point);
     dispatchMouseLike(el, 'click', point);
 
-    try {
-      el.click?.();
-    } catch {}
+    if (nativeClick) {
+      try {
+        el.click?.();
+      } catch {}
+    }
 
     await new Promise((r) => setTimeout(r, 30));
+  }
+
+  async function waitAndClickButton(testId, deadline, tick) {
+    const selector = `[data-testid="${testId}"]`;
+
+    while (Date.now() < deadline) {
+      const node = document.querySelector(selector);
+      if (isEnabled(node)) {
+        // Toolbar buttons double-fire if we dispatch a click and also call el.click().
+        await clickElement(node, { nativeClick: false });
+        await new Promise((r) => setTimeout(r, 120));
+        return true;
+      }
+
+      await new Promise((r) => setTimeout(r, tick));
+    }
+
+    return false;
   }
 
   async function ensureChipSelected(chipEl) {
@@ -414,12 +435,60 @@
     });
   }
 
+  async function tryRebetDouble({
+    mutex,
+    maxWaitMs,
+    retryMs,
+    doubleTimes,
+  } = {}) {
+    const timeLimit =
+      Number.isFinite(maxWaitMs) && maxWaitMs > 0
+        ? Math.floor(maxWaitMs)
+        : RETRY_TIME_LIMIT_MS;
+
+    const tick =
+      Number.isFinite(retryMs) && retryMs > 0
+        ? Math.floor(retryMs)
+        : RETRY_MS;
+
+    const doubles = Math.max(1, Math.floor(Number(doubleTimes || 1)));
+
+    const run = async () => {
+      const deadline = Date.now() + timeLimit;
+      const rebetOk = await waitAndClickButton(
+        'bet-toolbar-rebet-button',
+        deadline,
+        tick,
+      );
+      if (!rebetOk) return false;
+
+      for (let i = 0; i < doubles; i++) {
+        const doubleOk = await waitAndClickButton(
+          'bet-toolbar-double-button',
+          deadline,
+          tick,
+        );
+        if (!doubleOk) return false;
+      }
+
+      return true;
+    };
+
+    return GLOBAL_BET_MUTEX.run(() => {
+      if (mutex && typeof mutex.run === 'function') {
+        return mutex.run(run);
+      }
+      return run();
+    });
+  }
+
   window.BET = {
     sget,
     sset,
     Mutex,
     setBetStatus,
     tryPlace,
+    tryRebetDouble,
     perTargetAmountForStep,
 
     // effective chips for current table/tab

@@ -435,11 +435,23 @@ ul li + li {
 }
 
 .market-top {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
   margin-bottom: 10px;
 }
 
+.market-top .toggle {
+  min-width: 0;
+  flex-shrink: 0;
+}
+
 .market-status {
+  min-width: 0;
   max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  justify-self: end;
   justify-content: flex-end;
   text-align: right;
   color: var(--text-dim);
