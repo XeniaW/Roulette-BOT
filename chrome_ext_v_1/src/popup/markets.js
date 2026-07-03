@@ -86,11 +86,18 @@ import {
   missing19TriggerCountInp,
   missing19MaxDoublesInp,
   missing19RebetDoubleCk,
+  missing19InsuranceEnabledCk,
+  missing19InsuranceChipValueInp,
   missing19StepsBox,
   cfgMissing19Msg,
+  autoBetToggleRepeats,
+  betStatusRepeats,
+  repeatsRangesBox,
+  cfgRepeatsMsg,
 } from './dom.js';
 
 import { renderSteps, getStepsFromUI } from './steps-ui.js';
+import { renderRanges, getRangesFromUI } from './range-steps-ui.js';
 import { DEFAULT_CHIPS, GLOBAL_CHIPS_KEY } from './chips.js';
 import { resetStreakDots, updateDotsFromState } from './streaks.js';
 
@@ -107,6 +114,7 @@ export const CFG_NEIGHBORS_KEY = 'abNeighborsConfig';
 export const CFG_ANTI_ROWS_KEY = 'abAntiRowsConfig';
 export const CFG_NUMBERS_KEY = 'abNumbersConfig';
 export const CFG_MISSING19_KEY = 'abMissing19Config';
+export const CFG_REPEATS_KEY = 'abRepeatsConfig';
 
 export const DEFAULT_MKT = Object.freeze({
   triggerStreak: 2,
@@ -146,8 +154,24 @@ export const DEFAULT_MISSING19 = Object.freeze({
   triggerCount: 19,
   useRebetDouble: true,
   maxDoubles: 3,
+  insuranceEnabled: false,
+  insuranceChipValue: 1,
   steps: JSON.parse(JSON.stringify(DEFAULT_MKT.steps)),
 });
+
+export const DEFAULT_REPEATS = Object.freeze({
+  ranges: [
+    { from: 1, to: 9, items: [{ chip: 1, times: 1 }] },
+    { from: 10, to: 12, items: [{ chip: 1, times: 2 }] },
+  ],
+});
+
+function normalizeInsuranceChipValue(value) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0
+    ? n
+    : DEFAULT_MISSING19.insuranceChipValue;
+}
 
 export function sanitizeNeighbors(raw) {
   const src = raw || {};
@@ -270,6 +294,12 @@ export function sanitizeMissing19(raw) {
   const useRebetDouble = !!(
     src.useRebetDouble ?? DEFAULT_MISSING19.useRebetDouble
   );
+  const insuranceEnabled = !!(
+    src.insuranceEnabled ?? DEFAULT_MISSING19.insuranceEnabled
+  );
+  const insuranceChipValue = normalizeInsuranceChipValue(
+    src.insuranceChipValue,
+  );
 
   let steps = Array.isArray(src.steps)
     ? src.steps
@@ -294,7 +324,57 @@ export function sanitizeMissing19(raw) {
     steps = JSON.parse(JSON.stringify(DEFAULT_MISSING19.steps));
   }
 
-  return { triggerCount, useRebetDouble, maxDoubles, steps };
+  return {
+    triggerCount,
+    useRebetDouble,
+    maxDoubles,
+    insuranceEnabled,
+    insuranceChipValue,
+    steps,
+  };
+}
+
+function sanitizeRangeItems(rawItems) {
+  const src = Array.isArray(rawItems) ? rawItems : [];
+  const items = src
+    .map((it) => ({
+      chip: Math.max(1, Math.floor(Number(it?.chip ?? 1))),
+      times: Math.max(1, Math.floor(Number(it?.times ?? 1))),
+    }))
+    .filter(
+      (it) => Number.isFinite(it.chip) && Number.isFinite(it.times),
+    );
+
+  return items.length ? items : [{ chip: 1, times: 1 }];
+}
+
+export function sanitizeRepeats(raw) {
+  const src = raw || {};
+  const rawRanges = Array.isArray(src.ranges)
+    ? src.ranges
+    : DEFAULT_REPEATS.ranges;
+
+  const ranges = rawRanges
+    .map((range) => {
+      const from = Math.max(1, Math.floor(Number(range?.from ?? 1)));
+      const to = Math.max(
+        from,
+        Math.floor(Number(range?.to ?? from)),
+      );
+      return {
+        from,
+        to: Math.min(37, to),
+        items: sanitizeRangeItems(range?.items),
+      };
+    })
+    .filter((range) => range.from <= 37)
+    .sort((a, b) => a.from - b.from || a.to - b.to);
+
+  return {
+    ranges: ranges.length
+      ? ranges
+      : JSON.parse(JSON.stringify(DEFAULT_REPEATS.ranges)),
+  };
 }
 
 export async function loadMarketUI(market) {
@@ -449,6 +529,17 @@ export async function loadMarketUI(market) {
     stepsBox = missing19StepsBox;
     msgEl = cfgMissing19Msg;
     statusElDest = betStatusMissing19;
+  } else if (market === 'repeats') {
+    cfgKey = CFG_REPEATS_KEY;
+    enKey = 'autoBettingRepeatsEnabled';
+    statusKey = 'bettingStatusRepeats';
+    streakInp = null;
+    autoCk = null;
+    zeroCk = null;
+    toggle = autoBetToggleRepeats;
+    stepsBox = repeatsRangesBox;
+    msgEl = cfgRepeatsMsg;
+    statusElDest = betStatusRepeats;
   } else return;
 
   const st = await sget({
@@ -492,6 +583,18 @@ export async function loadMarketUI(market) {
     if (missing19RebetDoubleCk) {
       missing19RebetDoubleCk.checked = !!cfg.useRebetDouble;
     }
+    if (missing19InsuranceEnabledCk) {
+      missing19InsuranceEnabledCk.checked = !!cfg.insuranceEnabled;
+    }
+    if (missing19InsuranceChipValueInp) {
+      missing19InsuranceChipValueInp.value = String(
+        cfg.insuranceChipValue,
+      );
+    }
+  } else if (market === 'repeats') {
+    cfg = sanitizeRepeats(
+      (await sget({ [cfgKey]: DEFAULT_REPEATS }))[cfgKey],
+    );
   } else {
     cfg = sanitizeMkt(
       (await sget({ [cfgKey]: DEFAULT_MKT }))[cfgKey],
@@ -501,7 +604,11 @@ export async function loadMarketUI(market) {
     if (zeroCk) zeroCk.checked = !!cfg.includeZero;
   }
 
-  renderSteps(stepsBox, cfg.steps, { silent: true });
+  if (market === 'repeats') {
+    renderRanges(stepsBox, cfg.ranges, { silent: true });
+  } else {
+    renderSteps(stepsBox, cfg.steps, { silent: true });
+  }
   if (msgEl) msgEl.textContent = 'Loaded';
 }
 
@@ -596,6 +703,13 @@ export async function saveMarketCfgFromUI(market) {
     streakInpEl = null;
     autoCkEl = null;
     zeroCkEl = null;
+  } else if (market === 'repeats') {
+    cfgKey = CFG_REPEATS_KEY;
+    stepsBox = repeatsRangesBox;
+    msgEl = cfgRepeatsMsg;
+    streakInpEl = null;
+    autoCkEl = null;
+    zeroCkEl = null;
   } else return;
 
   const { [GLOBAL_CHIPS_KEY]: chips = DEFAULT_CHIPS } = await sget({
@@ -605,6 +719,28 @@ export async function saveMarketCfgFromUI(market) {
   const chipCount = Array.isArray(chips?.chipValues)
     ? chips.chipValues.length
     : DEFAULT_CHIPS.chipValues.length;
+
+  if (market === 'repeats') {
+    const ranges = getRangesFromUI(stepsBox);
+    if (!ranges.length) {
+      if (msgEl) msgEl.textContent = 'Add at least one range';
+      return;
+    }
+
+    for (const range of ranges) {
+      for (const it of range.items || []) {
+        if (it.chip < 1 || it.chip > chipCount) {
+          if (msgEl) msgEl.textContent = 'Range uses invalid Chip #';
+          return;
+        }
+      }
+    }
+
+    const clean = sanitizeRepeats({ ranges });
+    await sset({ [cfgKey]: clean });
+    if (msgEl) msgEl.textContent = 'Saved.';
+    return;
+  }
 
   let steps = getStepsFromUI(stepsBox);
   if (market === 'missing19' && missing19RebetDoubleCk?.checked) {
@@ -664,10 +800,16 @@ export async function saveMarketCfgFromUI(market) {
       Math.floor(Number(missing19MaxDoublesInp?.value || 0)),
     );
     const useRebetDouble = !!missing19RebetDoubleCk?.checked;
+    const insuranceEnabled = !!missing19InsuranceEnabledCk?.checked;
+    const insuranceChipValue = normalizeInsuranceChipValue(
+      missing19InsuranceChipValueInp?.value,
+    );
     const clean = sanitizeMissing19({
       triggerCount,
       useRebetDouble,
       maxDoubles,
+      insuranceEnabled,
+      insuranceChipValue,
       steps,
     });
 
@@ -832,6 +974,24 @@ export function wireMarketTogglesReset() {
     if (betStatusMissing19) {
       betStatusMissing19.textContent = checked
         ? '[IDLE] MISSING19: collecting 0/19 | repeats 0'
+        : '[OFF]';
+    }
+  });
+
+  autoBetToggleRepeats?.addEventListener('change', async () => {
+    const checked = !!autoBetToggleRepeats.checked;
+    await sset({
+      autoBettingRepeatsEnabled: checked,
+      bettingStatusRepeats: checked
+        ? {
+            state: 'idle',
+            message: 'REPEATS: wait first spin',
+          }
+        : { state: 'off', message: '' },
+    });
+    if (betStatusRepeats) {
+      betStatusRepeats.textContent = checked
+        ? '[IDLE] REPEATS: wait first spin'
         : '[OFF]';
     }
   });

@@ -46,7 +46,10 @@ import {
   missing19TriggerCountInp,
   missing19MaxDoublesInp,
   missing19RebetDoubleCk,
+  missing19InsuranceEnabledCk,
+  missing19InsuranceChipValueInp,
   missing19StepsBox,
+  repeatsRangesBox,
 } from './dom.js';
 
 import { exportCSV, clearLogs } from './spin-logs.js';
@@ -60,11 +63,13 @@ import {
   DEFAULT_MKT,
   DEFAULT_NEIGHBORS,
   DEFAULT_MISSING19,
+  DEFAULT_REPEATS,
   CFG_NEIGHBORS_KEY,
   wireMarketTogglesReset,
 } from './markets.js';
 
 import { renderSteps, addStep } from './steps-ui.js';
+import { renderRanges, addRange } from './range-steps-ui.js';
 import { saveGlobalChipsFromUI } from './chips.js';
 
 import {
@@ -91,7 +96,9 @@ function wireAutoSaveForMarket(
     200,
   );
 
-  const shouldUpdateDots = !['numbers', 'missing19'].includes(market);
+  const shouldUpdateDots = !['numbers', 'missing19', 'repeats'].includes(
+    market,
+  );
 
   if (streakInp) {
     streakInp.addEventListener('input', () => {
@@ -163,6 +170,9 @@ export function wireInitHandlers() {
   document
     .getElementById('btnAddMissing19Step')
     ?.addEventListener('click', () => addStep(missing19StepsBox));
+  document
+    .getElementById('btnAddRepeatsRange')
+    ?.addEventListener('click', () => addRange(repeatsRangesBox));
 
   document
     .getElementById('btnCfgDznDefaults')
@@ -250,8 +260,23 @@ export function wireInitHandlers() {
         missing19RebetDoubleCk.checked =
           !!DEFAULT_MISSING19.useRebetDouble;
       }
+      if (missing19InsuranceEnabledCk) {
+        missing19InsuranceEnabledCk.checked =
+          !!DEFAULT_MISSING19.insuranceEnabled;
+      }
+      if (missing19InsuranceChipValueInp) {
+        missing19InsuranceChipValueInp.value = String(
+          DEFAULT_MISSING19.insuranceChipValue,
+        );
+      }
       renderSteps(missing19StepsBox, DEFAULT_MISSING19.steps);
       saveMarketCfgFromUI('missing19');
+    });
+  document
+    .getElementById('btnCfgRepeatsDefaults')
+    ?.addEventListener('click', () => {
+      renderRanges(repeatsRangesBox, DEFAULT_REPEATS.ranges);
+      saveMarketCfgFromUI('repeats');
     });
 
   document
@@ -301,6 +326,9 @@ export function wireInitHandlers() {
     ?.addEventListener('click', () =>
       saveMarketCfgFromUI('missing19'),
     );
+  document
+    .getElementById('btnCfgRepeatsSave')
+    ?.addEventListener('click', () => saveMarketCfgFromUI('repeats'));
 
   btnExport?.addEventListener('click', exportCSV);
   btnClear?.addEventListener('click', clearLogs);
@@ -363,6 +391,7 @@ export function wireInitHandlers() {
     await saveMarketCfgFromUI('neighbors');
     await saveMarketCfgFromUI('numbers');
     await saveMarketCfgFromUI('missing19');
+    await saveMarketCfgFromUI('repeats');
   });
 
   wireAutoSaveForMarket('dozens', {
@@ -460,6 +489,21 @@ export function wireInitHandlers() {
     'input',
     debounce(() => saveMarketCfgFromUI('missing19'), 200),
   );
+  missing19InsuranceEnabledCk?.addEventListener(
+    'change',
+    debounce(() => saveMarketCfgFromUI('missing19'), 200),
+  );
+  missing19InsuranceChipValueInp?.addEventListener(
+    'input',
+    debounce(() => saveMarketCfgFromUI('missing19'), 200),
+  );
+
+  wireAutoSaveForMarket('repeats', {
+    streakInp: null,
+    autoCk: null,
+    zeroCk: null,
+    stepsBox: repeatsRangesBox,
+  });
 
   autoBetToggleNeighbors?.addEventListener('change', async () => {
     const checked = !!autoBetToggleNeighbors.checked;

@@ -16,6 +16,8 @@ import { entryGateFor } from '../shared/entry-limit.js';
     triggerCount: 19,
     useRebetDouble: true,
     maxDoubles: 3,
+    insuranceEnabled: false,
+    insuranceChipValue: 1,
     steps: DEFAULT_STEPS,
   });
 
@@ -177,11 +179,19 @@ import { entryGateFor } from '../shared/entry-limit.js';
     const useRebetDouble = !!(
       src.useRebetDouble ?? DEFAULT_CFG.useRebetDouble
     );
+    const insuranceEnabled = !!(
+      src.insuranceEnabled ?? DEFAULT_CFG.insuranceEnabled
+    );
+    const insuranceChipValue = normalizeInsuranceChipValue(
+      src.insuranceChipValue,
+    );
 
     return {
       triggerCount,
       useRebetDouble,
       maxDoubles,
+      insuranceEnabled,
+      insuranceChipValue,
       steps: sanitizeSteps(src.steps),
     };
   }
@@ -189,6 +199,37 @@ import { entryGateFor } from '../shared/entry-limit.js';
   function finiteMs(value, fallback = 0) {
     const n = Number(value);
     return Number.isFinite(n) && n >= 0 ? n : fallback;
+  }
+
+  function normalizeInsuranceChipValue(value) {
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0
+      ? n
+      : DEFAULT_CFG.insuranceChipValue;
+  }
+
+  function normalizeInsuranceLevel(value) {
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+  }
+
+  function insuranceTimesFromLevel(level) {
+    return Math.pow(2, normalizeInsuranceLevel(level));
+  }
+
+  function formatStakeValue(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return 'unknown';
+    return Number.isInteger(n) && n >= 1 ? String(n) : n.toFixed(2);
+  }
+
+  function findChipIndexByValue(chipValues, wantedValue) {
+    const wanted = Number(wantedValue);
+    if (!Number.isFinite(wanted) || wanted <= 0) return -1;
+
+    return (Array.isArray(chipValues) ? chipValues : []).findIndex(
+      (value) => Math.abs(Number(value) - wanted) <= 1e-9,
+    );
   }
 
   function emptyExec(enabled = false, collectAfter = Date.now()) {
@@ -207,6 +248,18 @@ import { entryGateFor } from '../shared/entry-limit.js';
       triggerCount: DEFAULT_CFG.triggerCount,
       maxDoubles: DEFAULT_CFG.maxDoubles,
       useRebetDouble: DEFAULT_CFG.useRebetDouble,
+      insuranceEnabled: DEFAULT_CFG.insuranceEnabled,
+      insuranceChipValue: DEFAULT_CFG.insuranceChipValue,
+      insuranceLevel: 0,
+      insuranceTimes: 1,
+      insuranceActualChipValue: null,
+      insuranceActive: false,
+      insuranceLossAmount: 0,
+      insuranceStartBalance: null,
+      insuranceTargetBalance: null,
+      insuranceCurrentBalance: null,
+      cycleStartBalance: null,
+      cycleStakeTotal: 0,
       baseAmount: 0,
       lastAmount: 0,
     };
@@ -254,6 +307,50 @@ import { entryGateFor } from '../shared/entry-limit.js';
     out.useRebetDouble = !!(
       out.useRebetDouble ?? DEFAULT_CFG.useRebetDouble
     );
+    out.insuranceEnabled = !!(
+      out.insuranceEnabled ?? DEFAULT_CFG.insuranceEnabled
+    );
+    out.insuranceChipValue = normalizeInsuranceChipValue(
+      out.insuranceChipValue,
+    );
+    out.insuranceLevel = normalizeInsuranceLevel(out.insuranceLevel);
+    out.insuranceTimes = insuranceTimesFromLevel(out.insuranceLevel);
+    out.insuranceActualChipValue = Number.isFinite(
+      Number(out.insuranceActualChipValue),
+    )
+      ? Number(out.insuranceActualChipValue)
+      : null;
+    delete out.insuranceDoubles;
+    delete out.insuranceMultiplier;
+    out.insuranceActive = !!out.insuranceActive;
+    out.insuranceLossAmount = Number.isFinite(
+      Number(out.insuranceLossAmount),
+    )
+      ? Math.max(0, Number(out.insuranceLossAmount))
+      : 0;
+    out.insuranceStartBalance = Number.isFinite(
+      Number(out.insuranceStartBalance),
+    )
+      ? Number(out.insuranceStartBalance)
+      : null;
+    out.insuranceTargetBalance = Number.isFinite(
+      Number(out.insuranceTargetBalance),
+    )
+      ? Number(out.insuranceTargetBalance)
+      : null;
+    out.insuranceCurrentBalance = Number.isFinite(
+      Number(out.insuranceCurrentBalance),
+    )
+      ? Number(out.insuranceCurrentBalance)
+      : null;
+    out.cycleStakeTotal = Number.isFinite(Number(out.cycleStakeTotal))
+      ? Math.max(0, Number(out.cycleStakeTotal))
+      : 0;
+    out.cycleStartBalance = Number.isFinite(
+      Number(out.cycleStartBalance),
+    )
+      ? Number(out.cycleStartBalance)
+      : null;
     out.baseAmount = Number.isFinite(Number(out.baseAmount))
       ? Number(out.baseAmount)
       : 0;
@@ -369,6 +466,11 @@ import { entryGateFor } from '../shared/entry-limit.js';
   }
 
   function execFromCycle(exec, cycle, cfg) {
+    const keepRecovery = cfg.insuranceEnabled && !!exec?.insuranceActive;
+    const insuranceLevel = keepRecovery
+      ? normalizeInsuranceLevel(exec?.insuranceLevel)
+      : 0;
+
     return {
       ...exec,
       enabled: true,
@@ -384,15 +486,56 @@ import { entryGateFor } from '../shared/entry-limit.js';
       triggerCount: cfg.triggerCount,
       maxDoubles: cfg.maxDoubles,
       useRebetDouble: cfg.useRebetDouble,
+      insuranceEnabled: cfg.insuranceEnabled,
+      insuranceChipValue: cfg.insuranceChipValue,
+      insuranceLevel,
+      insuranceTimes: insuranceTimesFromLevel(insuranceLevel),
+      insuranceActualChipValue: keepRecovery
+        ? exec?.insuranceActualChipValue ?? null
+        : null,
+      insuranceActive: keepRecovery,
+      insuranceLossAmount: keepRecovery
+        ? Number(exec?.insuranceLossAmount || 0)
+        : 0,
+      insuranceStartBalance: keepRecovery
+        ? exec?.insuranceStartBalance ?? null
+        : null,
+      insuranceTargetBalance: keepRecovery
+        ? exec?.insuranceTargetBalance ?? null
+        : null,
+      insuranceCurrentBalance: keepRecovery
+        ? exec?.insuranceCurrentBalance ?? null
+        : null,
+      cycleStartBalance: null,
+      cycleStakeTotal: 0,
       baseAmount: 0,
       lastAmount: 0,
     };
+  }
+
+  function cloneSteps(steps) {
+    return (Array.isArray(steps) ? steps : []).map((st) =>
+      (Array.isArray(st) ? st : []).map((it) => ({
+        chip: Math.max(1, Math.floor(Number(it?.chip ?? 1))),
+        times: Math.max(1, Math.floor(Number(it?.times ?? 1))),
+      })),
+    );
   }
 
   function estimateRebetAmount(baseAmount, doubleCount) {
     const base = Number(baseAmount);
     if (!Number.isFinite(base) || base <= 0) return null;
     return base * Math.pow(2, Math.max(0, doubleCount));
+  }
+
+  function readBalanceValue(...values) {
+    for (const value of values) {
+      const raw =
+        value && typeof value === 'object' ? value.value : value;
+      const n = Number(raw);
+      if (Number.isFinite(n)) return n;
+    }
+    return null;
   }
 
   async function getTrackedTableIdForThisTab() {
@@ -438,6 +581,43 @@ import { entryGateFor } from '../shared/entry-limit.js';
       : Array.isArray(spinLogs)
         ? spinLogs
         : [];
+  }
+
+  async function getCurrentBalanceValue(tableId) {
+    const {
+      [TRACKED_TABLE_STATES_KEY]: states = {},
+      currentBalance = null,
+    } = await BET.sget({
+      [TRACKED_TABLE_STATES_KEY]: {},
+      currentBalance: null,
+    });
+
+    const state =
+      states &&
+      typeof states === 'object' &&
+      tableId &&
+      states[tableId] &&
+      typeof states[tableId] === 'object'
+        ? states[tableId]
+        : null;
+
+    return readBalanceValue(
+      state?.balance,
+      state?.currentBalance,
+      currentBalance,
+    );
+  }
+
+  async function waitForBalanceValue(tableId, waitMs = 0) {
+    const deadline = Date.now() + Math.max(0, Math.floor(Number(waitMs)));
+    let last = await getCurrentBalanceValue(tableId);
+
+    while (last == null && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 250));
+      last = await getCurrentBalanceValue(tableId);
+    }
+
+    return last;
   }
 
   async function appendTrackedBetLog(tableId, entry) {
@@ -617,6 +797,16 @@ import { entryGateFor } from '../shared/entry-limit.js';
         spinCount: Number(exec?.spinCount || 0),
         triggerCount: Number(exec?.triggerCount || 0),
         doubleCount: Number(exec?.doubleCount || 0),
+        insuranceActive: !!exec?.insuranceActive,
+        insuranceLossAmount: Number(exec?.insuranceLossAmount || 0),
+        insuranceTargetBalance: exec?.insuranceTargetBalance ?? null,
+        insuranceCurrentBalance: exec?.insuranceCurrentBalance ?? null,
+        insuranceChipValue: Number(exec?.insuranceChipValue || 0),
+        insuranceActualChipValue: exec?.insuranceActualChipValue ?? null,
+        insuranceLevel: Number(exec?.insuranceLevel || 0),
+        insuranceTimes: Number(exec?.insuranceTimes || 1),
+        cycleStartBalance: exec?.cycleStartBalance ?? null,
+        cycleStakeTotal: Number(exec?.cycleStakeTotal || 0),
         ...extra,
       });
     }
@@ -638,6 +828,16 @@ import { entryGateFor } from '../shared/entry-limit.js';
         spinCount: Number(exec?.spinCount || 0),
         triggerCount: Number(exec?.triggerCount || 0),
         doubleCount: Number(exec?.doubleCount || 0),
+        insuranceActive: !!exec?.insuranceActive,
+        insuranceLossAmount: Number(exec?.insuranceLossAmount || 0),
+        insuranceTargetBalance: exec?.insuranceTargetBalance ?? null,
+        insuranceCurrentBalance: exec?.insuranceCurrentBalance ?? null,
+        insuranceChipValue: Number(exec?.insuranceChipValue || 0),
+        insuranceActualChipValue: exec?.insuranceActualChipValue ?? null,
+        insuranceLevel: Number(exec?.insuranceLevel || 0),
+        insuranceTimes: Number(exec?.insuranceTimes || 1),
+        cycleStartBalance: exec?.cycleStartBalance ?? null,
+        cycleStakeTotal: Number(exec?.cycleStakeTotal || 0),
       });
     }
 
@@ -648,8 +848,21 @@ import { entryGateFor } from '../shared/entry-limit.js';
       this.setStatus('idle', message);
     }
 
-    async placeAndReport(exec, targets, step, steps, prefix, method) {
+    async placeAndReport(
+      exec,
+      targets,
+      step,
+      steps,
+      prefix,
+      method,
+    ) {
       const baseAmount = Number(exec?.baseAmount || 0);
+      const tableId =
+        step === 1 ? await getTrackedTableIdForThisTab() : '';
+      const cycleStartBalance =
+        step === 1
+          ? await getCurrentBalanceValue(tableId)
+          : exec?.cycleStartBalance;
       const next = {
         ...exec,
         enabled: true,
@@ -667,16 +880,36 @@ import { entryGateFor } from '../shared/entry-limit.js';
 
       const res = await placeStep(step, targets, steps, this.mutex);
       if (res.ok) {
+        const amount = Number(res.amount || 0);
+        const insuranceLevel = normalizeInsuranceLevel(
+          exec?.insuranceLevel,
+        );
+
         const placed = {
           ...next,
-          baseAmount: step === 1 ? res.amount : baseAmount,
-          lastAmount: res.amount,
+          baseAmount: step === 1 ? amount : baseAmount,
+          lastAmount: amount,
+          insuranceChipValue: normalizeInsuranceChipValue(
+            exec?.insuranceChipValue,
+          ),
+          insuranceActualChipValue:
+            exec?.insuranceActualChipValue ?? null,
+          insuranceLevel,
+          insuranceTimes: insuranceTimesFromLevel(insuranceLevel),
+          cycleStartBalance:
+            step === 1 && Number.isFinite(Number(cycleStartBalance))
+              ? Number(cycleStartBalance)
+              : exec?.cycleStartBalance ?? null,
+          cycleStakeTotal:
+            step === 1
+              ? amount
+              : Number(exec?.cycleStakeTotal || 0) + amount,
         };
         await this.setExec(placed);
         await this.logPlaced(
           step,
           targets,
-          res.amount,
+          amount,
           `${prefix}: step ${step} placed | targets ${targets.join(', ')}`,
           placed,
           method,
@@ -721,6 +954,12 @@ import { entryGateFor } from '../shared/entry-limit.js';
         triggerCount: cfg.triggerCount,
         maxDoubles: cfg.maxDoubles,
         useRebetDouble: true,
+        insuranceEnabled: cfg.insuranceEnabled,
+        insuranceChipValue: cfg.insuranceChipValue,
+        insuranceLevel: normalizeInsuranceLevel(exec?.insuranceLevel),
+        insuranceTimes: insuranceTimesFromLevel(exec?.insuranceLevel),
+        insuranceActualChipValue:
+          exec?.insuranceActualChipValue ?? null,
       };
 
       await this.setExec(
@@ -753,6 +992,8 @@ import { entryGateFor } from '../shared/entry-limit.js';
       const placed = {
         ...next,
         lastAmount: amount || 0,
+        cycleStakeTotal:
+          Number(exec?.cycleStakeTotal || 0) + Number(amount || 0),
       };
 
       await this.setExec(placed);
@@ -771,7 +1012,173 @@ import { entryGateFor } from '../shared/entry-limit.js';
       return { ok: true, exec: placed };
     }
 
-    async tryEnterFromCycle(cycle, cfg, prefix) {
+    async activateInsuranceAfterLoss(exec, cfg, tableId, spin) {
+      if (!cfg.insuranceEnabled) return exec;
+
+      const lossAmount = Math.max(
+        0,
+        Number(exec?.cycleStakeTotal || 0),
+        Number(exec?.baseAmount || 0),
+      );
+      if (lossAmount <= 0) return exec;
+
+      const balance = await getCurrentBalanceValue(tableId);
+      const prevTarget = Number(exec?.insuranceTargetBalance);
+      const cycleStartBalance = Number(exec?.cycleStartBalance);
+      const wasInsuranceActive = !!exec?.insuranceActive;
+      let target = null;
+
+      if (wasInsuranceActive && Number.isFinite(prevTarget)) {
+        target = prevTarget;
+      } else if (Number.isFinite(cycleStartBalance)) {
+        target = cycleStartBalance;
+      } else if (Number.isFinite(balance) && balance != null) {
+        target = balance + lossAmount;
+      } else if (Number.isFinite(prevTarget)) {
+        target = prevTarget;
+      }
+
+      if (!wasInsuranceActive && Number.isFinite(prevTarget)) {
+        target = Math.max(prevTarget, Number(target || 0));
+      }
+
+      const prevLevel = normalizeInsuranceLevel(exec?.insuranceLevel);
+      const nextLevel = wasInsuranceActive ? prevLevel + 1 : 0;
+      const nextTimes = insuranceTimesFromLevel(nextLevel);
+
+      const insured = {
+        ...exec,
+        insuranceEnabled: true,
+        insuranceChipValue: cfg.insuranceChipValue,
+        insuranceLevel: nextLevel,
+        insuranceTimes: nextTimes,
+        insuranceActualChipValue: null,
+        insuranceActive: true,
+        insuranceLossAmount:
+          Number.isFinite(target) && balance != null
+            ? Math.max(0, target - balance)
+            : Number(exec?.insuranceLossAmount || 0) + lossAmount,
+        insuranceStartBalance:
+          exec?.insuranceStartBalance ??
+          (Number.isFinite(balance) ? balance : null),
+        insuranceTargetBalance: Number.isFinite(target) ? target : null,
+        insuranceCurrentBalance:
+          Number.isFinite(balance) && balance != null ? balance : null,
+      };
+
+      const cycleBank = Number(exec?.cycleStartBalance);
+      const cycleBankText = Number.isFinite(cycleBank)
+        ? ` | cycle bank ${cycleBank.toFixed(2)}`
+        : '';
+
+      await this.logEvent(
+        `MISSING19 INSURANCE ON: loss ${lossAmount.toFixed(2)} | chip ${formatStakeValue(
+          cfg.insuranceChipValue,
+        )} x${nextTimes}${cycleBankText} | target ${
+          Number.isFinite(target) ? target.toFixed(2) : 'balance unknown'
+        }`,
+        insured,
+        {
+          phase: 'insurance',
+          result: spin,
+          balance,
+          amount: lossAmount,
+        },
+      );
+
+      return insured;
+    }
+
+    async settleInsuranceByBalance(exec, cfg, tableId, waitMs = 0) {
+      if (!exec?.insuranceActive) return exec;
+
+      if (!cfg.insuranceEnabled) {
+        return {
+          ...exec,
+          insuranceEnabled: false,
+          insuranceActive: false,
+          insuranceLossAmount: 0,
+          insuranceTargetBalance: null,
+          insuranceCurrentBalance: null,
+          insuranceStartBalance: null,
+          insuranceChipValue: cfg.insuranceChipValue,
+          insuranceLevel: 0,
+          insuranceTimes: 1,
+          insuranceActualChipValue: null,
+        };
+      }
+
+      const target = Number(exec.insuranceTargetBalance);
+      if (!Number.isFinite(target)) return exec;
+
+      const balance = await waitForBalanceValue(tableId, waitMs);
+      if (balance == null || balance < target) {
+        return {
+          ...exec,
+          insuranceCurrentBalance: balance,
+          insuranceLossAmount:
+            balance == null ? exec.insuranceLossAmount : target - balance,
+        };
+      }
+
+      const cleared = {
+        ...exec,
+        insuranceActive: false,
+        insuranceLossAmount: 0,
+        insuranceTargetBalance: null,
+        insuranceCurrentBalance: balance,
+        insuranceStartBalance: null,
+        insuranceChipValue: cfg.insuranceChipValue,
+        insuranceLevel: 0,
+        insuranceTimes: 1,
+        insuranceActualChipValue: null,
+      };
+
+      await this.logEvent(
+        `MISSING19 INSURANCE OFF: recovered ${target.toFixed(2)} | balance ${balance.toFixed(2)}`,
+        cleared,
+        { phase: 'insurance', balance },
+      );
+
+      return cleared;
+    }
+
+    async buildInsuranceBaseSteps(exec, cfg) {
+      const requestedChip = normalizeInsuranceChipValue(
+        cfg.insuranceChipValue,
+      );
+      const chips = await BET.loadGlobalChips();
+      const chipValues = Array.isArray(chips?.chipValues)
+        ? chips.chipValues
+        : [];
+      const chipIndex = findChipIndexByValue(chipValues, requestedChip);
+
+      if (chipIndex < 0) {
+        const available = chipValues.length
+          ? chipValues.map(formatStakeValue).join(', ')
+          : 'none';
+        return {
+          ok: false,
+          message: `MISSING19 INSURANCE ERROR: chip ${formatStakeValue(
+            requestedChip,
+          )} is not configured | available ${available}`,
+        };
+      }
+
+      const level = normalizeInsuranceLevel(exec?.insuranceLevel);
+      const times = insuranceTimesFromLevel(level);
+      const actualChipValue = Number(chipValues[chipIndex]);
+
+      return {
+        ok: true,
+        steps: [[{ chip: chipIndex + 1, times }]],
+        level,
+        times,
+        actualChipValue,
+      };
+    }
+
+    async tryEnterFromCycle(cycle, cfg, prefix, prevExec = null, opts = {}) {
       const tableId = await getTrackedTableIdForThisTab();
       if (!tableId) return { ok: false, gated: true };
 
@@ -795,25 +1202,69 @@ import { entryGateFor } from '../shared/entry-limit.js';
       );
       if (!okEntry) return { ok: false, gated: true };
 
-      const entryExec = execFromCycle(emptyExec(true, cycle.collectAfter), cycle, cfg);
-      const steps = cfg.useRebetDouble ? BASE_STEPS : cfg.steps;
+      const seed = prevExec || emptyExec(true, cycle.collectAfter);
+      let entryExec = execFromCycle(seed, cycle, cfg);
+      if (!opts.skipInsuranceSettle) {
+        entryExec = await this.settleInsuranceByBalance(
+          entryExec,
+          cfg,
+          tableId,
+          opts.waitInsuranceBalance ? 7000 : 0,
+        );
+      }
+
+      let sourceSteps = cfg.useRebetDouble ? BASE_STEPS : cfg.steps;
+      let method = cfg.useRebetDouble ? 'manual-base' : 'manual-step';
+      let insuranceTag = '';
+
+      if (cfg.insuranceEnabled && entryExec.insuranceActive) {
+        const insurancePlan = await this.buildInsuranceBaseSteps(
+          entryExec,
+          cfg,
+        );
+
+        if (!insurancePlan.ok) {
+          await this.setExec(entryExec);
+          await this.logEvent(insurancePlan.message, entryExec, {
+            phase: 'error',
+          });
+          this.setStatus('error', insurancePlan.message);
+          return { ok: false, gated: false, exec: entryExec };
+        }
+
+        sourceSteps = insurancePlan.steps;
+        method = 'insurance-chip';
+        entryExec = {
+          ...entryExec,
+          insuranceChipValue: cfg.insuranceChipValue,
+          insuranceLevel: insurancePlan.level,
+          insuranceTimes: insurancePlan.times,
+          insuranceActualChipValue: insurancePlan.actualChipValue,
+        };
+        insuranceTag = ` | insurance chip ${formatStakeValue(
+          insurancePlan.actualChipValue,
+        )} x${insurancePlan.times}`;
+      }
+
+      const steps = cloneSteps(sourceSteps);
+
       return this.placeAndReport(
         entryExec,
         targets,
         1,
         steps,
-        `${prefix}: trigger ${cfg.triggerCount}, repeats ${cycle.repeatCount}`,
-        cfg.useRebetDouble ? 'manual-base' : 'manual-step',
+        `${prefix}: trigger ${cfg.triggerCount}, repeats ${cycle.repeatCount}${insuranceTag}`,
+        method,
       );
     }
 
-    async storeCycleOrEnter(cycle, cfg, prefix) {
+    async storeCycleOrEnter(cycle, cfg, prefix, prevExec = null, opts = {}) {
       if (canEnter(cycle, cfg)) {
-        return this.tryEnterFromCycle(cycle, cfg, prefix);
+        return this.tryEnterFromCycle(cycle, cfg, prefix, prevExec, opts);
       }
 
       const waiting = execFromCycle(
-        emptyExec(true, cycle.collectAfter),
+        prevExec || emptyExec(true, cycle.collectAfter),
         cycle,
         cfg,
       );
@@ -853,6 +1304,8 @@ import { entryGateFor } from '../shared/entry-limit.js';
             cycle,
             cfg,
             `MISSING19 ENTRY AFTER WIN ${spin}`,
+            exec,
+            { waitInsuranceBalance: true },
           );
           return;
         }
@@ -870,11 +1323,20 @@ import { entryGateFor } from '../shared/entry-limit.js';
               { phase: 'loss', result: spin },
             );
 
+            const insuredExec =
+              await this.activateInsuranceAfterLoss(
+                exec,
+                cfg,
+                tableId,
+                spin,
+              );
             const cycle = buildCycleFromLogs(logs, 0);
             await this.storeCycleOrEnter(
               cycle,
               cfg,
               `MISSING19 ENTRY AFTER LOSS ${spin}`,
+              insuredExec,
+              { skipInsuranceSettle: true },
             );
             return;
           }
@@ -894,11 +1356,19 @@ import { entryGateFor } from '../shared/entry-limit.js';
             { phase: 'loss', result: spin },
           );
 
+          const insuredExec = await this.activateInsuranceAfterLoss(
+            exec,
+            cfg,
+            tableId,
+            spin,
+          );
           const cycle = buildCycleFromLogs(logs, 0);
           await this.storeCycleOrEnter(
             cycle,
             cfg,
             `MISSING19 ENTRY AFTER LOSS ${spin}`,
+            insuredExec,
+            { skipInsuranceSettle: true },
           );
           return;
         }
@@ -922,7 +1392,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
         return;
       }
 
-      await this.tryEnterFromCycle(cycle, cfg, 'MISSING19 ENTRY');
+      await this.tryEnterFromCycle(cycle, cfg, 'MISSING19 ENTRY', exec);
     }
 
     attachStorageListener() {

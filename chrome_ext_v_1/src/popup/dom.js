@@ -329,8 +329,26 @@ export const missing19MaxDoublesInp = document.getElementById(
 export const missing19RebetDoubleCk = document.getElementById(
   'missing19RebetDouble',
 );
+export const missing19InsuranceEnabledCk = document.getElementById(
+  'missing19InsuranceEnabled',
+);
+export const missing19InsuranceChipValueInp = document.getElementById(
+  'missing19InsuranceChipValue',
+);
 export const missing19StepsBox = document.getElementById(
   'missing19StepsBox',
 );
 export const cfgMissing19Msg =
   document.getElementById('cfgMissing19Msg');
+
+// === Repeats ===
+export const autoBetToggleRepeats = document.getElementById(
+  'autoBetToggleRepeats',
+);
+export const betStatusRepeats = document.getElementById(
+  'betStatusRepeats',
+);
+export const repeatsInfo = document.getElementById('repeatsInfo');
+export const repeatsRangesBox =
+  document.getElementById('repeatsRangesBox');
+export const cfgRepeatsMsg = document.getElementById('cfgRepeatsMsg');

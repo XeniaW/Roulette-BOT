@@ -11,6 +11,7 @@ import {
   sanitizeNeighbors,
   sanitizeNumbers,
   sanitizeMissing19,
+  sanitizeRepeats,
 } from './markets.js';
 import {
   TRACKED_TABLES_KEY,
@@ -79,11 +80,17 @@ import {
   missing19TriggerCountInp,
   missing19MaxDoublesInp,
   missing19RebetDoubleCk,
+  missing19InsuranceEnabledCk,
+  missing19InsuranceChipValueInp,
   missing19StepsBox,
   missing19Info,
+  betStatusRepeats,
+  repeatsRangesBox,
+  repeatsInfo,
 } from './dom.js';
 
 import { renderSteps } from './steps-ui.js';
+import { renderRanges } from './range-steps-ui.js';
 import {
   updateDotsFromState,
   setLatestSpins,
@@ -95,6 +102,12 @@ function setStatusText(el, stObj) {
   const s = stObj || { state: 'off', message: '' };
   if (!el) return;
   el.textContent = `[${(s.state || 'off').toUpperCase()}] ${s.message || ''}`;
+}
+
+function formatStakeValue(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 'unknown';
+  return Number.isInteger(n) && n >= 1 ? String(n) : n.toFixed(2);
 }
 
 function setOnIfEnabled(el, enabled, stObj) {
@@ -110,6 +123,7 @@ function setOnIfEnabled(el, enabled, stObj) {
 
 let lastSpinLogs = [];
 let lastMissing19Exec = null;
+let lastRepeatsExec = null;
 
 async function getFocusedSpinLogsSnapshot() {
   try {
@@ -166,13 +180,43 @@ async function getFocusedMissing19ExecSnapshot() {
   }
 }
 
+async function getFocusedRepeatsExecSnapshot() {
+  try {
+    const {
+      [SELECTED_TRACKED_TABLE_KEY]: rawSelectedId = '',
+      betExecRepeatsByTable = {},
+    } = await chrome.storage.local.get({
+      [SELECTED_TRACKED_TABLE_KEY]: '',
+      betExecRepeatsByTable: {},
+    });
+
+    const selectedId = String(rawSelectedId || '').trim();
+    const map =
+      betExecRepeatsByTable &&
+      typeof betExecRepeatsByTable === 'object'
+        ? betExecRepeatsByTable
+        : {};
+
+    return selectedId &&
+      map[selectedId] &&
+      typeof map[selectedId] === 'object'
+      ? map[selectedId]
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 async function refreshMarketInfoFromFocusedLogs() {
   const logs = await getFocusedSpinLogsSnapshot();
   const exec = await getFocusedMissing19ExecSnapshot();
+  const repeatsExec = await getFocusedRepeatsExecSnapshot();
   lastSpinLogs = logs;
   lastMissing19Exec = exec;
+  lastRepeatsExec = repeatsExec;
   updateNumbersNearUI(logs);
   updateMissing19InfoUI(logs, exec);
+  updateRepeatsInfoUI(logs, repeatsExec);
 }
 
 function updateNumbersNearUI(spinLogsArr) {
@@ -235,11 +279,58 @@ export function updateMissing19InfoUI(spinLogsArr, exec = null) {
   );
   const useRebetDouble =
     missing19RebetDoubleCk?.checked ?? !!effectiveExec?.useRebetDouble;
+  const insuranceActive = !!effectiveExec?.insuranceActive;
+  const configuredInsuranceChip = Number(
+    missing19InsuranceChipValueInp?.value ??
+      effectiveExec?.insuranceChipValue ??
+      1,
+  );
+  const insuranceChip = Number(
+    insuranceActive
+      ? effectiveExec?.insuranceActualChipValue ??
+          effectiveExec?.insuranceChipValue ??
+          configuredInsuranceChip
+      : configuredInsuranceChip,
+  );
+  const insuranceLevel = Math.max(
+    0,
+    Math.floor(Number(effectiveExec?.insuranceLevel || 0)),
+  );
+  const insuranceTimes = Math.max(
+    1,
+    Math.floor(
+      Number(
+        effectiveExec?.insuranceTimes ||
+          Math.pow(2, insuranceLevel) ||
+          1,
+      ),
+    ),
+  );
+  const insuranceTarget = Number(effectiveExec?.insuranceTargetBalance);
+  const insuranceLoss = Number(effectiveExec?.insuranceLossAmount || 0);
+  const insuranceCurrent = Number(effectiveExec?.insuranceCurrentBalance);
+  const insuranceCurrentText = Number.isFinite(insuranceCurrent)
+    ? ` | current ${insuranceCurrent.toFixed(2)}`
+    : '';
+  const cycleBank = Number(effectiveExec?.cycleStartBalance);
+  const cycleBankText = Number.isFinite(cycleBank)
+    ? ` | cycle bank ${cycleBank.toFixed(2)}`
+    : '';
+  const insurance =
+    insuranceActive && Number.isFinite(insuranceTarget)
+      ? ` | RECOVERY chip ${formatStakeValue(
+          insuranceChip,
+        )} x${insuranceTimes}${cycleBankText}${insuranceCurrentText} | loss ${insuranceLoss.toFixed(2)} | target ${insuranceTarget.toFixed(2)}`
+      : insuranceActive
+        ? ` | RECOVERY chip ${formatStakeValue(
+            insuranceChip,
+          )} x${insuranceTimes}${cycleBankText}${insuranceCurrentText} | loss ${insuranceLoss.toFixed(2)}`
+        : '';
   const phase = String(effectiveExec?.phase || 'idle');
   const targets = Array.isArray(effectiveExec?.target)
     ? effectiveExec.target.length
     : 37 - unique;
-  const base = `MISSING19 | trigger ${triggerCount} | unique ${unique}/19 | repeats ${repeated} | total ${spinCount}/${triggerCount}`;
+  const base = `MISSING19 | trigger ${triggerCount} | unique ${unique}/19 | repeats ${repeated} | total ${spinCount}/${triggerCount}${insurance}`;
 
   if (phase === 'armed') {
     const step = Math.max(1, Math.floor(Number(effectiveExec?.step || 1)));
@@ -269,6 +360,39 @@ export function updateMissing19InfoUI(spinLogsArr, exec = null) {
   } | need ${needUnique} unique`;
 }
 
+export function updateRepeatsInfoUI(spinLogsArr, exec = null) {
+  if (!repeatsInfo) return;
+
+  const effectiveExec = exec || lastRepeatsExec;
+  const targets = Array.isArray(effectiveExec?.target)
+    ? effectiveExec.target
+        .map(Number)
+        .filter((n, i, src) => Number.isInteger(n) && src.indexOf(n) === i)
+    : [];
+  const phase = String(effectiveExec?.phase || 'idle');
+  const spinCount = Math.max(
+    targets.length,
+    Math.floor(Number(effectiveExec?.spinCount || 0)),
+  );
+  const rangeFrom = Number(effectiveExec?.rangeFrom);
+  const rangeTo = Number(effectiveExec?.rangeTo);
+  const rangeText =
+    Number.isFinite(rangeFrom) && Number.isFinite(rangeTo)
+      ? ` | range ${rangeFrom}-${rangeTo}`
+      : '';
+
+  if (phase === 'armed') {
+    repeatsInfo.textContent = `REPEATS | unique ${spinCount}/37 | targets ${targets.length}${rangeText} | ARMED`;
+    return;
+  }
+
+  const lastSpin = Number(effectiveExec?.lastSpin);
+  const lastText = Number.isInteger(lastSpin)
+    ? ` | last win ${lastSpin}`
+    : '';
+  repeatsInfo.textContent = `REPEATS | waiting first spin${lastText}`;
+}
+
 chrome.storage.onChanged.addListener((ch, area) => {
   if (area !== 'local') return;
 
@@ -292,6 +416,7 @@ chrome.storage.onChanged.addListener((ch, area) => {
       updateDotsFromState();
       updateNumbersNearUI(arr);
       updateMissing19InfoUI(arr);
+      updateRepeatsInfoUI(arr);
     }
 
     if (
@@ -300,7 +425,8 @@ chrome.storage.onChanged.addListener((ch, area) => {
       ch[TRACKED_TABLES_KEY] ||
       ch[TRACKED_TABLE_STATES_KEY] ||
       ch[SELECTED_TRACKED_TABLE_KEY] ||
-      ch.betExecMissing19ByTable
+      ch.betExecMissing19ByTable ||
+      ch.betExecRepeatsByTable
     ) {
       loadStatus().catch(() => {});
       refreshMarketInfoFromFocusedLogs().catch(() => {});
@@ -373,6 +499,11 @@ chrome.storage.onChanged.addListener((ch, area) => {
         betStatusMissing19,
         ch.bettingStatusMissing19.newValue,
       );
+    if (ch.bettingStatusRepeats)
+      setStatusText(
+        betStatusRepeats,
+        ch.bettingStatusRepeats.newValue,
+      );
 
     if (ch.autoBettingLowHighEnabled) {
       const en = !!ch.autoBettingLowHighEnabled.newValue;
@@ -412,6 +543,14 @@ chrome.storage.onChanged.addListener((ch, area) => {
           ch.bettingStatusMissing19.newValue) ||
         null;
       setOnIfEnabled(betStatusMissing19, en, st);
+    }
+    if (ch.autoBettingRepeatsEnabled) {
+      const en = !!ch.autoBettingRepeatsEnabled.newValue;
+      const st =
+        (ch.bettingStatusRepeats &&
+          ch.bettingStatusRepeats.newValue) ||
+        null;
+      setOnIfEnabled(betStatusRepeats, en, st);
     }
 
     if (ch.abDozensConfig) {
@@ -530,8 +669,20 @@ chrome.storage.onChanged.addListener((ch, area) => {
       if (missing19RebetDoubleCk) {
         missing19RebetDoubleCk.checked = !!cfg.useRebetDouble;
       }
+      if (missing19InsuranceEnabledCk) {
+        missing19InsuranceEnabledCk.checked = !!cfg.insuranceEnabled;
+      }
+      if (missing19InsuranceChipValueInp) {
+        missing19InsuranceChipValueInp.value = cfg.insuranceChipValue;
+      }
       if (missing19StepsBox) renderSteps(missing19StepsBox, cfg.steps);
       updateMissing19InfoUI(lastSpinLogs);
+    }
+
+    if (ch.abRepeatsConfig) {
+      const cfg = sanitizeRepeats(ch.abRepeatsConfig.newValue);
+      if (repeatsRangesBox) renderRanges(repeatsRangesBox, cfg.ranges);
+      updateRepeatsInfoUI(lastSpinLogs);
     }
 
     if (ch.abNeighborsConfig) {

@@ -37,6 +37,7 @@ const ENTRY_POINTS = [
   'src/auto/anti-rows.js',
   'src/auto/numbers.js',
   'src/auto/missing19.js',
+  'src/auto/repeats.js',
 ];
 
 const BASE = {

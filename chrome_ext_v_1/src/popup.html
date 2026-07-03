@@ -965,6 +965,26 @@
                   <input type="checkbox" id="missing19RebetDouble" />
                   Rebet + Double
                 </label>
+                <label class="small">
+                  <input
+                    type="checkbox"
+                    id="missing19InsuranceEnabled"
+                  />
+                  Insurance recovery
+                </label>
+              </div>
+
+              <div class="field-row">
+                <label for="missing19InsuranceChipValue" class="small">
+                  Recovery chip
+                </label>
+                <input
+                  id="missing19InsuranceChipValue"
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value="1"
+                />
               </div>
 
               <div
@@ -992,6 +1012,53 @@
                   </button>
                 </div>
                 <div id="cfgMissing19Msg" class="small"></div>
+              </div>
+            </details>
+          </article>
+
+          <!-- Repeats -->
+          <article class="market-card" data-market="repeats">
+            <div class="market-top">
+              <label class="toggle">
+                <input type="checkbox" id="autoBetToggleRepeats" />
+                <span>Повторы</span>
+              </label>
+              <span
+                id="betStatusRepeats"
+                class="market-status small"
+              ></span>
+            </div>
+
+            <div class="market-body">
+              <div
+                class="market-note small mono"
+                id="repeatsInfo"
+              ></div>
+            </div>
+
+            <details class="steps-accordion">
+              <summary>Spin ranges</summary>
+              <div class="steps-panel">
+                <div class="small muted">
+                  From-to = сколько разных чисел уже в цикле. Chip # и
+                  X ставятся на каждое число из списка.
+                </div>
+                <div id="repeatsRangesBox"></div>
+                <div class="row row-wrap">
+                  <button id="btnAddRepeatsRange" class="btn">
+                    + Add range
+                  </button>
+                  <button id="btnCfgRepeatsDefaults" class="btn">
+                    Defaults
+                  </button>
+                  <button
+                    id="btnCfgRepeatsSave"
+                    class="btn btn-primary"
+                  >
+                    Save
+                  </button>
+                </div>
+                <div id="cfgRepeatsMsg" class="small"></div>
               </div>
             </details>
           </article>
