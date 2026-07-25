@@ -5,9 +5,15 @@ import { entryGateFor } from '../shared/entry-limit.js';
     { from: 1, to: 9, items: [{ chip: 1, times: 1 }] },
     { from: 10, to: 12, items: [{ chip: 1, times: 2 }] },
   ]);
+  const DEFAULT_INSURANCE_RANGES = Object.freeze([
+    { from: 1, to: 9, items: [{ chip: 2, times: 1 }] },
+    { from: 10, to: 12, items: [{ chip: 2, times: 2 }] },
+  ]);
 
   const DEFAULT_CFG = Object.freeze({
     ranges: DEFAULT_RANGES,
+    insuranceEnabled: false,
+    insuranceRanges: DEFAULT_INSURANCE_RANGES,
   });
 
   const CFG_KEY = 'abRepeatsConfig';
@@ -17,7 +23,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
   const TRACKED_TABLE_STATES_KEY = 'trackedTableStates';
   const MAX_BET_LOGS = 5000;
   const PLACE_MAX_WAIT_MS = 20000;
-  const STRATEGY_VERSION = 1;
+  const STRATEGY_VERSION = 2;
   const MAX_NUMBERS = 37;
 
   function numId(n) {
@@ -123,8 +129,8 @@ import { entryGateFor } from '../shared/entry-limit.js';
     return items.length ? items : [{ chip: 1, times: 1 }];
   }
 
-  function sanitizeRanges(rawRanges) {
-    const src = Array.isArray(rawRanges) ? rawRanges : DEFAULT_RANGES;
+  function sanitizeRanges(rawRanges, fallback = DEFAULT_RANGES) {
+    const src = Array.isArray(rawRanges) ? rawRanges : fallback;
     const ranges = src
       .map((range) => {
         const from = Math.max(1, Math.floor(Number(range?.from ?? 1)));
@@ -143,12 +149,20 @@ import { entryGateFor } from '../shared/entry-limit.js';
 
     return ranges.length
       ? ranges
-      : JSON.parse(JSON.stringify(DEFAULT_RANGES));
+      : JSON.parse(JSON.stringify(fallback));
   }
 
   function sanitizeCfg(raw) {
+    const src = raw || {};
     return {
-      ranges: sanitizeRanges(raw?.ranges),
+      ranges: sanitizeRanges(src.ranges, DEFAULT_RANGES),
+      insuranceEnabled: !!(
+        src.insuranceEnabled ?? DEFAULT_CFG.insuranceEnabled
+      ),
+      insuranceRanges: sanitizeRanges(
+        src.insuranceRanges,
+        DEFAULT_INSURANCE_RANGES,
+      ),
     };
   }
 
@@ -160,6 +174,10 @@ import { entryGateFor } from '../shared/entry-limit.js';
       target: [],
       step: 0,
       spinCount: 0,
+      chain: 'base',
+      chainStep: 0,
+      pendingChain: 'base',
+      pauseSpins: 0,
       rangeFrom: null,
       rangeTo: null,
       armedAt: 0,
@@ -188,6 +206,23 @@ import { entryGateFor } from '../shared/entry-limit.js';
       out.target.length,
       Math.floor(Number(out.spinCount || 0)),
     );
+    out.chain = out.chain === 'insurance' ? 'insurance' : 'base';
+    out.chainStep = Math.max(
+      0,
+      Math.floor(
+        Number(out.chainStep || out.spinCount || out.target.length || 0),
+      ),
+    );
+    out.pendingChain =
+      out.pendingChain === 'insurance' ? 'insurance' : 'base';
+    out.pauseSpins = Math.max(
+      0,
+      Math.floor(Number(out.pauseSpins || 0)),
+    );
+    if (out.phase !== 'armed') {
+      out.chain = 'base';
+      out.chainStep = 0;
+    }
     out.rangeFrom = Number.isFinite(Number(out.rangeFrom))
       ? Number(out.rangeFrom)
       : null;
@@ -203,6 +238,69 @@ import { entryGateFor } from '../shared/entry-limit.js';
       : 0;
 
     return out;
+  }
+
+  function maxRangeTo(ranges) {
+    const clean = sanitizeRanges(ranges);
+    return clean.reduce((max, range) => Math.max(max, range.to), 1);
+  }
+
+  function activeRanges(cfg, chain) {
+    return chain === 'insurance' && cfg.insuranceEnabled
+      ? cfg.insuranceRanges
+      : cfg.ranges;
+  }
+
+  function nextChain(chain, cfg) {
+    if (!cfg.insuranceEnabled) return 'base';
+    return chain === 'insurance' ? 'base' : 'insurance';
+  }
+
+  function chainLabel(chain) {
+    return chain === 'insurance' ? 'INSURANCE' : 'BASE';
+  }
+
+  function pendingChainForExec(exec, cfg) {
+    return exec?.pendingChain === 'insurance' && cfg.insuranceEnabled
+      ? 'insurance'
+      : 'base';
+  }
+
+  function isStageExhausted(exec, cfg) {
+    if (!cfg.insuranceEnabled) return false;
+    const chain = exec?.chain === 'insurance' ? 'insurance' : 'base';
+    const limit = maxRangeTo(activeRanges(cfg, chain));
+    const chainStep = Math.max(
+      0,
+      Math.floor(Number(exec?.chainStep || exec?.spinCount || 0)),
+    );
+    return chainStep >= limit;
+  }
+
+  function makeWaitingExec(enabled, pendingChain, pauseSpins, lastSpin) {
+    const next = emptyExec(enabled);
+    next.pendingChain = pendingChain;
+    next.pauseSpins = Math.max(0, Math.floor(Number(pauseSpins || 0)));
+    next.lastSpin = getIndex(lastSpin) === -1 ? null : getIndex(lastSpin);
+    return next;
+  }
+
+  function pickChainState(exec, cfg, isNewCycle) {
+    if (isNewCycle) {
+      return {
+        chain: pendingChainForExec(exec, cfg),
+        chainStep: 1,
+        switched: false,
+      };
+    }
+
+    const chain = exec?.chain === 'insurance' ? 'insurance' : 'base';
+    const chainStep = Math.max(
+      0,
+      Math.floor(Number(exec?.chainStep || exec?.spinCount || 0)),
+    ) + 1;
+
+    return { chain, chainStep, switched: false };
   }
 
   function pickRange(ranges, spinCount) {
@@ -354,6 +452,10 @@ import { entryGateFor } from '../shared/entry-limit.js';
         message,
         step: exec?.step ?? null,
         spinCount: Number(exec?.spinCount || 0),
+        chain: exec?.chain || 'base',
+        chainStep: Number(exec?.chainStep || 0),
+        pendingChain: exec?.pendingChain || 'base',
+        pauseSpins: Number(exec?.pauseSpins || 0),
         targets: Array.isArray(exec?.target) ? exec.target.slice() : [],
         rangeFrom: exec?.rangeFrom ?? null,
         rangeTo: exec?.rangeTo ?? null,
@@ -371,6 +473,10 @@ import { entryGateFor } from '../shared/entry-limit.js';
         amount,
         step: exec?.step ?? null,
         spinCount: Number(exec?.spinCount || 0),
+        chain: exec?.chain || 'base',
+        chainStep: Number(exec?.chainStep || 0),
+        pendingChain: exec?.pendingChain || 'base',
+        pauseSpins: Number(exec?.pauseSpins || 0),
         targets: targets.slice(),
         rangeFrom: exec?.rangeFrom ?? null,
         rangeTo: exec?.rangeTo ?? null,
@@ -395,15 +501,39 @@ import { entryGateFor } from '../shared/entry-limit.js';
       await this.setExec(tableId, exec, 'REPEATS: wait first spin');
     }
 
+    async scheduleChainPause(tableId, spin, exec, nextChain, reason, phase) {
+      await this.logEvent(tableId, reason, exec, {
+        phase,
+        result: spin,
+        nextChain,
+        pauseSpins: 1,
+      });
+      const waiting = makeWaitingExec(true, nextChain, 1, spin);
+      const msg = `${reason} -> pause 1 spin -> ${chainLabel(nextChain)}`;
+      await this.setExec(tableId, waiting, msg);
+      this.setStatus('idle', msg);
+      return waiting;
+    }
+
     async resetAfterWin(tableId, spin, exec) {
+      if (exec?.chain === 'insurance') {
+        return this.scheduleChainPause(
+          tableId,
+          spin,
+          exec,
+          'base',
+          `REPEATS INSURANCE WIN: repeat ${spin}`,
+          'win',
+        );
+      }
+
       await this.logEvent(
         tableId,
         `REPEATS WIN: repeat ${spin} -> reset`,
         exec,
         { phase: 'win', result: spin },
       );
-      const reset = emptyExec(true);
-      reset.lastSpin = spin;
+      const reset = makeWaitingExec(true, 'base', 0, spin);
       await this.setExec(
         tableId,
         reset,
@@ -443,7 +573,9 @@ import { entryGateFor } from '../shared/entry-limit.js';
       }
 
       const spinCount = cleanTargets.length;
-      const range = pickRange(cfg.ranges, spinCount);
+      const chainState = pickChainState(exec, cfg, isNewCycle);
+      const ranges = activeRanges(cfg, chainState.chain);
+      const range = pickRange(ranges, chainState.chainStep);
       const next = {
         ...exec,
         enabled: true,
@@ -451,6 +583,8 @@ import { entryGateFor } from '../shared/entry-limit.js';
         target: cleanTargets,
         step: spinCount,
         spinCount,
+        chain: chainState.chain,
+        chainStep: chainState.chainStep,
         rangeFrom: range.from,
         rangeTo: range.to,
         armedAt: Date.now(),
@@ -460,7 +594,9 @@ import { entryGateFor } from '../shared/entry-limit.js';
       await this.setExec(
         tableId,
         next,
-        `${prefix}: placing ${cleanTargets.length} numbers | range ${range.from}-${range.to}`,
+        `${prefix}: placing ${cleanTargets.length} numbers | ${chainLabel(
+          chainState.chain,
+        )} ${chainState.chainStep} | range ${range.from}-${range.to}`,
       );
 
       const res = await placeStep(cleanTargets, range, this.mutex);
@@ -487,12 +623,18 @@ import { entryGateFor } from '../shared/entry-limit.js';
         tableId,
         cleanTargets,
         res.amount,
-        `${prefix}: placed ${cleanTargets.length} numbers | range ${range.from}-${range.to} | targets ${cleanTargets.join(', ')}`,
+        `${prefix}: placed ${cleanTargets.length} numbers | ${chainLabel(
+          chainState.chain,
+        )} ${chainState.chainStep} | range ${range.from}-${
+          range.to
+        } | targets ${cleanTargets.join(', ')}`,
         placed,
       );
       this.setStatus(
         'armed',
-        `${prefix}: ${cleanTargets.length} numbers | range ${range.from}-${range.to}`,
+        `${prefix}: ${cleanTargets.length} numbers | ${chainLabel(
+          chainState.chain,
+        )} ${chainState.chainStep} | range ${range.from}-${range.to}`,
       );
       return { ok: true, exec: placed };
     }
@@ -517,6 +659,23 @@ import { entryGateFor } from '../shared/entry-limit.js';
           return;
         }
 
+        if (isStageExhausted(exec, cfg)) {
+          const nextStage = nextChain(exec.chain, cfg);
+          const reason =
+            exec.chain === 'insurance'
+              ? `REPEATS INSURANCE LOSS: stage exhausted on ${spin}`
+              : `REPEATS BASE LOSS: stage exhausted on ${spin}`;
+          await this.scheduleChainPause(
+            tableId,
+            spin,
+            exec,
+            nextStage,
+            reason,
+            'loss',
+          );
+          return;
+        }
+
         const nextTargets = normalizeTargets([...targets, spin]);
         await this.placeTargets(
           tableId,
@@ -529,12 +688,42 @@ import { entryGateFor } from '../shared/entry-limit.js';
         return;
       }
 
+      const pendingChain = pendingChainForExec(exec, cfg);
+      const pauseSpins = Math.max(
+        0,
+        Math.floor(Number(exec.pauseSpins || 0)),
+      );
+
+      if (pauseSpins > 0) {
+        const left = pauseSpins - 1;
+        const waiting = makeWaitingExec(true, pendingChain, left, spin);
+        const msg =
+          left > 0
+            ? `REPEATS PAUSE: skipped ${spin} -> ${chainLabel(
+                pendingChain,
+              )} entry in ${left} spin`
+            : `REPEATS PAUSE: skipped ${spin} -> starting ${chainLabel(
+                pendingChain,
+              )} chain`;
+        await this.logEvent(tableId, msg, waiting, {
+          phase: 'idle',
+          result: spin,
+        });
+
+        if (left > 0) {
+          await this.setExec(tableId, waiting, msg);
+          this.setStatus('idle', msg);
+          return;
+        }
+      }
+
+      const entryExec = makeWaitingExec(true, pendingChain, 0, spin);
       await this.placeTargets(
         tableId,
-        emptyExec(true),
+        entryExec,
         [spin],
         cfg,
-        `REPEATS ENTRY ${spin}`,
+        `REPEATS ${chainLabel(pendingChain)} ENTRY ${spin}`,
         true,
       );
     }

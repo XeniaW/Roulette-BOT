@@ -50,6 +50,8 @@ import {
   missing19InsuranceChipValueInp,
   missing19StepsBox,
   repeatsRangesBox,
+  repeatsInsuranceEnabledCk,
+  repeatsInsuranceRangesBox,
 } from './dom.js';
 
 import { exportCSV, clearLogs } from './spin-logs.js';
@@ -173,6 +175,11 @@ export function wireInitHandlers() {
   document
     .getElementById('btnAddRepeatsRange')
     ?.addEventListener('click', () => addRange(repeatsRangesBox));
+  document
+    .getElementById('btnAddRepeatsInsuranceRange')
+    ?.addEventListener('click', () =>
+      addRange(repeatsInsuranceRangesBox),
+    );
 
   document
     .getElementById('btnCfgDznDefaults')
@@ -275,7 +282,15 @@ export function wireInitHandlers() {
   document
     .getElementById('btnCfgRepeatsDefaults')
     ?.addEventListener('click', () => {
+      if (repeatsInsuranceEnabledCk) {
+        repeatsInsuranceEnabledCk.checked =
+          !!DEFAULT_REPEATS.insuranceEnabled;
+      }
       renderRanges(repeatsRangesBox, DEFAULT_REPEATS.ranges);
+      renderRanges(
+        repeatsInsuranceRangesBox,
+        DEFAULT_REPEATS.insuranceRanges,
+      );
       saveMarketCfgFromUI('repeats');
     });
 
@@ -500,9 +515,16 @@ export function wireInitHandlers() {
 
   wireAutoSaveForMarket('repeats', {
     streakInp: null,
-    autoCk: null,
+    autoCk: repeatsInsuranceEnabledCk,
     zeroCk: null,
     stepsBox: repeatsRangesBox,
+  });
+
+  wireAutoSaveForMarket('repeats', {
+    streakInp: null,
+    autoCk: null,
+    zeroCk: null,
+    stepsBox: repeatsInsuranceRangesBox,
   });
 
   autoBetToggleNeighbors?.addEventListener('change', async () => {

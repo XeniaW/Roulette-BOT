@@ -351,4 +351,10 @@ export const betStatusRepeats = document.getElementById(
 export const repeatsInfo = document.getElementById('repeatsInfo');
 export const repeatsRangesBox =
   document.getElementById('repeatsRangesBox');
+export const repeatsInsuranceEnabledCk = document.getElementById(
+  'repeatsInsuranceEnabled',
+);
+export const repeatsInsuranceRangesBox = document.getElementById(
+  'repeatsInsuranceRangesBox',
+);
 export const cfgRepeatsMsg = document.getElementById('cfgRepeatsMsg');

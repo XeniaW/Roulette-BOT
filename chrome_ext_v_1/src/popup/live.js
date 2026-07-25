@@ -86,6 +86,8 @@ import {
   missing19Info,
   betStatusRepeats,
   repeatsRangesBox,
+  repeatsInsuranceEnabledCk,
+  repeatsInsuranceRangesBox,
   repeatsInfo,
 } from './dom.js';
 
@@ -380,17 +382,36 @@ export function updateRepeatsInfoUI(spinLogsArr, exec = null) {
     Number.isFinite(rangeFrom) && Number.isFinite(rangeTo)
       ? ` | range ${rangeFrom}-${rangeTo}`
       : '';
+  const chain =
+    effectiveExec?.chain === 'insurance' ? 'INSURANCE' : 'BASE';
+  const chainStep = Math.max(
+    0,
+    Math.floor(Number(effectiveExec?.chainStep || 0)),
+  );
+  const chainText = chainStep ? ` | ${chain} ${chainStep}` : '';
 
   if (phase === 'armed') {
-    repeatsInfo.textContent = `REPEATS | unique ${spinCount}/37 | targets ${targets.length}${rangeText} | ARMED`;
+    repeatsInfo.textContent = `REPEATS | unique ${spinCount}/37 | targets ${targets.length}${chainText}${rangeText} | ARMED`;
     return;
   }
 
+  const pending =
+    effectiveExec?.pendingChain === 'insurance' ? 'INSURANCE' : 'BASE';
+  const pauseSpins = Math.max(
+    0,
+    Math.floor(Number(effectiveExec?.pauseSpins || 0)),
+  );
   const lastSpin = Number(effectiveExec?.lastSpin);
   const lastText = Number.isInteger(lastSpin)
-    ? ` | last win ${lastSpin}`
+    ? ` | last spin ${lastSpin}`
     : '';
-  repeatsInfo.textContent = `REPEATS | waiting first spin${lastText}`;
+
+  if (pauseSpins > 0) {
+    repeatsInfo.textContent = `REPEATS | pause ${pauseSpins} spin -> ${pending}${lastText}`;
+    return;
+  }
+
+  repeatsInfo.textContent = `REPEATS | waiting ${pending} entry${lastText}`;
 }
 
 chrome.storage.onChanged.addListener((ch, area) => {
@@ -681,7 +702,13 @@ chrome.storage.onChanged.addListener((ch, area) => {
 
     if (ch.abRepeatsConfig) {
       const cfg = sanitizeRepeats(ch.abRepeatsConfig.newValue);
+      if (repeatsInsuranceEnabledCk) {
+        repeatsInsuranceEnabledCk.checked = !!cfg.insuranceEnabled;
+      }
       if (repeatsRangesBox) renderRanges(repeatsRangesBox, cfg.ranges);
+      if (repeatsInsuranceRangesBox) {
+        renderRanges(repeatsInsuranceRangesBox, cfg.insuranceRanges);
+      }
       updateRepeatsInfoUI(lastSpinLogs);
     }
 

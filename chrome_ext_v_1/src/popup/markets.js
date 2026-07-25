@@ -93,6 +93,8 @@ import {
   autoBetToggleRepeats,
   betStatusRepeats,
   repeatsRangesBox,
+  repeatsInsuranceEnabledCk,
+  repeatsInsuranceRangesBox,
   cfgRepeatsMsg,
 } from './dom.js';
 
@@ -163,6 +165,11 @@ export const DEFAULT_REPEATS = Object.freeze({
   ranges: [
     { from: 1, to: 9, items: [{ chip: 1, times: 1 }] },
     { from: 10, to: 12, items: [{ chip: 1, times: 2 }] },
+  ],
+  insuranceEnabled: false,
+  insuranceRanges: [
+    { from: 1, to: 9, items: [{ chip: 2, times: 1 }] },
+    { from: 10, to: 12, items: [{ chip: 2, times: 2 }] },
   ],
 });
 
@@ -348,13 +355,9 @@ function sanitizeRangeItems(rawItems) {
   return items.length ? items : [{ chip: 1, times: 1 }];
 }
 
-export function sanitizeRepeats(raw) {
-  const src = raw || {};
-  const rawRanges = Array.isArray(src.ranges)
-    ? src.ranges
-    : DEFAULT_REPEATS.ranges;
-
-  const ranges = rawRanges
+function sanitizeRangeList(rawRanges, fallbackRanges) {
+  const raw = Array.isArray(rawRanges) ? rawRanges : fallbackRanges;
+  const ranges = raw
     .map((range) => {
       const from = Math.max(1, Math.floor(Number(range?.from ?? 1)));
       const to = Math.max(
@@ -370,10 +373,22 @@ export function sanitizeRepeats(raw) {
     .filter((range) => range.from <= 37)
     .sort((a, b) => a.from - b.from || a.to - b.to);
 
+  return ranges.length
+    ? ranges
+    : JSON.parse(JSON.stringify(fallbackRanges));
+}
+
+export function sanitizeRepeats(raw) {
+  const src = raw || {};
   return {
-    ranges: ranges.length
-      ? ranges
-      : JSON.parse(JSON.stringify(DEFAULT_REPEATS.ranges)),
+    ranges: sanitizeRangeList(src.ranges, DEFAULT_REPEATS.ranges),
+    insuranceEnabled: !!(
+      src.insuranceEnabled ?? DEFAULT_REPEATS.insuranceEnabled
+    ),
+    insuranceRanges: sanitizeRangeList(
+      src.insuranceRanges,
+      DEFAULT_REPEATS.insuranceRanges,
+    ),
   };
 }
 
@@ -605,7 +620,13 @@ export async function loadMarketUI(market) {
   }
 
   if (market === 'repeats') {
+    if (repeatsInsuranceEnabledCk) {
+      repeatsInsuranceEnabledCk.checked = !!cfg.insuranceEnabled;
+    }
     renderRanges(stepsBox, cfg.ranges, { silent: true });
+    renderRanges(repeatsInsuranceRangesBox, cfg.insuranceRanges, {
+      silent: true,
+    });
   } else {
     renderSteps(stepsBox, cfg.steps, { silent: true });
   }
@@ -722,12 +743,19 @@ export async function saveMarketCfgFromUI(market) {
 
   if (market === 'repeats') {
     const ranges = getRangesFromUI(stepsBox);
+    const insuranceRanges = getRangesFromUI(repeatsInsuranceRangesBox);
+    const insuranceEnabled = !!repeatsInsuranceEnabledCk?.checked;
     if (!ranges.length) {
       if (msgEl) msgEl.textContent = 'Add at least one range';
       return;
     }
+    if (insuranceEnabled && !insuranceRanges.length) {
+      if (msgEl) msgEl.textContent = 'Add at least one insurance range';
+      return;
+    }
 
-    for (const range of ranges) {
+    const allRanges = ranges.concat(insuranceRanges);
+    for (const range of allRanges) {
       for (const it of range.items || []) {
         if (it.chip < 1 || it.chip > chipCount) {
           if (msgEl) msgEl.textContent = 'Range uses invalid Chip #';
@@ -736,7 +764,11 @@ export async function saveMarketCfgFromUI(market) {
       }
     }
 
-    const clean = sanitizeRepeats({ ranges });
+    const clean = sanitizeRepeats({
+      ranges,
+      insuranceEnabled,
+      insuranceRanges,
+    });
     await sset({ [cfgKey]: clean });
     if (msgEl) msgEl.textContent = 'Saved.';
     return;

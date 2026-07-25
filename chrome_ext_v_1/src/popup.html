@@ -1044,9 +1044,22 @@
                   X ставятся на каждое число из списка.
                 </div>
                 <div id="repeatsRangesBox"></div>
+                <label class="toggle small">
+                  <input type="checkbox" id="repeatsInsuranceEnabled" />
+                  <span>Insurance balance</span>
+                </label>
+                <div class="small muted">
+                  When base ranges are exhausted, the bot skips one spin and
+                  starts a fresh insurance chain. Insurance win or exhaustion
+                  both skip one spin and return to a fresh base chain.
+                </div>
+                <div id="repeatsInsuranceRangesBox"></div>
                 <div class="row row-wrap">
                   <button id="btnAddRepeatsRange" class="btn">
-                    + Add range
+                    + Add base range
+                  </button>
+                  <button id="btnAddRepeatsInsuranceRange" class="btn">
+                    + Add insurance range
                   </button>
                   <button id="btnCfgRepeatsDefaults" class="btn">
                     Defaults
