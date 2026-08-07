@@ -122,7 +122,9 @@ function wireAutoSaveForMarket(
 
   if (stepsBox) {
     stepsBox.addEventListener('steps:changed', () => debouncedSave());
-    stepsBox.addEventListener('input', () => debouncedSave());
+    if (market !== 'repeats') {
+      stepsBox.addEventListener('input', () => debouncedSave());
+    }
     stepsBox.addEventListener('click', (e) => {
       const btn = e.target?.closest(
         '.btn-del-item,.btn-del-step,.btn-add-item',

@@ -100,6 +100,15 @@ import {
   handleStorageChangeForStreaks,
 } from './streaks.js';
 
+function isEditingRepeatsRanges() {
+  const active = document.activeElement;
+  return !!(
+    active &&
+    (repeatsRangesBox?.contains(active) ||
+      repeatsInsuranceRangesBox?.contains(active))
+  );
+}
+
 function setStatusText(el, stObj) {
   const s = stObj || { state: 'off', message: '' };
   if (!el) return;
@@ -702,11 +711,14 @@ chrome.storage.onChanged.addListener((ch, area) => {
 
     if (ch.abRepeatsConfig) {
       const cfg = sanitizeRepeats(ch.abRepeatsConfig.newValue);
-      if (repeatsInsuranceEnabledCk) {
+      const editingRanges = isEditingRepeatsRanges();
+      if (!editingRanges && repeatsInsuranceEnabledCk) {
         repeatsInsuranceEnabledCk.checked = !!cfg.insuranceEnabled;
       }
-      if (repeatsRangesBox) renderRanges(repeatsRangesBox, cfg.ranges);
-      if (repeatsInsuranceRangesBox) {
+      if (!editingRanges && repeatsRangesBox) {
+        renderRanges(repeatsRangesBox, cfg.ranges);
+      }
+      if (!editingRanges && repeatsInsuranceRangesBox) {
         renderRanges(repeatsInsuranceRangesBox, cfg.insuranceRanges);
       }
       updateRepeatsInfoUI(lastSpinLogs);
