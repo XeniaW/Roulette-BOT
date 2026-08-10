@@ -7,7 +7,9 @@
     "clean": "node -e \"import('fs').then(fs=>fs.promises.rm('dist',{recursive:true,force:true}))\"",
     "prebuild": "node bump-version.js",
     "build": "node build.js OBFUSCATE=1",
-    "watch": "node build.js --watch"
+    "watch": "node build.js --watch",
+    "zip:dist": "node zip-dist.js",
+    "release:zip": "npm run build && npm run zip:dist"
   },
   "devDependencies": {
     "esbuild": "^0.21.5",
