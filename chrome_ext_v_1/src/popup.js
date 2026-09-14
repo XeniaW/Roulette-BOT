@@ -14,6 +14,7 @@ import {
 import {
   updateMissing19InfoUI,
   updateRepeatsInfoUI,
+  updateCatchXMatchInfoUI,
 } from './popup/live.js';
 
 // streaks
@@ -309,6 +310,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderAll(logs);
     updateMissing19InfoUI(initialSpinLogs);
     updateRepeatsInfoUI(initialSpinLogs);
+    updateCatchXMatchInfoUI(initialSpinLogs);
   });
   loadBetLogs(renderBetAll);
 
@@ -330,8 +332,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadMarketUI('numbers');
   await loadMarketUI('missing19');
   await loadMarketUI('repeats');
+  await loadMarketUI('catchxmatch');
   updateMissing19InfoUI(initialSpinLogs);
   updateRepeatsInfoUI(initialSpinLogs);
+  updateCatchXMatchInfoUI(initialSpinLogs);
 
   // главный тумблер
   await loadToggle();

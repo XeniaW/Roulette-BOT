@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Spins Logger",
-  "version": "4.19.1",
+  "version": "4.20.1",
   "description": "Logs spins; auto-betting for dozens, rows, combo (dozen+row), sixlines and threes.",
   "permissions": [
     "storage",
@@ -33,10 +33,9 @@
     },
     {
       "matches": [
-        "https://play.livetables.io/*"
+        "<all_urls>"
       ],
       "js": [
-        "content.js",
         "auto/engine.js",
         "auto/market-base.js",
         "auto/dozens.js",
@@ -53,7 +52,8 @@
         "auto/anti-rows.js",
         "auto/numbers.js",
         "auto/missing19.js",
-        "auto/repeats.js"
+        "auto/repeats.js",
+        "auto/catch-x-match.js"
       ],
       "run_at": "document_idle",
       "all_frames": true

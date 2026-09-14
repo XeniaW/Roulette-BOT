@@ -96,6 +96,12 @@ import {
   repeatsInsuranceEnabledCk,
   repeatsInsuranceRangesBox,
   cfgRepeatsMsg,
+  autoBetToggleCatchXMatch,
+  betStatusCatchXMatch,
+  catchXMatchTriggerCountInp,
+  catchXMatchMaxIncreasesInp,
+  catchXMatchStepsBox,
+  cfgCatchXMatchMsg,
 } from './dom.js';
 
 import { renderSteps, getStepsFromUI } from './steps-ui.js';
@@ -117,6 +123,7 @@ export const CFG_ANTI_ROWS_KEY = 'abAntiRowsConfig';
 export const CFG_NUMBERS_KEY = 'abNumbersConfig';
 export const CFG_MISSING19_KEY = 'abMissing19Config';
 export const CFG_REPEATS_KEY = 'abRepeatsConfig';
+export const CFG_CATCH_X_MATCH_KEY = 'abCatchXMatchConfig';
 
 export const DEFAULT_MKT = Object.freeze({
   triggerStreak: 2,
@@ -170,6 +177,17 @@ export const DEFAULT_REPEATS = Object.freeze({
   insuranceRanges: [
     { from: 1, to: 9, items: [{ chip: 2, times: 1 }] },
     { from: 10, to: 12, items: [{ chip: 2, times: 2 }] },
+  ],
+});
+
+export const DEFAULT_CATCH_X_MATCH = Object.freeze({
+  triggerCount: 2,
+  maxIncreases: 3,
+  steps: [
+    [{ chip: 1, times: 1 }],
+    [{ chip: 1, times: 2 }],
+    [{ chip: 1, times: 4 }],
+    [{ chip: 2, times: 2 }],
   ],
 });
 
@@ -392,6 +410,39 @@ export function sanitizeRepeats(raw) {
   };
 }
 
+export function sanitizeCatchXMatch(raw) {
+  const src = raw || {};
+  const triggerCount = Math.max(
+    2,
+    Math.floor(
+      Number(
+        src.triggerCount ?? DEFAULT_CATCH_X_MATCH.triggerCount,
+      ),
+    ),
+  );
+  const maxIncreases = Math.max(
+    0,
+    Math.floor(
+      Number(
+        src.maxIncreases ?? DEFAULT_CATCH_X_MATCH.maxIncreases,
+      ),
+    ),
+  );
+
+  let steps = Array.isArray(src.steps)
+    ? src.steps
+    : DEFAULT_CATCH_X_MATCH.steps;
+  steps = steps
+    .map((step) => sanitizeRangeItems(step))
+    .filter((step) => step.length);
+
+  if (!steps.length) {
+    steps = JSON.parse(JSON.stringify(DEFAULT_CATCH_X_MATCH.steps));
+  }
+
+  return { triggerCount, maxIncreases, steps };
+}
+
 export async function loadMarketUI(market) {
   let cfgKey,
     enKey,
@@ -555,6 +606,17 @@ export async function loadMarketUI(market) {
     stepsBox = repeatsRangesBox;
     msgEl = cfgRepeatsMsg;
     statusElDest = betStatusRepeats;
+  } else if (market === 'catchxmatch') {
+    cfgKey = CFG_CATCH_X_MATCH_KEY;
+    enKey = 'autoBettingCatchXMatchEnabled';
+    statusKey = 'bettingStatusCatchXMatch';
+    streakInp = null;
+    autoCk = null;
+    zeroCk = null;
+    toggle = autoBetToggleCatchXMatch;
+    stepsBox = catchXMatchStepsBox;
+    msgEl = cfgCatchXMatchMsg;
+    statusElDest = betStatusCatchXMatch;
   } else return;
 
   const st = await sget({
@@ -610,6 +672,16 @@ export async function loadMarketUI(market) {
     cfg = sanitizeRepeats(
       (await sget({ [cfgKey]: DEFAULT_REPEATS }))[cfgKey],
     );
+  } else if (market === 'catchxmatch') {
+    cfg = sanitizeCatchXMatch(
+      (await sget({ [cfgKey]: DEFAULT_CATCH_X_MATCH }))[cfgKey],
+    );
+    if (catchXMatchTriggerCountInp) {
+      catchXMatchTriggerCountInp.value = String(cfg.triggerCount);
+    }
+    if (catchXMatchMaxIncreasesInp) {
+      catchXMatchMaxIncreasesInp.value = String(cfg.maxIncreases);
+    }
   } else {
     cfg = sanitizeMkt(
       (await sget({ [cfgKey]: DEFAULT_MKT }))[cfgKey],
@@ -731,6 +803,13 @@ export async function saveMarketCfgFromUI(market) {
     streakInpEl = null;
     autoCkEl = null;
     zeroCkEl = null;
+  } else if (market === 'catchxmatch') {
+    cfgKey = CFG_CATCH_X_MATCH_KEY;
+    stepsBox = catchXMatchStepsBox;
+    msgEl = cfgCatchXMatchMsg;
+    streakInpEl = catchXMatchTriggerCountInp;
+    autoCkEl = null;
+    zeroCkEl = null;
   } else return;
 
   const { [GLOBAL_CHIPS_KEY]: chips = DEFAULT_CHIPS } = await sget({
@@ -842,6 +921,26 @@ export async function saveMarketCfgFromUI(market) {
       maxDoubles,
       insuranceEnabled,
       insuranceChipValue,
+      steps,
+    });
+
+    await sset({ [cfgKey]: clean });
+    if (msgEl) msgEl.textContent = 'Saved.';
+    return;
+  }
+
+  if (market === 'catchxmatch') {
+    const triggerCount = Math.max(
+      2,
+      Math.floor(Number(catchXMatchTriggerCountInp?.value || 2)),
+    );
+    const maxIncreases = Math.max(
+      0,
+      Math.floor(Number(catchXMatchMaxIncreasesInp?.value || 0)),
+    );
+    const clean = sanitizeCatchXMatch({
+      triggerCount,
+      maxIncreases,
       steps,
     });
 
@@ -1024,6 +1123,24 @@ export function wireMarketTogglesReset() {
     if (betStatusRepeats) {
       betStatusRepeats.textContent = checked
         ? '[IDLE] REPEATS: wait first spin'
+        : '[OFF]';
+    }
+  });
+
+  autoBetToggleCatchXMatch?.addEventListener('change', async () => {
+    const checked = !!autoBetToggleCatchXMatch.checked;
+    await sset({
+      autoBettingCatchXMatchEnabled: checked,
+      bettingStatusCatchXMatch: checked
+        ? {
+            state: 'idle',
+            message: 'CATCH X MATCH: wait match',
+          }
+        : { state: 'off', message: '' },
+    });
+    if (betStatusCatchXMatch) {
+      betStatusCatchXMatch.textContent = checked
+        ? '[IDLE] CATCH X MATCH: wait match'
         : '[OFF]';
     }
   });

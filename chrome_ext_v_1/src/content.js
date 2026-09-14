@@ -50,37 +50,37 @@
   const MARKET_STOP_KEYS = [
     {
       enabledKey: 'autoBettingDozensEnabled',
-      execKey: 'betExecDozens',
+      execKey: 'betExecDozensByTable',
       statusKey: 'bettingStatusDozens',
     },
     {
       enabledKey: 'autoBettingRowsEnabled',
-      execKey: 'betExecRows',
+      execKey: 'betExecRowsByTable',
       statusKey: 'bettingStatusRows',
     },
     {
       enabledKey: 'autoBettingSixEnabled',
-      execKey: 'betExecSix',
+      execKey: 'betExecSixByTable',
       statusKey: 'bettingStatusSix',
     },
     {
       enabledKey: 'autoBettingThreesEnabled',
-      execKey: 'betExecThrees',
+      execKey: 'betExecThreesByTable',
       statusKey: 'bettingStatusThrees',
     },
     {
       enabledKey: 'autoBettingLowHighEnabled',
-      execKey: 'betExecLowHigh',
+      execKey: 'betExecLowHighByTable',
       statusKey: 'bettingStatusLowHigh',
     },
     {
       enabledKey: 'autoBettingEvenOddEnabled',
-      execKey: 'betExecEvenOdd',
+      execKey: 'betExecEvenOddByTable',
       statusKey: 'bettingStatusEvenOdd',
     },
     {
       enabledKey: 'autoBettingColorsEnabled',
-      execKey: 'betExecColors',
+      execKey: 'betExecColorsByTable',
       statusKey: 'bettingStatusColors',
     },
     {
@@ -117,6 +117,11 @@
       enabledKey: 'autoBettingRepeatsEnabled',
       execKey: 'betExecRepeatsByTable',
       statusKey: 'bettingStatusRepeats',
+    },
+    {
+      enabledKey: 'autoBettingCatchXMatchEnabled',
+      execKey: 'betExecCatchXMatchByTable',
+      statusKey: 'bettingStatusCatchXMatch',
     },
   ];
 
@@ -268,9 +273,26 @@
   function parseBalanceText(txt) {
     if (!txt) return null;
     const clean = String(txt)
-      .replace(/[^\d,.\-]/g, '')
-      .replace(',', '.');
-    const val = Number(clean);
+      .replace(/\s+/g, '')
+      .replace(/[^\d,.\-]/g, '');
+
+    const lastComma = clean.lastIndexOf(',');
+    const lastDot = clean.lastIndexOf('.');
+    const decimalSep =
+      lastComma > -1 && lastDot > -1
+        ? lastComma > lastDot
+          ? ','
+          : '.'
+        : lastComma > -1
+          ? ','
+          : '.';
+    const normalized =
+      decimalSep === ','
+        ? clean.replace(/\./g, '').replace(',', '.')
+        : clean.replace(/,/g, '');
+
+    if (!/[0-9]/.test(normalized)) return null;
+    const val = Number(normalized);
     return Number.isFinite(val) ? val : null;
   }
 
@@ -453,6 +475,11 @@
     if (cfg.stopOnMin && balance <= cfg.minBalance) reason = 'min';
     else if (cfg.stopOnMax && balance >= cfg.maxBalance)
       reason = 'max';
+
+    if (reason === 'min' && cfg.minBalance > 0 && balance <= 0) {
+      pendingBalanceStop = null;
+      return;
+    }
 
     if (!reason) {
       pendingBalanceStop = null;

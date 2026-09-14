@@ -1075,6 +1075,79 @@
               </div>
             </details>
           </article>
+
+          <!-- Catch X Match -->
+          <article class="market-card" data-market="catchxmatch">
+            <div class="market-top">
+              <label class="toggle">
+                <input type="checkbox" id="autoBetToggleCatchXMatch" />
+                <span>Catch X Match</span>
+              </label>
+              <span
+                id="betStatusCatchXMatch"
+                class="market-status small"
+              ></span>
+            </div>
+
+            <div class="market-body">
+              <div class="field-row">
+                <label for="catchXMatchTriggerCount" class="small">
+                  X matches
+                </label>
+                <input
+                  id="catchXMatchTriggerCount"
+                  type="number"
+                  min="2"
+                  step="1"
+                  value="2"
+                />
+              </div>
+
+              <div class="field-row">
+                <label for="catchXMatchMaxIncreases" class="small">
+                  Max increases
+                </label>
+                <input
+                  id="catchXMatchMaxIncreases"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value="3"
+                />
+              </div>
+
+              <div
+                class="market-note small mono"
+                id="catchXMatchInfo"
+              ></div>
+            </div>
+
+            <details class="steps-accordion">
+              <summary>Steps</summary>
+              <div class="steps-panel">
+                <div class="small muted">
+                  Step amount is placed on each active half target:
+                  red/black, even/odd, low/high.
+                </div>
+                <div id="catchXMatchStepsBox"></div>
+                <div class="row row-wrap">
+                  <button id="btnAddCatchXMatchStep" class="btn">
+                    + Add step
+                  </button>
+                  <button id="btnCfgCatchXMatchDefaults" class="btn">
+                    Defaults
+                  </button>
+                  <button
+                    id="btnCfgCatchXMatchSave"
+                    class="btn btn-primary"
+                  >
+                    Save
+                  </button>
+                </div>
+                <div id="cfgCatchXMatchMsg" class="small"></div>
+              </div>
+            </details>
+          </article>
         </div>
 
         <div class="save-all-bar">

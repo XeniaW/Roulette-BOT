@@ -12,6 +12,7 @@ import {
   sanitizeNumbers,
   sanitizeMissing19,
   sanitizeRepeats,
+  sanitizeCatchXMatch,
 } from './markets.js';
 import {
   TRACKED_TABLES_KEY,
@@ -89,6 +90,11 @@ import {
   repeatsInsuranceEnabledCk,
   repeatsInsuranceRangesBox,
   repeatsInfo,
+  betStatusCatchXMatch,
+  catchXMatchTriggerCountInp,
+  catchXMatchMaxIncreasesInp,
+  catchXMatchStepsBox,
+  catchXMatchInfo,
 } from './dom.js';
 
 import { renderSteps } from './steps-ui.js';
@@ -106,6 +112,16 @@ function isEditingRepeatsRanges() {
     active &&
     (repeatsRangesBox?.contains(active) ||
       repeatsInsuranceRangesBox?.contains(active))
+  );
+}
+
+function isEditingCatchXMatchConfig() {
+  const active = document.activeElement;
+  return !!(
+    active &&
+    (catchXMatchStepsBox?.contains(active) ||
+      active === catchXMatchTriggerCountInp ||
+      active === catchXMatchMaxIncreasesInp)
   );
 }
 
@@ -135,6 +151,7 @@ function setOnIfEnabled(el, enabled, stObj) {
 let lastSpinLogs = [];
 let lastMissing19Exec = null;
 let lastRepeatsExec = null;
+let lastCatchXMatchExec = null;
 
 async function getFocusedSpinLogsSnapshot() {
   try {
@@ -218,16 +235,46 @@ async function getFocusedRepeatsExecSnapshot() {
   }
 }
 
+async function getFocusedCatchXMatchExecSnapshot() {
+  try {
+    const {
+      [SELECTED_TRACKED_TABLE_KEY]: rawSelectedId = '',
+      betExecCatchXMatchByTable = {},
+    } = await chrome.storage.local.get({
+      [SELECTED_TRACKED_TABLE_KEY]: '',
+      betExecCatchXMatchByTable: {},
+    });
+
+    const selectedId = String(rawSelectedId || '').trim();
+    const map =
+      betExecCatchXMatchByTable &&
+      typeof betExecCatchXMatchByTable === 'object'
+        ? betExecCatchXMatchByTable
+        : {};
+
+    return selectedId &&
+      map[selectedId] &&
+      typeof map[selectedId] === 'object'
+      ? map[selectedId]
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 async function refreshMarketInfoFromFocusedLogs() {
   const logs = await getFocusedSpinLogsSnapshot();
   const exec = await getFocusedMissing19ExecSnapshot();
   const repeatsExec = await getFocusedRepeatsExecSnapshot();
+  const catchExec = await getFocusedCatchXMatchExecSnapshot();
   lastSpinLogs = logs;
   lastMissing19Exec = exec;
   lastRepeatsExec = repeatsExec;
+  lastCatchXMatchExec = catchExec;
   updateNumbersNearUI(logs);
   updateMissing19InfoUI(logs, exec);
   updateRepeatsInfoUI(logs, repeatsExec);
+  updateCatchXMatchInfoUI(logs, catchExec);
 }
 
 function updateNumbersNearUI(spinLogsArr) {
@@ -423,6 +470,121 @@ export function updateRepeatsInfoUI(spinLogsArr, exec = null) {
   repeatsInfo.textContent = `REPEATS | waiting ${pending} entry${lastText}`;
 }
 
+const CATCH_X_MATCH_FACTORS = Object.freeze({
+  lowhigh: { label: 'LOW/HIGH', sides: ['LOW', 'HIGH'] },
+  colors: { label: 'COLOR', sides: ['RED', 'BLACK'] },
+  evenodd: { label: 'EVEN/ODD', sides: ['EVEN', 'ODD'] },
+});
+
+function normalizeCatchXTarget(raw) {
+  const factor = String(raw?.factor || '').trim();
+  if (!CATCH_X_MATCH_FACTORS[factor]) return null;
+  const side = Number(raw?.side);
+  if (side !== 0 && side !== 1) return null;
+  return { factor, side };
+}
+
+function catchXSideLabel(target) {
+  const clean = normalizeCatchXTarget(target);
+  if (!clean) return '';
+  return CATCH_X_MATCH_FACTORS[clean.factor].sides[clean.side];
+}
+
+function catchXLabels(rawTargets) {
+  const src = Array.isArray(rawTargets) ? rawTargets : [];
+  return src.map(catchXSideLabel).filter(Boolean);
+}
+
+function catchXWindowFromLogs(spinLogsArr, triggerCount) {
+  const logs = Array.isArray(spinLogsArr) ? spinLogsArr : [];
+  const out = [];
+
+  for (let i = logs.length - 1; i >= 0; i--) {
+    const n = Number(logs[i]?.n);
+    if (!Number.isInteger(n) || n < 0 || n > 36) continue;
+    if (n === 0) break;
+    out.push(n);
+    if (out.length >= triggerCount) break;
+  }
+
+  return out.reverse();
+}
+
+export function updateCatchXMatchInfoUI(spinLogsArr, exec = null) {
+  if (!catchXMatchInfo) return;
+
+  const effectiveExec = exec || lastCatchXMatchExec || {};
+  const triggerCount = Math.max(
+    2,
+    Math.floor(
+      Number(
+        catchXMatchTriggerCountInp?.value ||
+          effectiveExec?.triggerCount ||
+          2,
+      ),
+    ),
+  );
+  const maxIncreases = Math.max(
+    0,
+    Math.floor(
+      Number(
+        catchXMatchMaxIncreasesInp?.value ??
+          effectiveExec?.maxIncreases ??
+          0,
+      ),
+    ),
+  );
+  const windowNums = Array.isArray(effectiveExec?.lastWindow)
+    ? effectiveExec.lastWindow
+        .map(Number)
+        .filter((n) => Number.isInteger(n) && n >= 0 && n <= 36)
+    : catchXWindowFromLogs(spinLogsArr, triggerCount);
+  const phase = String(effectiveExec?.phase || 'idle');
+  const step = Math.max(1, Math.floor(Number(effectiveExec?.step || 1)));
+  const debt = Number(effectiveExec?.debt || 0);
+  const matchLabels = catchXLabels(effectiveExec?.match);
+  const targetLabels = catchXLabels(effectiveExec?.targets);
+  const blockedLabels = catchXLabels(effectiveExec?.blocked);
+  const lastSpin = Number(effectiveExec?.lastSpin);
+  const lastText = Number.isInteger(lastSpin) ? ` | last ${lastSpin}` : '';
+  const windowText = windowNums.length
+    ? ` | window ${windowNums.join(',')}`
+    : '';
+  const base = `CATCH X MATCH | X ${triggerCount} | ${windowNums.length}/${triggerCount}${windowText}`;
+
+  if (phase === 'armed') {
+    catchXMatchInfo.textContent =
+      `${base} | ARMED step ${step}/${maxIncreases + 1}` +
+      ` | bet ${targetLabels.join('+') || '-'}` +
+      ` | debt ${Number.isFinite(debt) ? debt.toFixed(2) : '0.00'}`;
+    return;
+  }
+
+  if (blockedLabels.length) {
+    catchXMatchInfo.textContent =
+      `${base} | wait break ${blockedLabels.join('+')}${lastText}`;
+    return;
+  }
+
+  if (windowNums.length < triggerCount) {
+    const need = Math.max(0, triggerCount - windowNums.length);
+    catchXMatchInfo.textContent = `${base} | need ${need} spins${lastText}`;
+    return;
+  }
+
+  if (matchLabels.length) {
+    const betText = targetLabels.length
+      ? targetLabels.join('+')
+      : 'opposite halves';
+    catchXMatchInfo.textContent =
+      `${base} | match ${matchLabels.join('+')} -> bet ${betText}` +
+      ` | step ${step} | debt ${Number.isFinite(debt) ? debt.toFixed(2) : '0.00'}`;
+    return;
+  }
+
+  catchXMatchInfo.textContent = `${base} | no match${lastText}`;
+}
+
 chrome.storage.onChanged.addListener((ch, area) => {
   if (area !== 'local') return;
 
@@ -447,6 +609,7 @@ chrome.storage.onChanged.addListener((ch, area) => {
       updateNumbersNearUI(arr);
       updateMissing19InfoUI(arr);
       updateRepeatsInfoUI(arr);
+      updateCatchXMatchInfoUI(arr);
     }
 
     if (
@@ -456,7 +619,8 @@ chrome.storage.onChanged.addListener((ch, area) => {
       ch[TRACKED_TABLE_STATES_KEY] ||
       ch[SELECTED_TRACKED_TABLE_KEY] ||
       ch.betExecMissing19ByTable ||
-      ch.betExecRepeatsByTable
+      ch.betExecRepeatsByTable ||
+      ch.betExecCatchXMatchByTable
     ) {
       loadStatus().catch(() => {});
       refreshMarketInfoFromFocusedLogs().catch(() => {});
@@ -534,6 +698,11 @@ chrome.storage.onChanged.addListener((ch, area) => {
         betStatusRepeats,
         ch.bettingStatusRepeats.newValue,
       );
+    if (ch.bettingStatusCatchXMatch)
+      setStatusText(
+        betStatusCatchXMatch,
+        ch.bettingStatusCatchXMatch.newValue,
+      );
 
     if (ch.autoBettingLowHighEnabled) {
       const en = !!ch.autoBettingLowHighEnabled.newValue;
@@ -581,6 +750,14 @@ chrome.storage.onChanged.addListener((ch, area) => {
           ch.bettingStatusRepeats.newValue) ||
         null;
       setOnIfEnabled(betStatusRepeats, en, st);
+    }
+    if (ch.autoBettingCatchXMatchEnabled) {
+      const en = !!ch.autoBettingCatchXMatchEnabled.newValue;
+      const st =
+        (ch.bettingStatusCatchXMatch &&
+          ch.bettingStatusCatchXMatch.newValue) ||
+        null;
+      setOnIfEnabled(betStatusCatchXMatch, en, st);
     }
 
     if (ch.abDozensConfig) {
@@ -722,6 +899,21 @@ chrome.storage.onChanged.addListener((ch, area) => {
         renderRanges(repeatsInsuranceRangesBox, cfg.insuranceRanges);
       }
       updateRepeatsInfoUI(lastSpinLogs);
+    }
+
+    if (ch.abCatchXMatchConfig) {
+      const cfg = sanitizeCatchXMatch(ch.abCatchXMatchConfig.newValue);
+      const editingCatch = isEditingCatchXMatchConfig();
+      if (!editingCatch && catchXMatchTriggerCountInp) {
+        catchXMatchTriggerCountInp.value = cfg.triggerCount;
+      }
+      if (!editingCatch && catchXMatchMaxIncreasesInp) {
+        catchXMatchMaxIncreasesInp.value = cfg.maxIncreases;
+      }
+      if (!editingCatch && catchXMatchStepsBox) {
+        renderSteps(catchXMatchStepsBox, cfg.steps);
+      }
+      updateCatchXMatchInfoUI(lastSpinLogs);
     }
 
     if (ch.abNeighborsConfig) {

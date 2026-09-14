@@ -527,6 +527,20 @@
       match.title,
     );
 
+    // The heartbeat runs every 1.2s. Do not rewrite the complete table state
+    // (which can contain thousands of logs) when only the lease timestamp moved.
+    const sameLeader =
+      state.leader &&
+      leader &&
+      state.leader.tabId === leader.tabId &&
+      state.leader.frameId === leader.frameId &&
+      state.leader.href === leader.href;
+    const sameTableMeta =
+      state.title === match.title && state.matchedTitle === matchedTitle;
+    const wasOk = state.status?.state === 'ok';
+    const wasStandby = state.status?.state === 'standby';
+    const wasWaiting = state.status?.state === 'waiting';
+
     state.title = match.title;
     state.matchedTitle = matchedTitle;
     state.leader = leader
@@ -551,6 +565,29 @@
         message: 'Title matched, waiting for roulette frame',
         at: now,
         origin: String(msg?.href ?? sender?.url ?? ''),
+      };
+    }
+
+    const stateChanged =
+      !sameTableMeta ||
+      !sameLeader ||
+      (role === 'standby' ? !wasStandby : !wasOk && !wasWaiting);
+
+    if (!stateChanged) {
+      await sset({ [TRACKED_TABLE_LEASES_KEY]: leases });
+      return {
+        ok: true,
+        matched: true,
+        tableId: match.id,
+        role,
+        leader: leader
+          ? {
+              tabId: leader.tabId,
+              frameId: leader.frameId,
+              href: leader.href,
+            }
+          : null,
+        debug: { msgTitle: rawMsgTitle, tabTitle: rawTabTitle, matchedTitle },
       };
     }
 
@@ -596,7 +633,6 @@
     );
 
     const leases = cleanupExpiredLeases(rawLeases);
-    await sset({ [TRACKED_TABLE_LEASES_KEY]: leases });
 
     const hit = findLeaseByTabId(leases, sender?.tab?.id ?? null);
     if (!hit) {
@@ -752,6 +788,15 @@
       states[tableId],
       table?.title || '',
     );
+
+    const previousValue = Number(state?.balance?.value);
+    if (
+      Number.isFinite(value) &&
+      Number.isFinite(previousValue) &&
+      previousValue === value
+    ) {
+      return { ok: true, unchanged: true };
+    }
 
     state.balance = {
       value: Number.isFinite(value) ? value : null,

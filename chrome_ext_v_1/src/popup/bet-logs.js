@@ -9,6 +9,7 @@ import {
 const TRACKED_TABLE_BET_LOGS_KEY = 'trackedTableBetLogsByTable';
 
 let _betLogsBooted = false;
+const MAX_RENDERED_BET_LOGS = 300;
 
 function renderBetRow(e) {
   const tr = document.createElement('tr');
@@ -145,14 +146,13 @@ export function renderBetAll(logs) {
   if (!betTbody) return;
 
   betTbody.innerHTML = '';
-  (Array.isArray(logs) ? logs : []).forEach((e) =>
+  const allLogs = Array.isArray(logs) ? logs : [];
+  allLogs.slice(-MAX_RENDERED_BET_LOGS).forEach((e) =>
     betTbody.appendChild(renderBetRow(e)),
   );
 
   if (betCountEl) {
-    betCountEl.textContent = String(
-      Array.isArray(logs) ? logs.length : 0,
-    );
+    betCountEl.textContent = String(allLogs.length);
   }
 
   const list = document.getElementById('betList');
@@ -165,6 +165,9 @@ export function appendBetNew(added) {
   (Array.isArray(added) ? added : []).forEach((e) =>
     betTbody.appendChild(renderBetRow(e)),
   );
+  while (betTbody.rows.length > MAX_RENDERED_BET_LOGS) {
+    betTbody.deleteRow(0);
+  }
 
   if (betCountEl) {
     betCountEl.textContent = String(

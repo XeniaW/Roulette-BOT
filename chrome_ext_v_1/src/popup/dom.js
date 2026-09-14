@@ -358,3 +358,26 @@ export const repeatsInsuranceRangesBox = document.getElementById(
   'repeatsInsuranceRangesBox',
 );
 export const cfgRepeatsMsg = document.getElementById('cfgRepeatsMsg');
+
+// === Catch X Match ===
+export const autoBetToggleCatchXMatch = document.getElementById(
+  'autoBetToggleCatchXMatch',
+);
+export const betStatusCatchXMatch = document.getElementById(
+  'betStatusCatchXMatch',
+);
+export const catchXMatchInfo = document.getElementById(
+  'catchXMatchInfo',
+);
+export const catchXMatchTriggerCountInp = document.getElementById(
+  'catchXMatchTriggerCount',
+);
+export const catchXMatchMaxIncreasesInp = document.getElementById(
+  'catchXMatchMaxIncreases',
+);
+export const catchXMatchStepsBox = document.getElementById(
+  'catchXMatchStepsBox',
+);
+export const cfgCatchXMatchMsg = document.getElementById(
+  'cfgCatchXMatchMsg',
+);

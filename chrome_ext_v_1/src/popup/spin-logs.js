@@ -58,6 +58,8 @@ function rowHtml(item) {
   return `<tr><td class="mono">${t}</td><td class="mono">${n}</td></tr>`;
 }
 
+const MAX_RENDERED_SPIN_LOGS = 300;
+
 async function getFocusedSpinLogsSnapshot() {
   const {
     [TRACKED_TABLE_STATES_KEY]: rawStates = {},
@@ -99,7 +101,9 @@ export function renderAll(logs) {
   const arr = Array.isArray(logs) ? logs : [];
   if (!tbody) return;
 
-  tbody.innerHTML = arr.map(rowHtml).join('');
+  // Keep the full history in storage/export, but avoid creating thousands of
+  // DOM rows every time the popup opens or switches a tracked table.
+  tbody.innerHTML = arr.slice(-MAX_RENDERED_SPIN_LOGS).map(rowHtml).join('');
   renderCounters(arr);
 }
 
@@ -110,6 +114,9 @@ export function appendNew(delta, fullLogsForCounters) {
   if (arr.length) {
     const html = arr.map(rowHtml).join('');
     tbody.insertAdjacentHTML('beforeend', html);
+    while (tbody.rows.length > MAX_RENDERED_SPIN_LOGS) {
+      tbody.deleteRow(0);
+    }
   }
 
   const base = Array.isArray(fullLogsForCounters)

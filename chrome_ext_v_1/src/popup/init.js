@@ -52,6 +52,9 @@ import {
   repeatsRangesBox,
   repeatsInsuranceEnabledCk,
   repeatsInsuranceRangesBox,
+  catchXMatchTriggerCountInp,
+  catchXMatchMaxIncreasesInp,
+  catchXMatchStepsBox,
 } from './dom.js';
 
 import { exportCSV, clearLogs } from './spin-logs.js';
@@ -66,6 +69,7 @@ import {
   DEFAULT_NEIGHBORS,
   DEFAULT_MISSING19,
   DEFAULT_REPEATS,
+  DEFAULT_CATCH_X_MATCH,
   CFG_NEIGHBORS_KEY,
   wireMarketTogglesReset,
 } from './markets.js';
@@ -98,9 +102,12 @@ function wireAutoSaveForMarket(
     200,
   );
 
-  const shouldUpdateDots = !['numbers', 'missing19', 'repeats'].includes(
-    market,
-  );
+  const shouldUpdateDots = ![
+    'numbers',
+    'missing19',
+    'repeats',
+    'catchxmatch',
+  ].includes(market);
 
   if (streakInp) {
     streakInp.addEventListener('input', () => {
@@ -182,6 +189,9 @@ export function wireInitHandlers() {
     ?.addEventListener('click', () =>
       addRange(repeatsInsuranceRangesBox),
     );
+  document
+    .getElementById('btnAddCatchXMatchStep')
+    ?.addEventListener('click', () => addStep(catchXMatchStepsBox));
 
   document
     .getElementById('btnCfgDznDefaults')
@@ -295,6 +305,22 @@ export function wireInitHandlers() {
       );
       saveMarketCfgFromUI('repeats');
     });
+  document
+    .getElementById('btnCfgCatchXMatchDefaults')
+    ?.addEventListener('click', () => {
+      if (catchXMatchTriggerCountInp) {
+        catchXMatchTriggerCountInp.value = String(
+          DEFAULT_CATCH_X_MATCH.triggerCount,
+        );
+      }
+      if (catchXMatchMaxIncreasesInp) {
+        catchXMatchMaxIncreasesInp.value = String(
+          DEFAULT_CATCH_X_MATCH.maxIncreases,
+        );
+      }
+      renderSteps(catchXMatchStepsBox, DEFAULT_CATCH_X_MATCH.steps);
+      saveMarketCfgFromUI('catchxmatch');
+    });
 
   document
     .getElementById('btnCfgDznSave')
@@ -346,6 +372,11 @@ export function wireInitHandlers() {
   document
     .getElementById('btnCfgRepeatsSave')
     ?.addEventListener('click', () => saveMarketCfgFromUI('repeats'));
+  document
+    .getElementById('btnCfgCatchXMatchSave')
+    ?.addEventListener('click', () =>
+      saveMarketCfgFromUI('catchxmatch'),
+    );
 
   btnExport?.addEventListener('click', exportCSV);
   btnClear?.addEventListener('click', clearLogs);
@@ -409,6 +440,7 @@ export function wireInitHandlers() {
     await saveMarketCfgFromUI('numbers');
     await saveMarketCfgFromUI('missing19');
     await saveMarketCfgFromUI('repeats');
+    await saveMarketCfgFromUI('catchxmatch');
   });
 
   wireAutoSaveForMarket('dozens', {
@@ -528,6 +560,18 @@ export function wireInitHandlers() {
     zeroCk: null,
     stepsBox: repeatsInsuranceRangesBox,
   });
+
+  wireAutoSaveForMarket('catchxmatch', {
+    streakInp: catchXMatchTriggerCountInp,
+    autoCk: null,
+    zeroCk: null,
+    stepsBox: catchXMatchStepsBox,
+  });
+
+  catchXMatchMaxIncreasesInp?.addEventListener(
+    'input',
+    debounce(() => saveMarketCfgFromUI('catchxmatch'), 200),
+  );
 
   autoBetToggleNeighbors?.addEventListener('change', async () => {
     const checked = !!autoBetToggleNeighbors.checked;
