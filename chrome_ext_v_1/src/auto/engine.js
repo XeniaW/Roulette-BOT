@@ -215,6 +215,12 @@
     if (!el) return;
     const nativeClick = opts.nativeClick !== false;
     const point = eventPointFor(el);
+    if (opts.strictTargetClick) {
+      const rect = el.getBoundingClientRect?.();
+      const hit = document.elementFromPoint(point.x, point.y);
+      if (!el.isConnected || !rect || rect.width <= 0 || rect.height <= 0 ||
+          !hit || (hit !== el && !el.contains(hit))) return false;
+    }
 
     dispatchMouseLike(el, 'pointerover', point);
     dispatchMouseLike(el, 'pointermove', point);
@@ -233,6 +239,7 @@
     }
 
     await new Promise((r) => setTimeout(r, 30));
+    return true;
   }
 
   async function waitAndClickButton(testId, deadline, tick) {
@@ -378,6 +385,7 @@
     mutex,
     maxWaitMs,
     retryMs,
+    strictTargetClick = false,
   }) {
     const chips = await loadGlobalChips();
 
@@ -413,7 +421,11 @@
               await ensureChipSelected(chipEl);
 
               for (let k = 0; k < c.times; k++) {
-                await clickElement(tNodes[t]);
+                const targetNode = strictTargetClick ? getTargetNode(targets[t]) : tNodes[t];
+                if (strictTargetClick && !isEnabled(targetNode)) return false;
+                const clicked = await clickElement(targetNode, strictTargetClick
+                  ? { nativeClick: false, strictTargetClick: true } : {});
+                if (strictTargetClick && !clicked) return false;
                 await new Promise((r) => setTimeout(r, 40));
               }
             }

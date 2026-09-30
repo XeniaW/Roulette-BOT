@@ -1130,6 +1130,18 @@
                   red/black, even/odd, low/high.
                 </div>
                 <div id="catchXMatchStepsBox"></div>
+                <div id="cx-options">
+                  <label>Спинов для сравнения частот <input id="cx-historyCount" type="number" min="1" value="21"></label>
+                  <p>При нескольких сигналах ждём полные N спинов и сравниваем частоты противоположных половин. Нули входят в окно, но не засчитываются половинам. Равенство — пропуск. При одном сигнале сравнение не требуется. История сохраняется после выигрыша.</p>
+                  <label><input id="cx-numbersEnabled" type="checkbox"> Дополнительно ставить на 18 чисел половины</label>
+                  <label>Начиная с общего шага <input id="cx-numbersStart" type="number" min="1" value="12"></label>
+                  <label><input id="cx-numbersDouble" type="checkbox"> Удваивать начальную сумму на число</label>
+                  <label>Количество удвоений <input id="cx-numbersDoubles" type="number" min="0" value="3"></label>
+                  <p>Фишки ниже — на КАЖДОЕ число. Первый шаг таблицы соответствует шагу подключения. При удвоении используется первая строка. Половина на каждом шаге настраивается в основной таблице.</p>
+                  <p>Rebet + ×2 применяется только при совпадении полей и удвоении обеих частей. Иначе раскладка набирается фишками.</p>
+                  <div id="cx-numberSteps"></div>
+                  <button id="cx-addNumberStep" type="button" class="btn">+ Шаг чисел</button>
+                </div>
                 <div class="row row-wrap">
                   <button id="btnAddCatchXMatchStep" class="btn">
                     + Add step

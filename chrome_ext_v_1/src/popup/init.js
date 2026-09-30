@@ -572,6 +572,14 @@ export function wireInitHandlers() {
     'input',
     debounce(() => saveMarketCfgFromUI('catchxmatch'), 200),
   );
+  const cxSave = debounce(() => saveMarketCfgFromUI('catchxmatch'), 400);
+  document.getElementById('cx-options')?.addEventListener('input', cxSave);
+  document.getElementById('cx-options')?.addEventListener('change', cxSave);
+  document.getElementById('cx-numberSteps')?.addEventListener('steps:changed', cxSave);
+  document.getElementById('cx-addNumberStep')?.addEventListener('click', () => {
+    addStep(document.getElementById('cx-numberSteps'));
+    cxSave();
+  });
 
   autoBetToggleNeighbors?.addEventListener('change', async () => {
     const checked = !!autoBetToggleNeighbors.checked;

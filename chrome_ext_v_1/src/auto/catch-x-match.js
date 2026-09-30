@@ -1,4 +1,5 @@
 import { entryGateFor } from '../shared/entry-limit.js';
+import { catchOptions, chooseCandidate, numberItems } from '../shared/catch-options.js';
 
 (() => {
   const DEFAULT_STEPS = Object.freeze([
@@ -139,6 +140,13 @@ import { entryGateFor } from '../shared/entry-limit.js';
     );
   }
 
+  function getNumberNode(n) {
+    // The page can have duplicate index-* elements outside the live board.
+    // Number strategy already uses this root; use the same source here.
+    const root = document.querySelector('[data-name="center-section"]');
+    return root?.querySelector(`#index-${100 + Number(n)}`) || null;
+  }
+
   function isNodeEnabled(el) {
     if (!el) return false;
     const ds = el.getAttribute?.('data-disabled');
@@ -200,6 +208,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
   function sanitizeCfg(raw) {
     const src = raw || {};
     return {
+      ...catchOptions(src),
       triggerCount: Math.max(
         2,
         Math.floor(Number(src.triggerCount ?? DEFAULT_CFG.triggerCount)),
@@ -611,7 +620,19 @@ import { entryGateFor } from '../shared/entry-limit.js';
     ) {
       const cleanTargets = normalizeTargets(targets);
       const cleanMatches = normalizeTargets(matches);
-      if (!cleanTargets.length) return { ok: false, exec };
+      if (cleanTargets.length !== 1) {
+        const stopped = {
+          ...exec,
+          phase: 'idle',
+          targets: [],
+          match: [],
+          armedAt: 0,
+        };
+        const message = `${prefix}: rejected ${cleanTargets.length} targets; one target required`;
+        await this.setExec(tableId, stopped, message);
+        this.setStatus('error', message);
+        return { ok: false, invalidTargets: true, exec: stopped };
+      }
 
       const limit = stepLimit(cfg);
       const step = Math.max(1, Math.min(Number(exec.step || 1), limit));
@@ -655,8 +676,71 @@ import { entryGateFor } from '../shared/entry-limit.js';
         `${prefix}: placing ${cleanTargets.map(labelSide).join(' + ')} | step ${step} | debt ${debt.toFixed(2)} | window ${windowText}`,
       );
 
-      const res = await placeStep(cleanTargets, step, cfg.steps, this.mutex);
+      const items = numberItems(cfg, step);
+      if (items === null) {
+        await BET.sset({ [ENABLED_KEY]: false });
+        this.setStatus('error', `CATCH X MATCH: no number configuration for step ${step}`);
+        return { ok: false, exec };
+      }
+      const chips = await BET.loadGlobalChips();
+      const halfAmount = roundMoney(BET.perTargetAmountForStep(step, cfg.steps, chips.chipValues));
+      const numberAmount = items.length
+        ? roundMoney(BET.perTargetAmountForStep(1, [items], chips.chipValues)) : 0;
+      const target = cleanTargets[0];
+      const numbers = numberAmount > 0 ? Array.from({ length: 36 }, (_, i) => i + 1)
+        .filter(n => FACTORS[target.factor].index(n) === target.side) : [];
+      const uniqueNumbers = [...new Set(numbers)];
+      if (numberAmount > 0 && uniqueNumbers.length !== 18) {
+        await BET.sset({ [ENABLED_KEY]: false });
+        this.setStatus(
+          'error',
+          `CATCH X MATCH: expected 18 numbers, got ${uniqueNumbers.length}`,
+        );
+        return { ok: false, exec };
+      }
+      const layout = { key: targetKey(target), halfAmount, numberAmount,
+        numberTargets: uniqueNumbers, documentSession: this.documentSession, step };
+      const previous = exec.previousLayout;
+      const otherKeys = ['Dozens', 'Rows', 'Six', 'Threes', 'LowHigh', 'EvenOdd',
+        'Colors', 'Sectors', 'Neighbors', 'AntiDozens', 'AntiRows', 'Numbers',
+        'Missing19', 'Repeats', 'Combo'].map(name => `autoBetting${name}Enabled`);
+      const otherMarkets = await BET.sget(Object.fromEntries(otherKeys.map(key => [key, false])));
+      const canDouble = !otherKeys.some(key => otherMarkets[key]) &&
+        !opts.restore && cfg.numbersDouble && uniqueNumbers.length === 18 &&
+        previous?.key === layout.key && previous.documentSession === this.documentSession &&
+        previous.step === step - 1 &&
+        Array.isArray(previous.numberTargets) &&
+        previous.numberTargets.length === 18 &&
+        previous.numberTargets.every((n, index) => n === uniqueNumbers[index]) &&
+        halfAmount === roundMoney(previous.halfAmount * 2) &&
+        numberAmount === roundMoney(previous.numberAmount * 2);
+      let res;
+      if (canDouble) {
+        const ok = await BET.tryRebetDouble({ mutex: this.mutex, doubleTimes: 1,
+          maxWaitMs: PLACE_MAX_WAIT_MS });
+        res = { ok, amount: halfAmount + 18 * numberAmount,
+          perTarget: halfAmount + 18 * numberAmount };
+      } else {
+        // Validate every required number before placing the half to avoid a
+        // known incomplete layout. Failures after clicking stop the strategy.
+        const missing = uniqueNumbers.filter(n => !getNumberNode(n));
+        if (missing.length) {
+          res = { ok: false, missingTargets: missing };
+        } else {
+          res = await placeStep(cleanTargets, step, cfg.steps, this.mutex);
+          if (res.ok && uniqueNumbers.length) {
+            const ok = await BET.tryPlace({ step: 1, steps: [items], targets: uniqueNumbers,
+              getTargetNode: getNumberNode, mutex: this.mutex, maxWaitMs: PLACE_MAX_WAIT_MS,
+              strictTargetClick: true });
+            res = { ok, amount: roundMoney(halfAmount + 18 * numberAmount),
+              perTarget: roundMoney(halfAmount + 18 * numberAmount) };
+          }
+        }
+      }
       if (!res.ok) {
+        if (numbers.length) {
+          await BET.sset({ [ENABLED_KEY]: false });
+        }
         const idle = {
           ...next,
           phase: 'idle',
@@ -679,6 +763,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
         ...next,
         lastAmount: roundMoney(res.amount),
         activeStake: roundMoney(res.perTarget),
+        layout,
       };
       await this.setExec(tableId, placed);
       await this.logPlaced(
@@ -686,7 +771,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
         cleanTargets,
         res.amount,
         res.perTarget,
-        `${prefix}: placed ${cleanTargets.length} targets | total ${roundMoney(res.amount)} | per-target ${roundMoney(res.perTarget)} | targets ${cleanTargets.map(labelTarget).join(', ')}`,
+        `${prefix}: placed | step ${step} | half ${halfAmount} | each number ${numberAmount} x ${uniqueNumbers.length} | numbers ${uniqueNumbers.join(',')} | total ${roundMoney(res.amount)} | ${canDouble ? 'rebet x2' : 'chips'} | targets ${cleanTargets.map(labelTarget).join(', ')} | ${exec.selectionText || ''}`,
         placed,
       );
       this.setStatus(
@@ -742,9 +827,12 @@ import { entryGateFor } from '../shared/entry-limit.js';
           { restore: true },
         );
 
+        if (restored.invalidTargets) return;
         if (!restored.ok) {
           // Keep the saved progression intact. The next normal state update
           // can retry it once the roulette controls are available again.
+          const { [ENABLED_KEY]: stillEnabled } = await BET.sget({ [ENABLED_KEY]: false });
+          if (!stillEnabled) return;
           await this.setExec(
             tableId,
             exec,
@@ -757,6 +845,8 @@ import { entryGateFor } from '../shared/entry-limit.js';
     }
 
     async maybeEnter(tableId, spinLogs, exec, cfg, prefix) {
+      // Winning resets the stake, not the rolling history. Per-factor blocks
+      // prevent reusing a consumed stream while other factors remain eligible.
       const detected = detectMatches(spinLogs, cfg);
       const idle = {
         ...exec,
@@ -801,11 +891,25 @@ import { entryGateFor } from '../shared/entry-limit.js';
         return { ok: false, exec: waiting };
       }
 
-      const ready = { ...idle, blocked: activeBlocked };
+      const selection = chooseCandidate(availableMatches, spinLogs, cfg.historyCount, FACTORS);
+      if (selection.waitingHistory) {
+        const message = `N ${cfg.historyCount} | history ${selection.available}/${cfg.historyCount} | wait history`;
+        const waiting = { ...idle, blocked: activeBlocked, selectionText: message };
+        await this.setExec(tableId, waiting, `${prefix}: ${message}`);
+        return { ok: false, exec: waiting };
+      }
+      const selectionText = selection.scores.map(s =>
+        `${labelSide({ factor: s.factor, side: opposite(s.side) })}=${s.count}`).join(', ');
+      const ready = { ...idle, blocked: activeBlocked,
+        selectionText: `N ${cfg.historyCount} | ${selectionText}${selection.chosen ? '' : ' | TIE: skip'}` };
+      if (!selection.chosen) {
+        await this.setExec(tableId, ready, `${prefix}: ${ready.selectionText}`);
+        return { ok: false, exec: ready };
+      }
       return this.placeTargets(
         tableId,
         ready,
-        availableTargets,
+        [{ factor: selection.chosen.factor, side: opposite(selection.chosen.side) }],
         availableMatches,
         cfg,
         prefix,
@@ -861,10 +965,10 @@ import { entryGateFor } from '../shared/entry-limit.js';
 
       const { wins, losses } = resolveTargets(targets, spin);
       const pnl = roundMoney((wins.length - losses.length) * activeStake);
-      const nextDebt = roundMoney(Math.max(0, Number(exec.debt || 0) - pnl));
-      // A partial result must also close the losing factor until its source
-      // stream breaks. Example: red+odd -> black+even, then red+even blocks
-      // only the red stream; it must not enter black again on the next red.
+      const won = wins.length === targets.length && targets.length > 0;
+      const nextDebt = won ? 0 : roundMoney(Math.max(0, Number(exec.debt || 0) - pnl));
+      // A used X-window is consumed. It cannot seed the next entry until its
+      // source stream breaks, even if the selected bet won.
       const currentMatches = detectMatches(spinLogs, cfg).matches;
       const { activeBlocked } = splitBlockedMatches(
         currentMatches,
@@ -872,9 +976,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
       );
       const blockedFactors = normalizeTargets([
         ...activeBlocked,
-        ...normalizeTargets(exec.match).filter((match) =>
-          losses.some((loss) => loss.factor === match.factor),
-        ),
+        ...normalizeTargets(exec.match),
       ]);
       const limit = stepLimit(cfg);
       let nextStep = Math.max(1, Number(exec.step || 1));
@@ -923,6 +1025,7 @@ import { entryGateFor } from '../shared/entry-limit.js';
         blocked: blockedFactors,
         lastSpin: spin,
         lastHandledSpinKey: exec.lastHandledSpinKey,
+        previousLayout: exec.layout || null,
       };
 
       if (nextDebt <= 0) {
@@ -978,6 +1081,33 @@ import { entryGateFor } from '../shared/entry-limit.js';
       if (spinKey) await this.setExec(tableId, guardedExec);
 
       const cfg = await this.loadCfg();
+
+      // States made by the old multi-half implementation are never reused.
+      // Keep the recovery step, discard the old layout, and enter only through
+      // the current one-target selector.
+      if (
+        guardedExec.phase === 'armed' &&
+        normalizeTargets(guardedExec.targets).length !== 1
+      ) {
+        const recovered = resetPatternKeepRecovery(guardedExec, cfg, {
+          lastSpin: spin,
+        });
+        await this.setExec(
+          tableId,
+          recovered,
+          'CATCH X MATCH: discarded legacy multi-target layout',
+        );
+        if (spin !== 0) {
+          await this.maybeEnter(
+            tableId,
+            spinLogs,
+            recovered,
+            cfg,
+            'CATCH X MATCH',
+          );
+        }
+        return;
+      }
 
       if (guardedExec.phase === 'armed') {
         const afterResult = await this.resolveArmed(

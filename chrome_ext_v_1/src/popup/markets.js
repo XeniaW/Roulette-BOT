@@ -105,6 +105,7 @@ import {
 } from './dom.js';
 
 import { renderSteps, getStepsFromUI } from './steps-ui.js';
+import { catchOptions } from '../shared/catch-options.js';
 import { renderRanges, getRangesFromUI } from './range-steps-ui.js';
 import { DEFAULT_CHIPS, GLOBAL_CHIPS_KEY } from './chips.js';
 import { resetStreakDots, updateDotsFromState } from './streaks.js';
@@ -440,7 +441,7 @@ export function sanitizeCatchXMatch(raw) {
     steps = JSON.parse(JSON.stringify(DEFAULT_CATCH_X_MATCH.steps));
   }
 
-  return { triggerCount, maxIncreases, steps };
+  return { ...catchOptions(src), triggerCount, maxIncreases, steps };
 }
 
 export async function loadMarketUI(market) {
@@ -682,6 +683,13 @@ export async function loadMarketUI(market) {
     if (catchXMatchMaxIncreasesInp) {
       catchXMatchMaxIncreasesInp.value = String(cfg.maxIncreases);
     }
+    for (const key of ['historyCount', 'numbersStart', 'numbersDoubles']) {
+      document.getElementById(`cx-${key}`).value = cfg[key];
+    }
+    for (const key of ['numbersEnabled', 'numbersDouble']) {
+      document.getElementById(`cx-${key}`).checked = cfg[key];
+    }
+    renderSteps(document.getElementById('cx-numberSteps'), cfg.numberSteps);
   } else {
     cfg = sanitizeMkt(
       (await sget({ [cfgKey]: DEFAULT_MKT }))[cfgKey],
@@ -939,6 +947,11 @@ export async function saveMarketCfgFromUI(market) {
       Math.floor(Number(catchXMatchMaxIncreasesInp?.value || 0)),
     );
     const clean = sanitizeCatchXMatch({
+      ...Object.fromEntries(['historyCount', 'numbersStart', 'numbersDoubles'].map(key =>
+        [key, Number(document.getElementById(`cx-${key}`).value)])),
+      ...Object.fromEntries(['numbersEnabled', 'numbersDouble'].map(key =>
+        [key, document.getElementById(`cx-${key}`).checked])),
+      numberSteps: getStepsFromUI(document.getElementById('cx-numberSteps')),
       triggerCount,
       maxIncreases,
       steps,

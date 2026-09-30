@@ -119,7 +119,8 @@ function isEditingCatchXMatchConfig() {
   const active = document.activeElement;
   return !!(
     active &&
-    (catchXMatchStepsBox?.contains(active) ||
+    (document.getElementById('cx-options')?.contains(active) ||
+      catchXMatchStepsBox?.contains(active) ||
       active === catchXMatchTriggerCountInp ||
       active === catchXMatchMaxIncreasesInp)
   );
@@ -561,6 +562,10 @@ export function updateCatchXMatchInfoUI(spinLogsArr, exec = null) {
   }
 
   if (blockedLabels.length) {
+    if (effectiveExec?.selectionText) {
+      catchXMatchInfo.textContent = `${base} | ${effectiveExec.selectionText} | blocked ${blockedLabels.join('+')} | step ${step}`;
+      return;
+    }
     catchXMatchInfo.textContent =
       `${base} | wait break ${blockedLabels.join('+')}${lastText}`;
     return;
@@ -573,6 +578,10 @@ export function updateCatchXMatchInfoUI(spinLogsArr, exec = null) {
   }
 
   if (matchLabels.length) {
+    if (effectiveExec?.selectionText) {
+      catchXMatchInfo.textContent = `${base} | ${effectiveExec.selectionText} | step ${step}`;
+      return;
+    }
     const betText = targetLabels.length
       ? targetLabels.join('+')
       : 'opposite halves';
