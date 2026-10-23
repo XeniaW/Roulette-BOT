@@ -59,6 +59,7 @@ context.document.querySelector = () => tableRoot;
 context.document.getElementById = () => node;
 context.window.getComputedStyle = () => ({ pointerEvents: 'auto', visibility: 'visible', display: 'block' });
 context.BET.sget = async defaults => defaults;
+context.BET.getTrackedTableForThisTab = async () => ({ tableId: 't' });
 context.BET.loadGlobalChips = async () => ({ chipValues: [5, 10] });
 context.BET.perTargetAmountForStep = (step, steps, values) =>
   steps[step - 1].reduce((sum, item) => sum + values[item.chip - 1] * item.times, 0);

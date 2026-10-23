@@ -20,6 +20,10 @@
     '[data-test-el="casino-control-bar__title"]',
     '.casino-games-stand-game-frame-header__title',
   ];
+  const FRAME_TITLE_REQUEST = 'spins-logger-frame-title-request';
+  const FRAME_TITLE_REPLY = 'spins-logger-frame-title-reply';
+  let parentTitle = '';
+  let titleRequestAt = 0;
   const CONTAINER_ATTR = 'previous-spins-stack';
   const CONTAINER_SEL = `[data-name="${CONTAINER_ATTR}"]`;
   const CELL_PREFIX = 'cell-';
@@ -137,7 +141,8 @@
   let reenterTimer = null;
   let lastSnapshot = [];
   let lastStatusSig = '';
-  let patchingBetLogs = false;
+  let balanceReadPromise = null;
+  let cyclePromise = null;
   let lastGenericClick = 0;
   let lastReenterClick = 0;
   let hadTrackingHere = false;
@@ -190,15 +195,24 @@
       .trim();
   }
 
+  let shadowRoots = [];
+  let shadowRootsReadAt = -Infinity;
+  function getShadowRoots() {
+    if (Date.now() - shadowRootsReadAt >= FIND_TICK_MS) {
+      shadowRoots = Array.from(document.querySelectorAll('*'))
+        .filter(node => node.shadowRoot).map(node => node.shadowRoot);
+      shadowRootsReadAt = Date.now();
+    }
+    return shadowRoots;
+  }
+
   function findOneDeep(selector) {
     const direct = document.querySelector(selector);
     if (direct) return direct;
 
-    const all = document.querySelectorAll('*');
-    for (const node of all) {
-      if (!node.shadowRoot) continue;
+    for (const root of getShadowRoots()) {
       try {
-        const found = node.shadowRoot.querySelector(selector);
+        const found = root.querySelector(selector);
         if (found) return found;
       } catch {}
     }
@@ -213,11 +227,9 @@
         ?.forEach((n) => out.push(n));
     } catch {}
 
-    const all = document.querySelectorAll('*');
-    for (const node of all) {
-      if (!node.shadowRoot) continue;
+    for (const root of getShadowRoots()) {
       try {
-        node.shadowRoot
+        root
           .querySelectorAll(selector)
           ?.forEach((n) => out.push(n));
       } catch {}
@@ -253,21 +265,47 @@
   }
 
   function getCurrentTableTitle() {
+    if (!IS_TOP && parentTitle) return parentTitle;
+    const titles = new Set();
     for (const sel of TITLE_SELECTORS) {
-      const root = findOneDeep(sel);
-      if (!root) continue;
-
-      const rawText = normalizeText(root.textContent || '');
-      if (!rawText) continue;
-
-      const cleaned = normalizeText(
-        rawText.replace(/\b\d{1,2}:\d{2}(:\d{2})?\b/g, ' '),
-      );
-
-      if (cleaned) return cleaned;
+      for (const root of queryAllDeep(sel)) {
+        const cleaned = normalizeText((root.textContent || '').replace(/\b\d{1,2}:\d{2}(:\d{2})?\b/g, ' '));
+        if (cleaned) titles.add(cleaned);
+      }
     }
+    return titles.size === 1 ? [...titles][0] : '';
+  }
 
-    return '';
+  function titleForChildFrame(source) {
+    const iframe = queryAllDeep('iframe').find(node => node.contentWindow === source);
+    if (!iframe) return '';
+    for (let root = iframe.parentElement; root; root = root.parentElement || root.host) {
+      const titles = new Set();
+      for (const selector of TITLE_SELECTORS) {
+        root.querySelectorAll?.(selector).forEach(node => {
+          const title = normalizeText((node.textContent || '').replace(/\b\d{1,2}:\d{2}(:\d{2})?\b/g, ' '));
+          if (title) titles.add(title);
+        });
+      }
+      if (titles.size === 1) return [...titles][0];
+      if (titles.size > 1) return '';
+    }
+    return getCurrentTableTitle();
+  }
+
+  window.addEventListener('message', event => {
+    if (event.data?.type === FRAME_TITLE_REQUEST && event.source !== window) {
+      const title = titleForChildFrame(event.source);
+      if (title) event.source.postMessage({ type: FRAME_TITLE_REPLY, title }, '*');
+    } else if (!IS_TOP && event.data?.type === FRAME_TITLE_REPLY && event.source === window.parent) {
+      parentTitle = normalizeText(event.data.title);
+    }
+  });
+
+  function requestParentTitle() {
+    if (IS_TOP || !window.parent?.postMessage || parentTitle || Date.now() - titleRequestAt < 1000) return;
+    titleRequestAt = Date.now();
+    window.parent.postMessage({ type: FRAME_TITLE_REQUEST }, '*');
   }
 
   function parseBalanceText(txt) {
@@ -518,7 +556,15 @@
     });
   }
 
-  async function refreshBalanceAndRead(opts = { waitMs: 400 }) {
+  function refreshBalanceAndRead(opts = { waitMs: 400 }) {
+    if (!balanceReadPromise) {
+      balanceReadPromise = readAndReportBalance(opts).finally(() => { balanceReadPromise = null; });
+    }
+    return balanceReadPromise;
+  }
+
+  async function readAndReportBalance(opts) {
+    const sourceTableId = tracked.tableId;
     const waitMs = Math.max(0, Number(opts?.waitMs ?? 400));
     const started = Date.now();
     let val = await readBalanceValue();
@@ -528,7 +574,7 @@
       val = await readBalanceValue();
     }
 
-    if (Number.isFinite(val) && tracked.tableId) {
+    if (Number.isFinite(val) && sourceTableId && sourceTableId === tracked.tableId) {
       await sendBg({
         type: 'TRACKED_TABLE_SET_BALANCE',
         tableId: tracked.tableId,
@@ -687,7 +733,7 @@
       trackingEnabled: false,
     });
 
-    if (!trackingEnabled || !tracked.tableId) {
+    if (!trackingEnabled || !tracked.tableId || tracked.role !== 'leader') {
       stopObserving();
       return;
     }
@@ -698,10 +744,19 @@
     waitForContainerLoop();
   }
 
+  function setTrackedContext(next) {
+    if (tracked.tableId !== next.tableId) {
+      stopObserving();
+      lastSnapshot = [];
+    }
+    tracked = next;
+  }
+
   async function syncTrackedContext() {
+    requestParentTitle();
     const localTitle = getCurrentTableTitle();
 
-    if (IS_TOP && localTitle) {
+    if (localTitle && (IS_TOP || findOneDeep(CONTAINER_SEL))) {
       const res = await sendBg({
         type:
           tracked.matched && tracked.ownsLease
@@ -712,36 +767,41 @@
       });
 
       if (res?.matched) {
-        tracked = {
+        setTrackedContext({
           matched: true,
           tableId: String(res.tableId || '').trim(),
-          title: localTitle,
+          title: String(res.debug?.matchedTitle || localTitle),
           role: String(res.role || 'leader'),
-          ownsLease: true,
-        };
+          ownsLease: res.role === 'leader',
+        });
         return;
       }
+      if (res?.ok) {
+        setTrackedContext({ matched: false, tableId: '', title: localTitle, role: 'off', ownsLease: false });
+        return;
+      }
+      // A transient message failure is not an explicit table mismatch.
     }
 
     const byTab = await sendBg({ type: 'GET_TRACKED_TABLE_FOR_TAB' });
     if (byTab?.matched) {
-      tracked = {
+      setTrackedContext({
         matched: true,
         tableId: String(byTab.tableId || '').trim(),
         title: localTitle || String(byTab.title || ''),
         role: 'leader',
-        ownsLease: IS_TOP,
-      };
+        ownsLease: false,
+      });
       return;
     }
 
-    tracked = {
+    setTrackedContext({
       matched: false,
       tableId: '',
       title: localTitle || '',
       role: 'off',
       ownsLease: false,
-    };
+    });
   }
 
   function findReconnectButtons() {
@@ -749,9 +809,7 @@
     const btns = Array.from(
       document.querySelectorAll('button, [role="button"]'),
     );
-    const roots = Array.from(document.querySelectorAll('*'))
-      .filter((n) => n.shadowRoot)
-      .map((n) => n.shadowRoot);
+    const roots = getShadowRoots();
 
     for (const root of roots) {
       try {
@@ -852,7 +910,14 @@
       clickElement(entry);
     }
   }
-  async function cycle() {
+  function cycle() {
+    if (!cyclePromise) {
+      cyclePromise = cycleOnce().finally(() => { cyclePromise = null; });
+    }
+    return cyclePromise;
+  }
+
+  async function cycleOnce() {
     await syncTrackedContext();
 
     const { trackingEnabled = false } = await safeGet({
@@ -946,112 +1011,21 @@
 
   if (chrome.storage?.onChanged?.addListener) {
     chrome.storage.onChanged.addListener(async (ch, area) => {
-      if (area !== 'local') return;
-
+      if (area !== 'local' || !tracked.tableId || tracked.role !== 'leader') return;
+      if (!running && !IS_TOP) return;
       if (ch[BALANCE_STOP_CFG_KEY]) {
-        try {
-          await refreshBalanceAndRead({ waitMs: 200 });
-        } catch {}
+        await refreshBalanceAndRead({ waitMs: 200 });
       }
-
-      if (
-        ch[TRACKED_TABLE_STATES_KEY] &&
-        !patchingBetLogs &&
-        tracked.tableId
-      ) {
-        const oldStates =
-          ch[TRACKED_TABLE_STATES_KEY].oldValue &&
-          typeof ch[TRACKED_TABLE_STATES_KEY].oldValue === 'object'
-            ? ch[TRACKED_TABLE_STATES_KEY].oldValue
-            : {};
-        const newStates =
-          ch[TRACKED_TABLE_STATES_KEY].newValue &&
-          typeof ch[TRACKED_TABLE_STATES_KEY].newValue === 'object'
-            ? ch[TRACKED_TABLE_STATES_KEY].newValue
-            : {};
-
-        const oldArr = getBetLogsFromStateMap(
-          oldStates,
-          tracked.tableId,
-        );
-        const newArr = getBetLogsFromStateMap(
-          newStates,
-          tracked.tableId,
-        );
-
-        if (newArr.length > oldArr.length) {
-          const added = newArr.slice(oldArr.length);
-          const needPatch = added.some((e) => e && e.balance == null);
-
-          if (needPatch) {
-            const bal = await refreshBalanceAndRead({ waitMs: 400 });
-
-            if (Number.isFinite(bal)) {
-              const currentState =
-                newStates[tracked.tableId] &&
-                typeof newStates[tracked.tableId] === 'object'
-                  ? { ...newStates[tracked.tableId] }
-                  : {};
-
-              const patchedBetLogs = newArr.map((e, idx) => {
-                if (idx < oldArr.length) return e;
-                if (e && e.balance == null) {
-                  return { ...e, balance: bal };
-                }
-                return e;
-              });
-
-              const patchedStates = {
-                ...newStates,
-                [tracked.tableId]: {
-                  ...currentState,
-                  betLogs: patchedBetLogs,
-                },
-              };
-
-              try {
-                patchingBetLogs = true;
-                await safeSet({
-                  [TRACKED_TABLE_STATES_KEY]: patchedStates,
-                });
-              } finally {
-                patchingBetLogs = false;
-              }
-            }
-          }
-        }
-      }
-
-      if (!ch.betLogs || patchingBetLogs) return;
-
-      const oldArr = Array.isArray(ch.betLogs.oldValue)
-        ? ch.betLogs.oldValue
-        : [];
-      const newArr = Array.isArray(ch.betLogs.newValue)
-        ? ch.betLogs.newValue
-        : [];
-      if (newArr.length <= oldArr.length) return;
-
-      const added = newArr.slice(oldArr.length);
-      const needPatch = added.some((e) => e && e.balance == null);
-      if (!needPatch) return;
-
-      const bal = await refreshBalanceAndRead({ waitMs: 400 });
-
-      const patched = newArr.map((e, idx) => {
-        if (idx < oldArr.length) return e;
-        if (e && e.balance == null && Number.isFinite(bal)) {
-          return { ...e, balance: bal };
-        }
-        return e;
-      });
-
-      try {
-        patchingBetLogs = true;
-        await safeSet({ betLogs: patched });
-      } finally {
-        patchingBetLogs = false;
-      }
+      const change = ch[TRACKED_TABLE_STATES_KEY];
+      if (!change) return;
+      const oldLogs = getBetLogsFromStateMap(change.oldValue, tracked.tableId);
+      const newLogs = getBetLogsFromStateMap(change.newValue, tracked.tableId);
+      const last = newLogs[newLogs.length - 1];
+      if (!last || last.balance != null) return;
+      if (JSON.stringify(last) === JSON.stringify(oldLogs[oldLogs.length - 1])) return;
+      // Only report the balance. Background merges it into the latest logs;
+      // content frames must never write stale copies of all tables back.
+      await refreshBalanceAndRead({ waitMs: 400 });
     });
   }
 
@@ -1063,7 +1037,7 @@
     }, HEARTBEAT_MS);
 
     balanceTimer = setInterval(() => {
-      if (tracked.tableId) {
+      if (tracked.tableId && tracked.role === 'leader' && (running || IS_TOP)) {
         refreshBalanceAndRead({ waitMs: 250 }).catch(() => {});
       }
     }, BALANCE_MS);

@@ -347,6 +347,12 @@
 
   async function appendBetLog(entry) {
     try {
+      const context = await getTrackedTableForThisTab();
+      if (context?.tableId) {
+        // Route by the sender's table, never by the popup's selected table.
+        await sendBg({ type: 'TRACKED_TABLE_APPEND_BET_LOG', tableId: context.tableId, entry });
+        return;
+      }
       const { betLogs = [] } = await sget({ betLogs: [] });
       const arr = Array.isArray(betLogs) ? betLogs : [];
       arr.push(entry);

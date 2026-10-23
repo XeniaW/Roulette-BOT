@@ -1,4 +1,5 @@
 import { fmtTime, sget, sset } from './utils.js';
+import { coalescedTask } from '../shared/coalesced-task.js';
 import { betTbody, betCountEl } from './dom.js';
 import {
   TRACKED_TABLE_STATES_KEY,
@@ -145,8 +146,11 @@ async function getFocusedBetLogsSnapshot() {
 export function renderBetAll(logs) {
   if (!betTbody) return;
 
-  betTbody.innerHTML = '';
   const allLogs = Array.isArray(logs) ? logs : [];
+  const signature = JSON.stringify([allLogs.length, allLogs.slice(-MAX_RENDERED_BET_LOGS)]);
+  if (betTbody._logSignature === signature) return;
+  betTbody._logSignature = signature;
+  betTbody.innerHTML = '';
   allLogs.slice(-MAX_RENDERED_BET_LOGS).forEach((e) =>
     betTbody.appendChild(renderBetRow(e)),
   );
@@ -161,6 +165,7 @@ export function renderBetAll(logs) {
 
 export function appendBetNew(added) {
   if (!betTbody) return;
+  betTbody._logSignature = null;
 
   (Array.isArray(added) ? added : []).forEach((e) =>
     betTbody.appendChild(renderBetRow(e)),
@@ -183,6 +188,10 @@ export function appendBetNew(added) {
 function bindBetLogsLive(cb) {
   if (_betLogsBooted) return;
   _betLogsBooted = true;
+  const schedule = coalescedTask(async () => {
+    const { logs } = await getFocusedBetLogsSnapshot();
+    cb(Array.isArray(logs) ? logs : []);
+  });
 
   chrome.storage.onChanged.addListener(async (ch, area) => {
     if (area !== 'local') return;
@@ -193,8 +202,7 @@ function bindBetLogsLive(cb) {
       ch[SELECTED_TRACKED_TABLE_KEY] ||
       ch.betLogs
     ) {
-      const { logs } = await getFocusedBetLogsSnapshot();
-      cb(Array.isArray(logs) ? logs : []);
+      schedule();
     }
   });
 }

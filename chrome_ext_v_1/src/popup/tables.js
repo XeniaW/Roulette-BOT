@@ -1,4 +1,5 @@
 import { sget, sset } from './utils.js';
+import { coalescedTask } from '../shared/coalesced-task.js';
 import {
   TRACKED_TABLES_KEY,
   TRACKED_TABLE_STATES_KEY,
@@ -25,6 +26,7 @@ const TRACKED_TABLE_BET_LOGS_KEY = 'trackedTableBetLogsByTable';
 
 let booted = false;
 let renderTimer = null;
+const scheduleStatePatch = coalescedTask(patchTrackedTableStates, 100, () => scheduleRender());
 
 let uiState = {
   topOpen: new Set(),
@@ -793,8 +795,20 @@ async function patchTrackedTableStates() {
     if (betSummaryEl) {
       betSummaryEl.textContent = `Bet Logs (${betLogs.length})`;
     }
-    if (spinTbody) spinTbody.innerHTML = renderSpinRows(spinLogs);
-    if (betTbody) betTbody.innerHTML = renderBetRows(betLogs);
+    if (spinTbody) {
+      const signature = JSON.stringify(spinLogs.slice(-50));
+      if (spinTbody._logSignature !== signature) {
+        spinTbody.innerHTML = renderSpinRows(spinLogs);
+        spinTbody._logSignature = signature;
+      }
+    }
+    if (betTbody) {
+      const signature = JSON.stringify(betLogs.slice(-50));
+      if (betTbody._logSignature !== signature) {
+        betTbody.innerHTML = renderBetRows(betLogs);
+        betTbody._logSignature = signature;
+      }
+    }
 
     if (spinShell) spinShell.scrollTop = spinTop;
     if (betShell) betShell.scrollTop = betTop;
@@ -1418,9 +1432,7 @@ export async function loadTrackedTablesUI() {
         changes[TRACKED_TABLE_STATES_KEY] ||
         changes[TRACKED_TABLE_BET_LOGS_KEY]
       ) {
-        patchTrackedTableStates().catch(() => {
-          scheduleRender();
-        });
+        scheduleStatePatch();
       }
     });
   }

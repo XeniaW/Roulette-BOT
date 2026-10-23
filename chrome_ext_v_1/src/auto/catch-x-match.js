@@ -20,8 +20,6 @@ import { catchOptions, chooseCandidate, numberItems } from '../shared/catch-opti
   const STATUS_KEY = 'bettingStatusCatchXMatch';
   const EXECS_KEY = 'betExecCatchXMatchByTable';
   const TRACKED_TABLE_STATES_KEY = 'trackedTableStates';
-  const TRACKED_TABLE_BET_LOGS_KEY = 'trackedTableBetLogsByTable';
-  const MAX_BET_LOGS = 5000;
   const PLACE_MAX_WAIT_MS = 20000;
   const STRATEGY_VERSION = 1;
 
@@ -410,59 +408,10 @@ import { catchOptions, chooseCandidate, numberItems } from '../shared/catch-opti
 
   async function appendTrackedBetLog(tableId, entry) {
     if (!tableId) return;
-
-    const {
-      [TRACKED_TABLE_STATES_KEY]: states = {},
-      [TRACKED_TABLE_BET_LOGS_KEY]: tableLogMap = {},
-    } = await BET.sget({
-      [TRACKED_TABLE_STATES_KEY]: {},
-      [TRACKED_TABLE_BET_LOGS_KEY]: {},
+    const response = await chrome.runtime.sendMessage({
+      type: 'CATCH_TABLE_APPEND_BET_LOG', tableId, entry,
     });
-
-    const nextStates = states && typeof states === 'object' ? { ...states } : {};
-    const nextTableLogMap =
-      tableLogMap && typeof tableLogMap === 'object' && !Array.isArray(tableLogMap)
-        ? { ...tableLogMap }
-        : {};
-    const prevState =
-      nextStates[tableId] && typeof nextStates[tableId] === 'object'
-        ? { ...nextStates[tableId] }
-        : {};
-
-    const betLogs = Array.isArray(prevState.betLogs) ? prevState.betLogs.slice() : [];
-    betLogs.push(entry);
-    if (betLogs.length > MAX_BET_LOGS) {
-      betLogs.splice(0, betLogs.length - MAX_BET_LOGS);
-    }
-
-    prevState.betLogs = betLogs;
-    nextStates[tableId] = prevState;
-
-    const tableLogs = Array.isArray(nextTableLogMap[tableId])
-      ? nextTableLogMap[tableId].slice()
-      : [];
-    tableLogs.push(entry);
-    if (tableLogs.length > MAX_BET_LOGS) {
-      tableLogs.splice(0, tableLogs.length - MAX_BET_LOGS);
-    }
-    nextTableLogMap[tableId] = tableLogs;
-
-    await BET.sset({
-      [TRACKED_TABLE_STATES_KEY]: nextStates,
-      [TRACKED_TABLE_BET_LOGS_KEY]: nextTableLogMap,
-    });
-  }
-
-  async function getCurrentBalanceValue() {
-    try {
-      const { currentBalance = null } = await BET.sget({
-        currentBalance: null,
-      });
-      const value = Number(currentBalance?.value);
-      return Number.isFinite(value) ? roundMoney(value) : null;
-    } catch {
-      return null;
-    }
+    if (!response?.ok) throw new Error('Catch X Match: table log write rejected');
   }
 
   async function placeStep(targets, step, steps, mutex) {
@@ -532,17 +481,16 @@ import { catchOptions, chooseCandidate, numberItems } from '../shared/catch-opti
     }
 
     async setExec(tableId, next, statusMsg = null) {
-      const { [EXECS_KEY]: raw = {} } = await BET.sget({
-        [EXECS_KEY]: {},
+      const exec = normalizeExec(next, next?.enabled !== false);
+      const response = await chrome.runtime.sendMessage({
+        type: 'CATCH_TABLE_SET_EXEC', tableId, exec,
       });
-      const map = raw && typeof raw === 'object' ? { ...raw } : {};
-      map[tableId] = normalizeExec(next, next?.enabled !== false);
-      await BET.sset({ [EXECS_KEY]: map });
+      if (!response?.ok) throw new Error('Catch X Match: table state write rejected');
 
       if (statusMsg) {
         BET.setBetStatus(
           STATUS_KEY,
-          map[tableId].enabled ? map[tableId].phase || 'idle' : 'off',
+          exec.enabled ? exec.phase || 'idle' : 'off',
           statusMsg,
         );
       }
@@ -553,7 +501,6 @@ import { catchOptions, chooseCandidate, numberItems } from '../shared/catch-opti
     }
 
     async logEvent(tableId, message, exec, extra = {}) {
-      const balance = await getCurrentBalanceValue();
       await appendTrackedBetLog(tableId, {
         t: Date.now(),
         type: 'event',
@@ -566,13 +513,12 @@ import { catchOptions, chooseCandidate, numberItems } from '../shared/catch-opti
         match: normalizeTargets(exec?.match).map(labelTarget),
         blocked: normalizeTargets(exec?.blocked).map(labelTarget),
         window: Array.isArray(exec?.lastWindow) ? exec.lastWindow.slice() : [],
-        balance,
+        balance: null,
         ...extra,
       });
     }
 
     async logPlaced(tableId, targets, amount, perTarget, message, exec) {
-      const balance = await getCurrentBalanceValue();
       await appendTrackedBetLog(tableId, {
         t: Date.now(),
         type: 'placed',
@@ -583,7 +529,7 @@ import { catchOptions, chooseCandidate, numberItems } from '../shared/catch-opti
         perTarget: roundMoney(perTarget),
         step: exec?.step ?? null,
         debt: roundMoney(exec?.debt || 0),
-        balance,
+        balance: null,
         targets: normalizeTargets(targets).map(labelTarget),
         match: normalizeTargets(exec?.match).map(labelTarget),
         window: Array.isArray(exec?.lastWindow) ? exec.lastWindow.slice() : [],
@@ -618,6 +564,9 @@ import { catchOptions, chooseCandidate, numberItems } from '../shared/catch-opti
       prefix,
       opts = {},
     ) {
+      if (await getTrackedTableIdForThisTab() !== tableId) {
+        return { ok: false, staleTable: true, exec };
+      }
       const cleanTargets = normalizeTargets(targets);
       const cleanMatches = normalizeTargets(matches);
       if (cleanTargets.length !== 1) {
@@ -811,7 +760,7 @@ import { catchOptions, chooseCandidate, numberItems } from '../shared/catch-opti
           const progress = logs.slice(0, firstNewSpin);
           for (const entry of logs.slice(firstNewSpin)) {
             progress.push(entry);
-            await this.onSpin(entry?.n, progress);
+            await this.onSpin(entry?.n, progress, tableId);
           }
           return;
         }
@@ -1039,11 +988,11 @@ import { catchOptions, chooseCandidate, numberItems } from '../shared/catch-opti
       return next;
     }
 
-    async onSpin(n, spinLogsOverride = null) {
-      return this.spinMutex.run(() => this.processSpin(n, spinLogsOverride));
+    async onSpin(n, spinLogsOverride = null, sourceTableId = null) {
+      return this.spinMutex.run(() => this.processSpin(n, spinLogsOverride, sourceTableId));
     }
 
-    async processSpin(n, spinLogsOverride = null) {
+    async processSpin(n, spinLogsOverride = null, sourceTableId = null) {
       if (!this.canActInThisFrame()) return;
 
       const spin = getNumber(n);
@@ -1054,6 +1003,8 @@ import { catchOptions, chooseCandidate, numberItems } from '../shared/catch-opti
         : await getTrackedSpinLogsForThisTab();
       const { tableId } = tableBag;
       if (!tableId) return;
+      // A queued event belongs to its original table, even after navigation.
+      if (sourceTableId && sourceTableId !== tableId) return;
 
       let spinLogs = Array.isArray(tableBag.spinLogs) ? tableBag.spinLogs.slice() : [];
       if (
@@ -1149,13 +1100,23 @@ import { catchOptions, chooseCandidate, numberItems } from '../shared/catch-opti
         }
 
         if (ch[TRACKED_TABLE_STATES_KEY]) {
+          const change = ch[TRACKED_TABLE_STATES_KEY];
+          const oldStates = change.oldValue || {};
+          const newStates = change.newValue || {};
+          const changedIds = Object.keys(newStates).filter(id => {
+            const oldLogs = oldStates[id]?.spinLogs || [];
+            const newLogs = newStates[id]?.spinLogs || [];
+            const oldLast = oldLogs[oldLogs.length - 1];
+            const newLast = newLogs[newLogs.length - 1];
+            return oldLogs.length !== newLogs.length || oldLast?.t !== newLast?.t || oldLast?.n !== newLast?.n;
+          });
+          // Log/balance-only changes cannot produce a spin; avoid a background
+          // round-trip in every frame for every metadata update.
+          if (!changedIds.length) return;
           if (!this.canActInThisFrame()) return;
 
           const tableId = await getTrackedTableIdForThisTab();
-          if (!tableId) return;
-
-          const oldStates = ch[TRACKED_TABLE_STATES_KEY].oldValue || {};
-          const newStates = ch[TRACKED_TABLE_STATES_KEY].newValue || {};
+          if (!tableId || !changedIds.includes(tableId)) return;
 
           const oldLogs = Array.isArray(oldStates?.[tableId]?.spinLogs)
             ? oldStates[tableId].spinLogs
@@ -1164,12 +1125,18 @@ import { catchOptions, chooseCandidate, numberItems } from '../shared/catch-opti
             ? newStates[tableId].spinLogs
             : [];
 
-          if (newLogs.length > oldLogs.length) {
-            const progress = oldLogs.slice();
-            const added = newLogs.slice(oldLogs.length);
+          const oldLast = oldLogs[oldLogs.length - 1];
+          let addedAt = oldLogs.length;
+          if (oldLast && newLogs.length <= oldLogs.length) {
+            const index = newLogs.findLastIndex(e => e.t === oldLast.t && e.n === oldLast.n);
+            addedAt = index < 0 ? newLogs.length : index + 1;
+          }
+          if (addedAt < newLogs.length) {
+            const progress = newLogs.slice(0, addedAt);
+            const added = newLogs.slice(addedAt);
             for (const e of added) {
               progress.push(e);
-              await this.onSpin(e.n, progress);
+              await this.onSpin(e.n, progress, tableId);
             }
           }
         }

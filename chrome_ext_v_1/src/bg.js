@@ -16,14 +16,22 @@
   const TRACKED_TABLE_STATES_KEY = 'trackedTableStates';
   const TRACKED_TABLE_LEASES_KEY = 'trackedTableLeases';
   const SELECTED_TRACKED_TABLE_KEY = 'selectedTrackedTableId';
+  const LEGACY_MIRROR_REVISION_KEY = 'legacyMirrorRevision';
 
   const LEASE_TTL_MS = 15000;
   const MAX_LOGS = 10000;
   const MAX_BET_LOGS = 5000;
 
   let bootPromise = null;
-  let refreshingLegacyMirror = false;
-  let syncingGlobalBetLogsToTracked = false;
+  let trackedWrites = Promise.resolve();
+  let mirrorRevision = 0;
+
+  // Serialize shared-map read/modify/write operations across all tabs.
+  function withTrackedWrite(fn) {
+    const next = trackedWrites.then(fn);
+    trackedWrites = next.catch(() => {});
+    return next;
+  }
 
   async function sget(defaults) {
     try {
@@ -143,10 +151,28 @@
 
   function findLeaseByTabId(leases, tabId) {
     if (tabId == null) return null;
-    for (const [tableId, lease] of Object.entries(leases || {})) {
-      if (lease && lease.tabId === tabId) return { tableId, lease };
+    const hits = Object.entries(leases || {}).filter(([, lease]) => lease?.tabId === tabId);
+    if (hits.length !== 1) return null;
+    const [tableId, lease] = hits[0];
+    return { tableId, lease };
+  }
+
+  function findLeaseForSender(leases, sender) {
+    const tabId = sender?.tab?.id ?? null;
+    const frameId = sender?.frameId ?? 0;
+    if (tabId == null) return null;
+    const exact = Object.entries(leases || {}).filter(([, lease]) =>
+      lease?.tabId === tabId && lease.frameId === frameId);
+    if (exact.length === 1) {
+      const [tableId, lease] = exact[0];
+      return { tableId, lease };
     }
-    return null;
+    if (exact.length > 1) return null;
+    return frameId === 0 ? findLeaseByTabId(leases, tabId) : null;
+  }
+
+  function isBoundSender(leases, tableId, sender) {
+    return findLeaseForSender(leases, sender)?.tableId === tableId;
   }
 
   function isSameSenderTab(lease, sender) {
@@ -320,10 +346,9 @@
       selectedId = tables[0]?.id || '';
     }
 
+    let mirror;
     if (!selectedId || !states[selectedId]) {
-      refreshingLegacyMirror = true;
-      try {
-        await sset({
+        mirror = {
           spinLogs: [],
           betLogs: [],
           streakState: defaultStreak(),
@@ -331,21 +356,13 @@
           trackerStatus: {
             state: 'off',
             message: 'No focused tracked table',
-            at: Date.now(),
+            at: 0,
             origin: '',
           },
-        });
-      } finally {
-        refreshingLegacyMirror = false;
-      }
-      return;
-    }
-
-    const state = ensureTrackedState(states[selectedId]);
-
-    refreshingLegacyMirror = true;
-    try {
-      await sset({
+        };
+    } else {
+      const state = ensureTrackedState(states[selectedId]);
+      mirror = {
         [SELECTED_TRACKED_TABLE_KEY]: selectedId,
         spinLogs: Array.isArray(state.spinLogs) ? state.spinLogs : [],
         betLogs: Array.isArray(state.betLogs) ? state.betLogs : [],
@@ -366,10 +383,16 @@
                 at: Date.now(),
                 origin: '',
               },
-      });
-    } finally {
-      refreshingLegacyMirror = false;
+      };
     }
+    const stored = await sget(Object.fromEntries(Object.keys(mirror).map(key => [key, null])));
+    const patch = Object.fromEntries(Object.entries(mirror).filter(([key, value]) =>
+      JSON.stringify(stored[key]) !== JSON.stringify(value)));
+    if (!Object.keys(patch).length) return;
+    // onChanged can arrive after set() resolves; a local boolean is not a
+    // reliable way to distinguish our mirror from a legacy writer.
+    if ('betLogs' in patch) patch[LEGACY_MIRROR_REVISION_KEY] = `${Date.now()}:${++mirrorRevision}`;
+    await sset(patch);
   }
 
   async function recomputeAntidozensForAllTables() {
@@ -445,7 +468,8 @@
       .replace(/\s+/g, ' ')
       .trim();
 
-    const candidates = [rawMsgTitle, rawTabTitle].filter(Boolean);
+    // Prefer the DOM title, but retain the tab-title fallback used by LiveTables.
+    const candidates = [...new Set([rawMsgTitle, ...(sender?.frameId === 0 ? [rawTabTitle] : [])].filter(Boolean))];
 
     const {
       [TRACKED_TABLES_KEY]: rawTables = [],
@@ -463,17 +487,34 @@
     const states = sanitizeTrackedStates(rawStates);
     const leases = cleanupExpiredLeases(rawLeases);
 
-    const match = tables.find((t) => {
-      if (!t.enabled) return false;
-      return candidates.some((cand) => {
-        const nc = normalizeTitle(cand);
-        return (
-          nc === t.normTitle ||
-          nc.includes(t.normTitle) ||
-          t.normTitle.includes(nc)
-        );
-      });
-    });
+    const enabledTables = tables.filter(t => t.enabled);
+    let match = null;
+    let matchedTitle = '';
+    // Check exact names first. For decorated headers, discard generic names
+    // contained in a more specific match (Roulette vs VIP Roulette).
+    for (const mode of ['exact', 'contains', 'shortened']) {
+      for (const candidate of candidates) {
+        const title = normalizeTitle(candidate);
+        let matches = enabledTables.filter(t => mode === 'exact'
+          ? title === t.normTitle
+          : mode === 'contains' ? title.includes(t.normTitle) : t.normTitle.includes(title));
+        if (mode === 'contains') {
+          matches = matches.filter(t => !matches.some(other =>
+            other.id !== t.id && other.normTitle !== t.normTitle && other.normTitle.includes(t.normTitle)));
+        }
+        if (matches.length === 1) {
+          match = matches[0];
+          matchedTitle = candidate;
+          break;
+        }
+      }
+      if (match) break;
+    }
+
+    // Only a frame changing tables may release its previous lease.
+    for (const [id, lease] of Object.entries(leases)) {
+      if (isSameSenderTab(lease, sender) && lease.frameId === (sender?.frameId ?? 0) && id !== match?.id) delete leases[id];
+    }
 
     if (!match) {
       await sset({ [TRACKED_TABLE_LEASES_KEY]: leases });
@@ -485,24 +526,12 @@
       };
     }
 
-    const matchedTitle =
-      candidates.find((cand) => {
-        const nc = normalizeTitle(cand);
-        return (
-          nc === match.normTitle ||
-          nc.includes(match.normTitle) ||
-          match.normTitle.includes(nc)
-        );
-      }) ||
-      rawMsgTitle ||
-      rawTabTitle ||
-      match.title;
-
     const now = Date.now();
     const currentLease = leases[match.id];
     let role = 'standby';
 
-    if (!currentLease || isSameSenderTab(currentLease, sender)) {
+    if (!currentLease || (isSameSenderTab(currentLease, sender) &&
+        (currentLease.frameId === (sender?.frameId ?? 0) || currentLease.frameId === 0))) {
       role = 'leader';
     } else if (Number(currentLease.expiresAt) < now) {
       role = 'leader';
@@ -518,6 +547,9 @@
         at: now,
         expiresAt: now + LEASE_TTL_MS,
       };
+    } else if (isSameSenderTab(currentLease, sender)) {
+      // A host-page heartbeat must not mark its active game iframe as standby.
+      return { ok: true, matched: true, tableId: match.id, role: 'standby' };
     }
 
     const leader = leases[match.id] || null;
@@ -634,7 +666,7 @@
 
     const leases = cleanupExpiredLeases(rawLeases);
 
-    const hit = findLeaseByTabId(leases, sender?.tab?.id ?? null);
+    const hit = findLeaseForSender(leases, sender);
     if (!hit) {
       return { ok: true, matched: false, role: 'off' };
     }
@@ -723,7 +755,7 @@
     const table = tables.find((t) => t.id === tableId);
 
     const lease = leases[tableId];
-    if (lease && !isSameSenderTab(lease, sender)) {
+    if (!isBoundSender(leases, tableId, sender)) {
       return { ok: false, ignored: true };
     }
 
@@ -779,7 +811,7 @@
     const table = tables.find((t) => t.id === tableId);
 
     const lease = leases[tableId];
-    if (lease && !isSameSenderTab(lease, sender)) {
+    if (!isBoundSender(leases, tableId, sender)) {
       return { ok: false, ignored: true };
     }
 
@@ -789,11 +821,12 @@
       table?.title || '',
     );
 
-    const previousValue = Number(state?.balance?.value);
+    const previousValue = state?.balance?.value;
+    const missingBalances = Number.isFinite(value) && state.betLogs.some(e => e.balance == null);
     if (
       Number.isFinite(value) &&
       Number.isFinite(previousValue) &&
-      previousValue === value
+      previousValue === value && !missingBalances
     ) {
       return { ok: true, unchanged: true };
     }
@@ -803,12 +836,24 @@
       t: Date.now(),
     };
 
+    let logPatch = {};
+    if (missingBalances) {
+      state.betLogs = state.betLogs.map(e => e.balance == null ? { ...e, balance: value } : e);
+      const { trackedTableBetLogsByTable: rawLogs = {} } = await sget({ trackedTableBetLogsByTable: {} });
+      const map = sanitizeTrackedStates(rawLogs);
+      if (Array.isArray(map[tableId]) && map[tableId].some(e => e.balance == null)) {
+        logPatch = { trackedTableBetLogsByTable: { ...map,
+          [tableId]: map[tableId].map(e => e.balance == null ? { ...e, balance: value } : e),
+        } };
+      }
+    }
+
     state.matchedTitle = String(
       msg?.matchedTitle ?? state.matchedTitle ?? '',
     ).trim();
 
     states[tableId] = state;
-    await sset({ [TRACKED_TABLE_STATES_KEY]: states });
+    await sset({ [TRACKED_TABLE_STATES_KEY]: states, ...logPatch });
     await refreshLegacyMirror();
 
     return { ok: true };
@@ -837,7 +882,7 @@
     const table = tables.find((t) => t.id === tableId);
 
     const lease = leases[tableId];
-    if (!lease || !isSameSenderTab(lease, sender)) {
+    if (!isBoundSender(leases, tableId, sender)) {
       return { ok: false, ignored: true };
     }
 
@@ -904,6 +949,34 @@
     return { ok: true };
   }
 
+  async function handleCatchTableWrite(msg, sender) {
+    const tableId = String(msg?.tableId || '').trim();
+    const bag = await sget({
+      [TRACKED_TABLE_LEASES_KEY]: {},
+    });
+    const hit = findLeaseForSender(cleanupExpiredLeases(bag[TRACKED_TABLE_LEASES_KEY]), sender);
+    if (!tableId || hit?.tableId !== tableId) return { ok: false, ignored: true };
+    if (msg.type === 'CATCH_TABLE_SET_EXEC') {
+      const { betExecCatchXMatchByTable: raw = {} } = await sget({ betExecCatchXMatchByTable: {} });
+      const map = sanitizeTrackedStates(raw);
+      await sset({ betExecCatchXMatchByTable: { ...map, [tableId]: msg.exec } });
+    } else {
+      const logsBag = await sget({ [TRACKED_TABLE_STATES_KEY]: {}, trackedTableBetLogsByTable: {} });
+      const states = sanitizeTrackedStates(logsBag[TRACKED_TABLE_STATES_KEY]);
+      const state = ensureTrackedState(states[tableId]);
+      const map = sanitizeTrackedStates(logsBag.trackedTableBetLogsByTable);
+      const entry = { ...msg.entry, tableId,
+        balance: msg.entry?.balance ?? state.balance?.value ?? null };
+      state.betLogs = [...state.betLogs, entry].slice(-MAX_BET_LOGS);
+      const logs = Array.isArray(map[tableId]) ? map[tableId] : [];
+      await sset({
+        [TRACKED_TABLE_STATES_KEY]: { ...states, [tableId]: state },
+        trackedTableBetLogsByTable: { ...map, [tableId]: [...logs, entry].slice(-MAX_BET_LOGS) },
+      });
+    }
+    return { ok: true };
+  }
+
   async function bootstrapBackground() {
     await normalizeStoredTrackedTables();
     await refreshLegacyMirror();
@@ -935,7 +1008,7 @@
         msg?.type === 'TRACKED_TABLE_HEARTBEAT'
       ) {
         bootNow()
-          .then(() => handleTrackedHelloOrHeartbeat(msg, sender))
+          .then(() => withTrackedWrite(() => handleTrackedHelloOrHeartbeat(msg, sender)))
           .then((res) => sendResponse(res))
           .catch((err) =>
             sendResponse({ ok: false, error: String(err) }),
@@ -944,7 +1017,7 @@
       }
 
       if (msg?.type === 'GET_TRACKED_TABLE_FOR_TAB') {
-        handleGetTrackedTableForTab(msg, sender)
+        withTrackedWrite(() => handleGetTrackedTableForTab(msg, sender))
           .then((res) => sendResponse(res))
           .catch((err) =>
             sendResponse({ ok: false, error: String(err) }),
@@ -953,7 +1026,7 @@
       }
 
       if (msg?.type === 'TRACKED_TABLE_RELEASE') {
-        handleTrackedRelease(msg, sender)
+        withTrackedWrite(() => handleTrackedRelease(msg, sender))
           .then((res) => sendResponse(res))
           .catch((err) =>
             sendResponse({ ok: false, error: String(err) }),
@@ -962,7 +1035,7 @@
       }
 
       if (msg?.type === 'TRACKED_TABLE_SET_STATUS') {
-        handleTrackedSetStatus(msg, sender)
+        withTrackedWrite(() => handleTrackedSetStatus(msg, sender))
           .then((res) => sendResponse(res))
           .catch((err) =>
             sendResponse({ ok: false, error: String(err) }),
@@ -971,7 +1044,7 @@
       }
 
       if (msg?.type === 'TRACKED_TABLE_SET_BALANCE') {
-        handleTrackedSetBalance(msg, sender)
+        withTrackedWrite(() => handleTrackedSetBalance(msg, sender))
           .then((res) => sendResponse(res))
           .catch((err) =>
             sendResponse({ ok: false, error: String(err) }),
@@ -980,17 +1053,33 @@
       }
 
       if (msg?.type === 'TRACKED_TABLE_APPEND_SPINS') {
-        handleTrackedAppendSpins(msg, sender)
+        withTrackedWrite(() => handleTrackedAppendSpins(msg, sender))
           .then((res) => sendResponse(res))
           .catch((err) =>
             sendResponse({ ok: false, error: String(err) }),
           );
         return true;
       }
+
+      if (msg?.type === 'CATCH_TABLE_SET_EXEC' || msg?.type === 'CATCH_TABLE_APPEND_BET_LOG' ||
+          msg?.type === 'TRACKED_TABLE_APPEND_BET_LOG') {
+        withTrackedWrite(() => handleCatchTableWrite(msg, sender))
+          .then(sendResponse)
+          .catch(err => sendResponse({ ok: false, error: String(err) }));
+        return true;
+      }
     },
   );
 
-  chrome.storage.onChanged.addListener(async (ch, area) => {
+  chrome.storage.onChanged.addListener((ch, area) => {
+    if (area !== 'local') return;
+    const watched = [TRACKED_TABLES_KEY, TRACKED_TABLE_STATES_KEY, SELECTED_TRACKED_TABLE_KEY,
+      'betLogs', 'abAntiDozensConfig', 'autoBettingDozensEnabled', 'autoBettingRowsEnabled',
+      'autoBettingComboEnabled', 'autoBettingLowHighEnabled', 'autoBettingEvenOddEnabled',
+      'autoBettingColorsEnabled', 'autoBettingAntiDozensEnabled'];
+    if (!watched.some(key => key in ch)) return;
+    const mirroredLogs = LEGACY_MIRROR_REVISION_KEY in ch;
+    return withTrackedWrite(async () => {
     if (area !== 'local') return;
 
     if (
@@ -1001,9 +1090,7 @@
       await refreshLegacyMirror();
     }
 
-    if (refreshingLegacyMirror) return;
-
-    if (ch.betLogs && !syncingGlobalBetLogsToTracked) {
+    if (ch.betLogs && !mirroredLogs) {
       const {
         [SELECTED_TRACKED_TABLE_KEY]: selectedId = '',
         [TRACKED_TABLE_STATES_KEY]: rawStates = {},
@@ -1017,17 +1104,16 @@
         const states = sanitizeTrackedStates(rawStates);
         const state = ensureTrackedState(states[tableId]);
 
-        state.betLogs = Array.isArray(ch.betLogs.newValue)
-          ? ch.betLogs.newValue.slice(-MAX_BET_LOGS)
-          : [];
-
-        states[tableId] = state;
-
-        syncingGlobalBetLogsToTracked = true;
-        try {
+        const incoming = Array.isArray(ch.betLogs.newValue) ? ch.betLogs.newValue : [];
+        const before = Array.isArray(ch.betLogs.oldValue) ? ch.betLogs.oldValue : [];
+        const oldEntries = new Set(before.map(e => JSON.stringify(e)));
+        const existing = new Set(state.betLogs.map(e => JSON.stringify(e)));
+        const added = incoming.filter(e => !oldEntries.has(JSON.stringify(e)) && !existing.has(JSON.stringify(e)));
+        // Import only new events, never replace a live table with an old snapshot.
+        if (added.length || (!incoming.length && state.betLogs.length)) {
+          state.betLogs = incoming.length ? [...state.betLogs, ...added].slice(-MAX_BET_LOGS) : [];
+          states[tableId] = state;
           await sset({ [TRACKED_TABLE_STATES_KEY]: states });
-        } finally {
-          syncingGlobalBetLogsToTracked = false;
         }
       }
     }
@@ -1078,5 +1164,6 @@
       if (from && !to)
         await resetStreakKindForAllTables('antidozens');
     }
+    });
   });
 })();
